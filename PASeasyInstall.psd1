@@ -24,8 +24,8 @@
             Tags         = @('CyberArk', 'PAM', 'Lab', 'Installer', 'PowerShell', 'Vault', 'PVWA', 'CPM', 'PSM', 'PSMP', 'Windows', 'Desktop')
             LicenseUri   = 'https://github.com/bigbatmanorg/PASeasyInstall/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/bigbatmanorg/PASeasyInstall'
-            Prerelease   = 'rc3'
-            ReleaseNotes = '1.0.0-rc3: release candidate (fixes composed Vault media folder selection when sibling media trees exist). Desktop wizard and CLI for Vault (Primary, Primary + DR), PVWA, CPM, PSM, PSMP and an AD lab forest; sequential or parallel installs; health check (Test-PASEnvironmentHealth) and sanitized run export (Export-PASRunData). Lab-focused; production use at your own risk. The module is not Authenticode-signed (see the documentation for the process-scoped execution policy command). PTA is not part of this release.'
+            Prerelease   = 'rc4'
+            ReleaseNotes = '1.0.0-rc4: release candidate. Fixes: composed Vault media folder with sibling media trees; a failed or abandoned deployment launch no longer blocks its environment; clear message when started from a remote PowerShell session.'
         }
     }
 }

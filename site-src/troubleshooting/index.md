@@ -30,6 +30,29 @@ that run's claim files from `C:\ProgramData\PASeasyInstall-Coordination` and, on
 
 **Fix:** put `VC_redist.x86.exe` and `VC_redist.x64.exe` next to the installers, and add the top-level media folder.
 
+## "Several copies of the VC++ runtime were found"
+
+**Cause:** the media folder you added holds more than one `VC_redist.x86.exe` / `VC_redist.x64.exe` (for example a
+copy inside a subfolder). The Vault recipe needs exactly one of each.
+
+**Fix:** keep one copy next to the Vault installers. Separate media folders for different product versions side by
+side are fine: add only the folder of the version you install.
+
+## "Credentials could not be protected with Windows DPAPI in this session"
+
+**Cause:** the deployment was started from a remote PowerShell session (`Enter-PSSession` / `Invoke-Command`). The
+background installer receives credentials encrypted with Windows DPAPI, which is not available in such sessions.
+
+**Fix:** start `Start-PASeasyInstall` or `Invoke-PASeasyInstall` in a local session on the controller (console or
+RDP). A scheduled task that runs as the user with a stored password also works.
+
+## "Environment '…' already has deployment … running"
+
+**Cause:** another deployment of the same environment is in progress on this controller.
+
+**Fix:** wait for it, or follow it with `Get-PASEnvironmentSnapshot`. A record whose controller never started or is no
+longer running is detected automatically and no longer blocks a new start.
+
 ## PVWA: "PASWS383E Vault is currently under maintenance mode"
 
 **Cause:** PVWA started while the Vault was still booting (for example after both were restarted together), and kept
@@ -54,9 +77,11 @@ the DR Vault is stopped.
 
 ## PSMP preflight: "unzip required"
 
-**Cause:** Ubuntu cloud images don't ship `unzip`.
+**Cause:** Ubuntu cloud images don't ship `unzip`. Since 1.0.0-rc3 the preflight installs it from the OS
+repositories itself; this message means the server could not reach its package repositories.
 
-**Fix:** `apt-get install -y unzip` on the PSMP server, then resume the run with `-RetryFailedPreflight`.
+**Fix:** make the OS repositories reachable (or `apt-get install -y unzip` on the PSMP server), then resume the run
+with `-RetryFailedPreflight`.
 
 ## PSMP install: "Options.acceptEula=true required"
 

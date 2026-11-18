@@ -147,7 +147,19 @@ function Start-PASFleet {
     if(-not(Test-Path -LiteralPath $root)){New-Item -ItemType Directory -Path $root -Force|Out-Null}
     foreach($dir in @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue)){
         $f=Read-PASFleetJson (Join-Path $dir.FullName 'fleet.json')
-        if($f -and [string]$f.name -eq [string]$c.name -and [string]$f.status -in @('Launching','Running')){throw "Environment '$($c.name)' already has deployment $($f.id) running"}
+        if($f -and [string]$f.name -eq [string]$c.name -and [string]$f.status -in @('Launching','Running')){
+            # A record whose controller never started, or whose controller process is gone, is not running.
+            # The engine's own host/environment claims still protect the servers of any interrupted unit.
+            $pidAlive=$false
+            if($f.controllerPid){$pidAlive=[bool](Get-Process -Id ([int]$f.controllerPid) -ErrorAction SilentlyContinue)}
+            $started=[DateTime]::MinValue; [void][DateTime]::TryParse([string]$f.startedUtc,[Globalization.CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::AdjustToUniversal,[ref]$started)
+            $stale=(([string]$f.status -eq 'Launching' -and -not $f.controllerPid -and ([DateTime]::UtcNow-$started).TotalMinutes -gt 2) -or ($f.controllerPid -and -not $pidAlive))
+            if(-not $stale){throw "Environment '$($c.name)' already has deployment $($f.id) running"}
+            $h=ConvertTo-PASOrchestratorHashtable $f
+            $h.status=if($f.controllerPid){'Interrupted'}else{'LaunchFailed'}
+            $h.message='No deployment controller is running for this record; resume its units with Resume-PASeasyDeployment if needed'
+            Write-PASFleetJson (Join-Path $dir.FullName 'fleet.json') $h
+        }
     }
     $creds=ConvertTo-PASControllerCredentialMap $c $CredentialMap
     $id=[guid]::NewGuid().ToString('N')
@@ -159,13 +171,24 @@ function Start-PASFleet {
     Write-PASFleetEvent $dir 'DeploymentStarted' ("$($fleet.mode) deployment of $(@($fleet.units).Count) unit(s): "+((@($fleet.units)|ForEach-Object {$_.id}) -join ', '))
     if($Foreground){Invoke-PASFleetController -FleetId $id -DataRoot $DataRoot -InMemoryAuth @{Credentials=$creds;Secrets=$SecretMap};return $id}
     $envelope=Join-Path $dir ('auth-'+[guid]::NewGuid().ToString('N')+'.json')
-    Save-PASFleetEnvelope $envelope $creds $SecretMap
-    $script=Join-Path (Split-Path -Parent $PSScriptRoot) 'Controllers\Invoke-PASFleetController.ps1'
-    $exe=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $args='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$script+'" -FleetId "'+$id+'" -DataRoot "'+$DataRoot+'" -Envelope "'+$envelope+'"'
-    # Same launch style as the engine controller: survives the UI window and SSH sessions.
-    $startup=New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ShowWindow=[uint16]0;CreateFlags=[uint32]16}
-    $spawn=Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=('"'+$exe+'" '+$args);CurrentDirectory=$dir;ProcessStartupInformation=$startup}
+    try{
+        Save-PASFleetEnvelope $envelope $creds $SecretMap
+        $script=Join-Path (Split-Path -Parent $PSScriptRoot) 'Controllers\Invoke-PASFleetController.ps1'
+        $exe=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $args='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$script+'" -FleetId "'+$id+'" -DataRoot "'+$DataRoot+'" -Envelope "'+$envelope+'"'
+        # Same launch style as the engine controller: survives the UI window and SSH sessions.
+        $startup=New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ShowWindow=[uint16]0;CreateFlags=[uint32]16}
+        $spawn=Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=('"'+$exe+'" '+$args);CurrentDirectory=$dir;ProcessStartupInformation=$startup}
+    }catch{
+        if(Test-Path -LiteralPath $envelope){Remove-Item -LiteralPath $envelope -Force -ErrorAction SilentlyContinue}
+        $why=$_.Exception.Message
+        if($_.Exception -is [Security.Cryptography.CryptographicException] -or $why -match 'Access is denied'){
+            $why='Credentials could not be protected with Windows DPAPI in this session. Start the deployment from a local session on the controller (console or RDP), not from a remote PowerShell session.'
+        }
+        $fleet.status='LaunchFailed';$fleet.message="Deployment controller not started: $why"
+        Write-PASFleetJson (Join-Path $dir 'fleet.json') $fleet
+        throw $fleet.message
+    }
     if($spawn.ReturnValue -ne 0 -or -not $spawn.ProcessId){
         if(Test-Path -LiteralPath $envelope){Remove-Item -LiteralPath $envelope -Force}
         $fleet.status='LaunchFailed';$fleet.message="Cannot start deployment controller: Win32_Process.Create=$($spawn.ReturnValue)"
