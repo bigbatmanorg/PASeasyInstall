@@ -5,7 +5,7 @@ templates needs. Each one appears on the Review plan step as `SECURITY DEVIATION
 
 | Override | Lab | Why a lab needs it |
 |---|---|---|
-| `WinRM.SkipCACheck`, `WinRM.SkipCNCheck` | on | Template-built servers carry a self-signed WinRM certificate whose name does not match the clone. |
+| `WinRM.SkipCACheck`, `WinRM.SkipCNCheck` | on | Lab servers usually carry a self-signed WinRM certificate whose name does not match the address you enter. |
 | `Vault.AllowRDP` | on | Lets you RDP to the hardened Vault, from the controller only. |
 | `CPM.AllowPinnedLeafTrust` | on with CPM | CPM trusts the PVWA's self-signed certificate by its exact SHA-256 fingerprint instead of a CA chain. |
 | PVWA `createLabCertificate` | on | PVWA gets a self-signed certificate for its server name. |

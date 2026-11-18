@@ -525,7 +525,17 @@ if [[ $type = PTA ]];then pta_os_preflight || exit 3;fi
 case "$stage" in
   Preflight)
     [[ -f "$media" ]] || { echo "Media missing: $media" >&2; exit 3; }
-    command -v unzip >/dev/null || { echo 'unzip required' >&2; exit 3; }
+    if ! command -v unzip >/dev/null; then
+      # unzip is an installer prerequisite missing from minimal/cloud images: install it from the OS repositories.
+      if command -v apt-get >/dev/null; then
+        DEBIAN_FRONTEND=noninteractive timeout 600 apt-get -q update >/dev/null 2>&1 || true
+        DEBIAN_FRONTEND=noninteractive timeout 600 apt-get -q install -y unzip >/dev/null 2>&1 || true
+      elif command -v dnf >/dev/null; then
+        timeout 600 dnf -q install -y unzip >/dev/null 2>&1 || true
+      fi
+      command -v unzip >/dev/null || { echo 'unzip required and could not be installed from the OS repositories' >&2; exit 3; }
+      echo 'Installed missing prerequisite: unzip'
+    fi
     if [[ $type = PSMP && $ID = ubuntu && ( $VERSION_ID = 22.04 || $VERSION_ID = 24.04 ) ]]; then
       command -v dpkg >/dev/null || exit 3
     elif [[ ( $ID = rhel || $ID = rocky || ( $type = PTA && ( $ID = almalinux || $ID = ol ) ) ) && ( ${VERSION_ID%%.*} = 8 || ${VERSION_ID%%.*} = 9 ) ]]; then

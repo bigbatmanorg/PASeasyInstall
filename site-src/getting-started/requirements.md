@@ -30,8 +30,8 @@ production.
 
 **Each Windows target needs:**
 
-- WinRM over HTTPS (TCP 5986) reachable from the controller, and a local Administrator account. A sysprepped
-  template with WinRM enabled is ideal. See [Preparing target servers](../lab-guide/targets.md).
+- WinRM over HTTPS (TCP 5986) reachable from the controller, and a local Administrator account. See
+  [Server prerequisites](../servers/prerequisites.md).
 - A unique hostname and IP address. Static IP addresses are strongly recommended, because the Vault firewall and
   the components reference addresses.
 

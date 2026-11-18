@@ -5,6 +5,10 @@
 Status of a deployment and its most recent events, read from the controller's journals. This is what the progress view
 on [step 6](../gui/install.md) renders.
 
+!!! note "A run snapshot, not a server snapshot"
+    "Snapshot" here means a point-in-time view of a deployment run's status. PASeasyInstall does not create or manage
+    server or virtual-machine snapshots.
+
 ```powershell
 Get-PASEnvironmentSnapshot -RunId <id> [-Tail <n>]
 ```

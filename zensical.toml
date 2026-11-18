@@ -72,11 +72,10 @@ nav = [
     { "Lab and Secure profiles" = "concepts/profiles.md" },
     { "Coordination and locks" = "concepts/coordination.md" },
   ] },
-  { "Lab guide" = [
-    "lab-guide/index.md",
-    { "Topology and sizing" = "lab-guide/topology.md" },
-    { "Preparing target servers" = "lab-guide/targets.md" },
-    { "Snapshot strategy" = "lab-guide/snapshots.md" },
+  { "Preparing servers" = [
+    "servers/index.md",
+    { "Roles and sizing" = "servers/roles.md" },
+    { "Server prerequisites" = "servers/prerequisites.md" },
   ] },
   { "Troubleshooting" = [
     "troubleshooting/index.md",
@@ -87,10 +86,17 @@ nav = [
 features = ["navigation.instant", "navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.top", "navigation.indexes", "navigation.path", "content.tabs.link",
             "search.suggest", "content.code.copy"]
 
-[project.theme.palette]
+[[project.theme.palette]]
 scheme = "slate"
 primary = "indigo"
 accent = "blue"
+toggle = { icon = "lucide/sun", name = "Switch to light mode" }
+
+[[project.theme.palette]]
+scheme = "default"
+primary = "indigo"
+accent = "blue"
+toggle = { icon = "lucide/moon", name = "Switch to dark mode" }
 
 [project.markdown_extensions.admonition]
 [project.markdown_extensions.pymdownx.details]

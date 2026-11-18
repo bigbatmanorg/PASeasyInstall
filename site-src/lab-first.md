@@ -6,8 +6,8 @@ and a single click.
 
 ## What we promote
 
-- **Labs for learning and certification practice.** Rebuild a full Vault + DR + PVWA + CPM + PSM + PSMP environment
-  from snapshots as often as you like.
+- **Labs for learning and certification practice.** Build a full Vault + DR + PVWA + CPM + PSM + PSMP environment
+  as often as you like, with the same reviewed plan every time.
 - **Demos and proof-of-concepts.** A consistent, documented environment every time.
 - **Testing.** Try upgrades, integrations, connectors, platforms and automation against a lab before touching anything
   that matters.

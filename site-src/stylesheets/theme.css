@@ -16,8 +16,8 @@
   --nhk-h4: #f2c879;
   --nhk-strong: #ffc98a;
   --nhk-em: #a8e6a1;
-  --nhk-code: #ffa3c4;
-  --nhk-code-bg: #262038;
+  --nhk-code: #93d6e0;                       /* inline code: soft cyan-teal, calm on the dark background */
+  --nhk-code-bg: #1b2533;
   --nhk-table-head: #1f2840;
 }
 [data-md-color-scheme="slate"] .md-typeset { color: var(--md-typeset-color); }
@@ -39,7 +39,7 @@
 /* inline code (not code blocks) */
 [data-md-color-scheme="slate"] .md-typeset :not(pre) > code {
   color: var(--nhk-code); background: var(--nhk-code-bg);
-  border: 1px solid rgba(255, 163, 196, 0.18); border-radius: 0.2rem; padding: 0.05em 0.35em;
+  border: 1px solid rgba(147, 214, 224, 0.18); border-radius: 0.2rem; padding: 0.05em 0.35em;
 }
 [data-md-color-scheme="slate"] .md-typeset a > code { color: var(--md-typeset-a-color); }
 /* tables */
@@ -79,3 +79,18 @@
 [data-md-color-scheme="slate"] .md-sidebar--primary .md-nav__link--active {
   color: var(--md-typeset-a-color); font-weight: 600;
 }
+
+/* Inline code never breaks inside a token (e.g. Start-PASeasyInstall); a whole token moves to the next line instead. */
+.md-typeset :not(pre) > code {
+  white-space: nowrap; word-break: normal; overflow-wrap: normal; hyphens: none;
+}
+/* Light scheme: same structure, calm deep-teal inline code with good contrast on white. */
+[data-md-color-scheme="default"] {
+  --nhk-code-light: #0b5f6b;
+  --nhk-code-light-bg: #eaf5f7;
+}
+[data-md-color-scheme="default"] .md-typeset :not(pre) > code {
+  color: var(--nhk-code-light); background: var(--nhk-code-light-bg);
+  border: 1px solid rgba(11, 95, 107, 0.16); border-radius: 0.2rem; padding: 0.05em 0.35em;
+}
+[data-md-color-scheme="default"] .md-typeset a > code { color: var(--md-typeset-a-color); }

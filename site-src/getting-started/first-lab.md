@@ -16,9 +16,8 @@ use your own.
 
 ## 1. Prepare the servers
 
-Clone the servers from a sysprepped Windows Server 2022 template with WinRM over HTTPS enabled, and an Ubuntu 24.04
-cloud image for PSMP. Give each one a unique hostname and a static address, and **take a snapshot of every server
-now**. See [Preparing target servers](../lab-guide/targets.md) and [Snapshot strategy](../lab-guide/snapshots.md).
+Install Windows Server 2022 on the Windows servers with WinRM over HTTPS enabled, and Ubuntu 24.04 on the PSMP
+server. Give each one a unique hostname and a static address. See [Server prerequisites](../servers/prerequisites.md).
 
 On the PSMP server, install `unzip` and allow root password login once (or authorise the controller key yourself):
 
@@ -70,5 +69,3 @@ $h.Components | Format-Table Component,User,Address,LoggedOn,Version
 
 Then sign in to PVWA at `https://PAS-PVWA/PasswordVault` as `Administrator`. In Lab mode the PVWA uses a
 self-signed certificate, so accept it in the browser or import it.
-
-**Snapshot every server again now.** That gives you an instant reset point for experiments.

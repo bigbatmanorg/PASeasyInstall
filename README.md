@@ -96,7 +96,7 @@ Modules/PASeasyInstall.Vault|DR|PVWA|CPM|PSM|PSMP|AD/   component recipes
 Modules/PASeasyInstall.UI/            the desktop (NativeHTMLKit.UI), its backend contract and a Mock backend
 Modules/PASeasyInstall.PTA/           kept for future work; not part of this release
 site-src/, zensical.toml              documentation site (https://bigbatmanorg.github.io/PASeasyInstall/)
-Docs/                                 design notes and screenshots
+Docs/                                 third-party licenses and README screenshots
 Tests/, Tools/                        Pester tests and build/check tools
 ```
 

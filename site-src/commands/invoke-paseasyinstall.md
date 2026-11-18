@@ -16,7 +16,7 @@ Invoke-PASeasyInstall -Resume <runId> [-RetryFailedPreflight] [-CredentialMap â€
 | `-CredentialMap` | `@{ <server id> = PSCredential }`. Servers that are missing are prompted for. |
 | `-SecretMap` | `@{ VaultAdmin / VaultMaster / DRPassword / ADSafeMode / DomainJoinPassword = SecureString }` |
 | `-LabPassword` | One password for every server and secret. Lab profile only. |
-| `-Wait` | Stream progress events until the deployment ends, then return the final snapshot. |
+| `-Wait` | Stream progress events until the deployment ends, then return the final run status (the same object as `Get-PASEnvironmentSnapshot`). |
 | `-Resume` | Resume a failed or interrupted engine run by its run ID. For a composed deployment, pass the run ID of the failed unit (shown by `Get-PASEnvironmentSnapshot`). |
 | `-RetryFailedPreflight` | With `-Resume`: run a failed read-only preflight again, for example after installing a missing OS package. |
 
@@ -30,7 +30,7 @@ Passwords stay in memory and never reach the project file, logs or command lines
 # What would happen
 Invoke-PASeasyInstall -Config C:\Labs\Lab01.json -PlanOnly
 
-# Rebuild Lab01 after rolling the servers back to their snapshots, one lab password, follow progress
+# Install Lab01 from its saved project with one lab password, and follow progress
 Invoke-PASeasyInstall -Config C:\Labs\Lab01.json -LabPassword (Read-Host -AsSecureString 'Lab password') -Wait
 
 # Start and follow separately
