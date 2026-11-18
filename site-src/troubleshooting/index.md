@@ -85,6 +85,20 @@ repositories itself; this message means the server could not reach its package r
 **Fix:** make the OS repositories reachable (or `apt-get install -y unzip` on the PSMP server), then resume the run
 with `-RetryFailedPreflight`.
 
+## PSMP register: "User [PSMPApp_<host>] already exists in the Vault"
+
+**Cause:** the server was rebuilt and PSMP installed again; its PSMP users from the first installation are still in
+the Vault. Versions before 1.0.0-rc12 did not let the vendor setup recreate their credential files.
+
+**Fix:** use 1.0.0-rc12 or later, reset the PSMP server, and start the deployment again.
+
+## Recordings not visible: "PSMRecordings" not found
+
+**Cause:** the recordings safe is visible only to Vault **Auditors** members, and it exists only after the first
+recorded session.
+
+**Fix:** sign in as the built-in `Auditor` user, or add your reviewer to the Auditors group.
+
 ## PSMP install: "Options.acceptEula=true required"
 
 **Cause:** the CyberArk EULA for PSMP was not accepted.

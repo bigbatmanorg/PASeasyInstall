@@ -15,5 +15,18 @@ Installs **PSM for SSH** on Linux: Ubuntu 22.04/24.04 or RHEL/Rocky 8/9. The lab
 
 Connect through PSMP with the standard syntax: `ssh <vault-user>@<target-account>@<target-address>@<psmp-address>`.
 
+Depending on the platform's policy, PSMP asks for a reason for the connection before it opens the session.
+
+!!! note "Session recordings"
+    The Vault creates the `PSMRecordings` safe when the first session is recorded, not during installation.
+    Only members of the Vault **Auditors** group can see it, so the built-in `Administrator` gets "not found" from
+    the recordings pages and API. Review recordings as the built-in `Auditor` user, or add your reviewer to Auditors.
+
 !!! note "Ubuntu cloud images"
-    Install `unzip` first (`apt-get install -y unzip`). Preflight stops with `unzip required` otherwise.
+    Preflight installs `unzip` from the OS repositories when it is missing. Package installs never upgrade
+    packages that are already installed, and Ubuntu's `needrestart` is told not to restart PASeasyInstall's
+    stages; OS updates stay your decision.
+
+!!! note "Rebuilt PSMP server"
+    Installing PSMP again on a rebuilt server with the same name re-registers it: the vendor setup recreates the
+    credential files of that server's existing Vault users.

@@ -17,3 +17,7 @@ writing a plaintext autologon password.
 
 PSM restricts untrusted creation at the Windows Temp root to protect its TLS backup, and existing child
 permissions are preserved. The [Review plan](../gui/review.md) step shows this as a warning.
+
+!!! note "Session recordings"
+    The Vault creates the `PSMRecordings` safe at the first recorded session. Only Vault **Auditors** members see it:
+    review recordings as the built-in `Auditor` user, or add your reviewer to Auditors.
