@@ -585,7 +585,10 @@ case "$stage" in
       else
         command -v dnf >/dev/null || exit 4
         install_missing_rpms policycoreutils-python-utils gnupg2 openssh-clients openssh-server acl
+        # The PSMP package ships CyberArk's public RPM key. Unless the operator pins another one, accept only the
+        # reviewed CyberArk Software Ltd. signing key (same key in the 15.x RHEL 8 and RHEL 9 packages).
         key="$root/payload/RPM-GPG-KEY-CyberArk"; fingerprint=$(options signingKeyFingerprint)
+        [[ -n $fingerprint ]] || fingerprint=97A2859B95D5F078AFC87C64A83D2D8A08BEAA44
         [[ -f $key && $fingerprint =~ ^[A-Fa-f0-9]{40}$ ]] || { echo 'Reviewed PSMP RPM signingKeyFingerprint required' >&2; exit 4; }
         observed=$(gpg --batch --with-colons --show-keys "$key" 2>/dev/null | awk -F: '$1=="fpr" {print $10;exit}')
         [[ ${observed^^} = ${fingerprint^^} ]] || { echo 'PSMP signing key fingerprint mismatch' >&2; exit 4; }

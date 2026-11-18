@@ -24,3 +24,11 @@ Describe 'PSMP reinstall into an existing Vault' {
         foreach ($p in $parms) { $p | Should -Match 'UpdateCredFile=Yes'; $p | Should -Match 'ADBridgeUpdateCredFile=Yes' }
     }
 }
+
+Describe 'PSMP on RHEL-family servers' {
+    It 'verifies the RPM against the reviewed CyberArk signing key when no fingerprint is configured' {
+        $script:task | Should -Match '\[\[ -n \$fingerprint \]\] \|\| fingerprint=97A2859B95D5F078AFC87C64A83D2D8A08BEAA44'
+        $script:task | Should -Match 'rpm --checksig'
+        $script:task | Should -Match "PSMP signing key fingerprint mismatch"
+    }
+}
