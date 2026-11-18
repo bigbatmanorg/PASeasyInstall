@@ -16,3 +16,11 @@ Describe 'Linux recipe package installs' {
         $first | Should -BeLessThan $apt
     }
 }
+
+Describe 'PSMP reinstall into an existing Vault' {
+    It 'asks the vendor setup to recreate credential files of PSMP users that already exist' {
+        $parms = @($script:task -split "`n" | Where-Object { $_ -match "printf .*AcceptCyberArkEULA=Yes.*> /var/tmp/psmpparms" })
+        $parms.Count | Should -Be 2
+        foreach ($p in $parms) { $p | Should -Match 'UpdateCredFile=Yes'; $p | Should -Match 'ADBridgeUpdateCredFile=Yes' }
+    }
+}

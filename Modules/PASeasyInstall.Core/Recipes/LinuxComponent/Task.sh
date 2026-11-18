@@ -616,13 +616,15 @@ case "$stage" in
   Install)
     if [[ $type = 'PSMP' ]]; then
       [[ $(options acceptEula) = true ]] || { echo 'Options.acceptEula=true required after reviewing supplied EULA' >&2; exit 5; }
+      # UpdateCredFile/ADBridgeUpdateCredFile=Yes: a rebuilt server re-registers even though its PSMP users already
+      # exist in the Vault (no effect on a first installation).
       [[ ! -e /var/tmp/psmpparms && ! -L /var/tmp/psmpparms ]] || { echo 'Existing psmpparms requires reconciliation' >&2; exit 5; }
       umask 077
       if [[ $ID = ubuntu ]]; then
-        (set -o noclobber; printf 'AcceptCyberArkEULA=Yes\nCreateVaultEnvironment=No\n' > /var/tmp/psmpparms)
+        (set -o noclobber; printf 'AcceptCyberArkEULA=Yes\nCreateVaultEnvironment=No\nUpdateCredFile=Yes\nADBridgeUpdateCredFile=Yes\n' > /var/tmp/psmpparms)
       else
         native_hardening=Yes; [[ $harden != false ]] || native_hardening=No
-        (set -o noclobber; printf '[Main]\nAcceptCyberArkEULA=Yes\nHardening=%s\nHardeningDoDIN=No\n' "$native_hardening" > /var/tmp/psmpparms)
+        (set -o noclobber; printf '[Main]\nAcceptCyberArkEULA=Yes\nHardening=%s\nHardeningDoDIN=No\nUpdateCredFile=Yes\nADBridgeUpdateCredFile=Yes\n' "$native_hardening" > /var/tmp/psmpparms)
       fi
       trap 'rm -f /var/tmp/psmpparms' EXIT
       if [[ $ID = ubuntu ]]; then
