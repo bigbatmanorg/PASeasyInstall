@@ -37,3 +37,31 @@ Describe 'Composed deployment launch' {
         }
     }
 }
+
+Describe 'Composed deployment status after a unit is resumed' {
+    It 'reports Succeeded once every unit run succeeded, even after the controller had given up' {
+        InModuleScope PASeasyInstall.Orchestrator {
+            $id = 'b' * 32; $dir = Get-PASFleetDirectory $id
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            Write-PASFleetJson (Join-Path $dir 'fleet.json') ([ordered]@{ schemaVersion = 1; id = $id; name = 'Resumed'; status = 'Failed'; controllerPid = $null
+                units = @([ordered]@{ id = 'pas-psm'; status = 'Failed'; runId = ('c' * 32); message = 'Interrupted' }) })
+            Mock Get-PASeasyRun { [pscustomobject]@{ status = 'Succeeded' } }
+            Mock Get-PASFleetEvents { @() }
+            $s = Get-PASFleetSnapshot -FleetId $id
+            $s.Status | Should -Be 'Succeeded'
+            $s.Units[0].Status | Should -Be 'Succeeded'
+            (Read-PASFleetJson (Join-Path $dir 'fleet.json')).status | Should -Be 'Succeeded'
+        }
+    }
+    It 'stays Failed while a unit never ran' {
+        InModuleScope PASeasyInstall.Orchestrator {
+            $id = 'd' * 32; $dir = Get-PASFleetDirectory $id
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            Write-PASFleetJson (Join-Path $dir 'fleet.json') ([ordered]@{ schemaVersion = 1; id = $id; name = 'Partial'; status = 'Failed'; controllerPid = $null
+                units = @([ordered]@{ id = 'pas-psm'; status = 'Failed'; runId = ('e' * 32); message = 'x' }, [ordered]@{ id = 'pas-cpm'; status = 'Skipped'; runId = ''; message = 'x' }) })
+            Mock Get-PASeasyRun { [pscustomobject]@{ status = 'Succeeded' } }
+            Mock Get-PASFleetEvents { @() }
+            (Get-PASFleetSnapshot -FleetId $id).Status | Should -Be 'Failed'
+        }
+    }
+}

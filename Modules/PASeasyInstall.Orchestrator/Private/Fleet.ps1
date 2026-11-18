@@ -480,8 +480,26 @@ function Get-PASFleetEvents {
 }
 function Get-PASFleetSnapshot {
     param([string]$FleetId,[string]$DataRoot=(Get-PASOrchestratorDataRoot),[int]$Tail=150)
-    $f=Read-PASFleetJson (Join-Path (Get-PASFleetDirectory $FleetId $DataRoot) 'fleet.json')
+    $fleetPath=Join-Path (Get-PASFleetDirectory $FleetId $DataRoot) 'fleet.json'
+    $f=Read-PASFleetJson $fleetPath
     if(-not $f){throw "Deployment run not found: $FleetId"}
+    # A unit whose engine run was resumed to success after the deployment controller gave up is succeeded now.
+    if([string]$f.status -in @('Failed','Interrupted') -and -not ($f.controllerPid -and (Get-Process -Id ([int]$f.controllerPid) -ErrorAction SilentlyContinue))){
+        $h=ConvertTo-PASOrchestratorHashtable $f; $changed=$false
+        foreach($u in @($h.units|Where-Object {$_.status -eq 'Failed' -and $_.runId})){
+            $run=Get-PASeasyRun -RunId ([string]$u.runId) -DataRoot $DataRoot
+            if($run -and [string]$run.status -eq 'Succeeded'){
+                $u.status='Succeeded';$u.message='Installed and verified (after resume)';$changed=$true
+                Write-PASFleetEvent (Split-Path -Parent $fleetPath) 'UnitReconciled' "Unit $($u.id) succeeded after its run was resumed (run $($u.runId))" ([string]$u.id)
+            }
+        }
+        if($changed){
+            if(@($h.units|Where-Object {$_.status -ne 'Succeeded'}).Count -eq 0){$h.status='Succeeded';$h.message='All selected component workflows completed (after resume)'}
+            else{$h.message='Failed: '+((@($h.units|Where-Object {$_.status -ne 'Succeeded'})|ForEach-Object {$_.id+' '+$_.status}) -join '; ')}
+            Write-PASFleetJson $fleetPath $h
+            $f=Read-PASFleetJson $fleetPath
+        }
+    }
     $events=@(Get-PASFleetEvents -FleetId $FleetId -DataRoot $DataRoot -Tail $Tail)
     $latest=@($events|Where-Object {$_.Stage}|Select-Object -Last 1)
     $status=[string]$f.status; if($status -eq 'Launching'){$status='Running'}
