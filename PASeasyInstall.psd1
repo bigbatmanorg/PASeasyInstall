@@ -24,8 +24,8 @@
             Tags         = @('CyberArk', 'PAM', 'Lab', 'Installer', 'PowerShell', 'Vault', 'PVWA', 'CPM', 'PSM', 'PSMP', 'Windows', 'Desktop')
             LicenseUri   = 'https://github.com/bigbatmanorg/PASeasyInstall/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/bigbatmanorg/PASeasyInstall'
-            Prerelease   = 'rc1'
-            ReleaseNotes = '1.0.0-rc1: first public release candidate. Desktop wizard and CLI for Vault (Primary, Primary + DR), PVWA, CPM, PSM, PSMP and an AD lab forest; sequential or parallel installs; health check (Test-PASEnvironmentHealth) and sanitized run export (Export-PASRunData). Lab-focused; production use at your own risk. The module is not Authenticode-signed (see the documentation for the process-scoped execution policy command). PTA is not part of this release.'
+            Prerelease   = 'rc2'
+            ReleaseNotes = '1.0.0-rc2: first public release candidate. Desktop wizard and CLI for Vault (Primary, Primary + DR), PVWA, CPM, PSM, PSMP and an AD lab forest; sequential or parallel installs; health check (Test-PASEnvironmentHealth) and sanitized run export (Export-PASRunData). Lab-focused; production use at your own risk. The module is not Authenticode-signed (see the documentation for the process-scoped execution policy command). PTA is not part of this release.'
         }
     }
 }

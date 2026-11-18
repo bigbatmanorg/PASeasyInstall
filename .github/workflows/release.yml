@@ -104,6 +104,11 @@ jobs:
           PSGALLERY_API_KEY: ${{ secrets.POWERSHELL_GALLERY_API_KEY }}
         run: |
           if (-not $env:PSGALLERY_API_KEY) { throw 'Secret POWERSHELL_GALLERY_API_KEY is not set in environment powershellgallery' }
-          Set-PSResourceRepository -Name PSGallery -Trusted
+          # A fresh runner has no PSResourceGet repository store yet: register PSGallery when it is missing.
+          if (Get-PSResourceRepository -Name PSGallery -ErrorAction SilentlyContinue) {
+            Set-PSResourceRepository -Name PSGallery -Trusted
+          } else {
+            Register-PSResourceRepository -PSGallery -Trusted
+          }
           Install-PSResource -Name NativeHTMLKit.UI -Repository PSGallery -TrustRepository -Quiet
           Publish-PSResource -Path dist/gallery/PASeasyInstall -Repository PSGallery -ApiKey $env:PSGALLERY_API_KEY -Verbose
