@@ -111,7 +111,9 @@ psmp_ubuntu_effective() {
         grep -Fxq "$setting" <<< "$effective" || return 1
     done
     effective=$(/usr/sbin/sshd -T -C user=PSMConnect,host=localhost,addr=127.0.0.1) || return 1
-    for setting in 'usepam yes' 'kbdinteractiveauthentication yes' 'disableforwarding no' 'allowtcpforwarding yes' 'allowstreamlocalforwarding yes'; do
+    # Our baseline must not take forwarding away from PSMConnect (disableforwarding no). Whether TCP/stream-local
+    # forwarding is allowed is the vendor's choice: 15.0 enables it, 15.2 ships it off until tunnelling is configured.
+    for setting in 'usepam yes' 'kbdinteractiveauthentication yes' 'disableforwarding no'; do
         grep -Fxq "$setting" <<< "$effective" || return 1
     done
     aslr=$(sysctl -n kernel.randomize_va_space) || return 1

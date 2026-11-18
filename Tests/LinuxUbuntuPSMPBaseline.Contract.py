@@ -4,8 +4,8 @@ Run sudo -n python3 Tests/LinuxUbuntuPSMPBaseline.Contract.py. Never changes OS 
 """
 import os, pathlib, subprocess, tempfile
 repo=pathlib.Path(__file__).resolve().parents[1]
-task=(repo/'PASeasyInstall/Recipes/LinuxComponent/Task.sh').read_text()
-verify=(repo/'PASeasyInstall/Recipes/LinuxComponent/Verify.sh').read_text()
+task=(repo/'Modules/PASeasyInstall.Core/Recipes/LinuxComponent/Task.sh').read_text()
+verify=(repo/'Modules/PASeasyInstall.Core/Recipes/LinuxComponent/Verify.sh').read_text()
 def block(s): return s.split('# BEGIN PAEASY_UBUNTU24_PSMP_BASELINE')[1].split('\n',1)[1].split('# END PAEASY_UBUNTU24_PSMP_BASELINE')[0]
 assert block(task)==block(verify), 'independent payload closure differs'
 assert os.geteuid()==0, 'isolated root-owned /run fixture requires sudo'
@@ -67,7 +67,10 @@ with tempfile.TemporaryDirectory(prefix='paeasy-ubuntu-contract-',dir='/run') as
  bash(good+'psmp_ubuntu_effective')
  bash(good+'\nsysctl(){ [[ $* = *randomize* ]] && echo 2 || echo 0;return 7; };psmp_ubuntu_effective',False)
  bash(good.replace("'authenticationmethods publickey'","'authenticationmethods any'")+'psmp_ubuntu_effective',False)
- bash(good.replace("'allowtcpforwarding yes'","'allowtcpforwarding no'")+'psmp_ubuntu_effective',False)
+ # 15.2 ships TCP/stream-local forwarding off for PSMConnect until tunnelling is configured: that is the vendor's choice.
+ bash(good.replace("'allowtcpforwarding yes'","'allowtcpforwarding no'").replace("'allowstreamlocalforwarding yes'","'allowstreamlocalforwarding no'")+'psmp_ubuntu_effective')
+ # ...but our baseline must never disable forwarding for PSMConnect altogether.
+ bash(good.replace("'usepam yes' 'kbdinteractiveauthentication yes' 'disableforwarding no'","'usepam yes' 'kbdinteractiveauthentication yes' 'disableforwarding yes'")+'psmp_ubuntu_effective',False)
  bash(good.replace('echo 2','echo 1')+'psmp_ubuntu_effective',False)
  bash(good+'\n/usr/sbin/sshd(){ return 1; };psmp_ubuntu_effective',False)
  assert 'psmp_ubuntu_baseline_valid' in verify.split('  Harden)',1)[1].split('  Register)',1)[0];count+=1
