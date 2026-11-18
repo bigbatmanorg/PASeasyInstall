@@ -375,7 +375,12 @@ function Start-PASUIInstall {
 }
 function Update-PASUIDashboard {
     if(-not $work.RunId){return}
-    $snap=Get-PASEnvironmentSnapshot -RunId $work.RunId -Tail 200
+    # First refresh of a run reads its whole history; later refreshes read only the newest events and merge them,
+    # so completed stages stay completed however long the run gets.
+    if(-not $work.EventHistory -or $work.EventHistoryRun -ne $work.RunId){$work.EventHistory=@{};$work.EventHistoryRun=$work.RunId;$tail=5000}else{$tail=300}
+    $snap=Get-PASEnvironmentSnapshot -RunId $work.RunId -Tail $tail
+    $all=Merge-PASUIEventHistory -History $work.EventHistory -Events @($snap.Events)
+    $snap=[pscustomobject]@{RunId=$snap.RunId;Status=$snap.Status;CurrentComponent=$snap.CurrentComponent;LastStep=$snap.LastStep;ErrorEvents=$snap.ErrorEvents;Events=$all}
     Set-PASUIHtml $script:pasTimeline (ConvertTo-PASUIDashboardHtml -Snapshot $snap -PlanItems @($work.Plan.Items) -Catalog $work.Catalog)
     if([string]$snap.Status -ne 'Running' -and $state.Busy.Value){
         $state.Busy.Set($false)

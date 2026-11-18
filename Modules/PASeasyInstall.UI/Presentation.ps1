@@ -92,6 +92,30 @@ function ConvertTo-PASUIReadinessHtml {
     return ($h.Append('</div>').ToString())
 }
 
+function Merge-PASUIEventHistory {
+    <#
+      Keeps every event of a run across refreshes. The dashboard polls only the newest events, so a stage's
+      "Complete" event must not be forgotten when it falls out of that window (long or parallel runs).
+      $History: a hashtable owned by the caller (@{} for a new run). Returns all events, oldest first.
+    #>
+    param([Parameter(Mandatory)][hashtable]$History, [object[]]$Events = @())
+    if (-not $History.ContainsKey('Keys')) { $History.Keys = @{}; $History.List = New-Object System.Collections.ArrayList }
+    $added = $false
+    foreach ($e in @($Events | Where-Object { $_ })) {
+        $k = '{0}|{1}|{2}|{3}|{4}|{5}' -f $e.TimestampUtc, $e.Component, $e.Stage, $e.Event, $e.Status, $e.Message
+        if ($History.Keys.ContainsKey($k)) { continue }
+        $History.Keys[$k] = $true; [void]$History.List.Add($e); $added = $true
+    }
+    if ($added) {
+        # Stable ordering by time (Windows PowerShell 5.1 has no Sort-Object -Stable): arrival index breaks ties.
+        $i = 0
+        $sorted = @($History.List | ForEach-Object { [pscustomobject]@{ T = [string]$_.TimestampUtc; I = $i; E = $_ }; $i++ } |
+            Sort-Object -Property T, I | ForEach-Object { $_.E })
+        $History.List = New-Object System.Collections.ArrayList; foreach ($e in $sorted) { [void]$History.List.Add($e) }
+    }
+    return @($History.List)
+}
+
 function ConvertTo-PASUIDashboardHtml {
     <#
       $Snapshot : Get-PASEnvironmentSnapshot result (or $null before launch)
