@@ -1,3 +1,5 @@
+$script:PSCheckAttempts=3
+$script:PSCheckRetryDelaySeconds=15
 function Select-PSDeclaredInputs {
     # Checks receive the step's inputs, restricted to the parameters the check script declares, so a
     # verifier does not have to accept (or ever see) secrets it does not use.
@@ -19,8 +21,17 @@ function Get-PSCheck {
     if($Scope -eq 'Controller'){$checkTarget=@{Protocol='Local';Runtime='PowerShell'}}
     $path=Assert-PSProjectPath $Plan.Root $Script
     $Inputs=Select-PSDeclaredInputs $path $Inputs
-    try { $check=Invoke-PSAdapterScript -Target $checkTarget -Credentials $Credentials -ScriptPath $path -Parameters $Inputs -Contract 'Object' -TimeoutSeconds $TimeoutSeconds }
-    catch { throw "PAExecUnknown: check '$Script' could not be evaluated: $($_.Exception.Message)" }
+    # Checks are read-only, so a transient observation failure (e.g. sshd reloading its configuration right after a
+    # hardening stage) is retried a bounded number of times before the result becomes Unknown.
+    $check=$null
+    for($try=1;;$try++){
+        try { $check=Invoke-PSAdapterScript -Target $checkTarget -Credentials $Credentials -ScriptPath $path -Parameters $Inputs -Contract 'Object' -TimeoutSeconds $TimeoutSeconds; break }
+        catch {
+            $message=$_.Exception.Message
+            if($try -lt $script:PSCheckAttempts -and $message -match 'observation timed out|Connection (reset|closed|refused|timed out)|kex_exchange_identification'){ Start-Sleep -Seconds $script:PSCheckRetryDelaySeconds; continue }
+            throw "PAExecUnknown: check '$Script' could not be evaluated: $message"
+        }
+    }
     if(-not $check.Ok){throw "PAExecUnknown: check '$Script' did not complete: $($check.Error)"}
     $terminal=$check.Terminal
     $passed=Get-PSObjectValue $terminal $Property $null
