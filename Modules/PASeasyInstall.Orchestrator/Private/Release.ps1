@@ -135,7 +135,7 @@ function Test-PASEnvironmentHealth {
     $pin=''
     if($pinFile){$pin=(New-Object Security.Cryptography.X509Certificates.X509Certificate2($pinFile)).Thumbprint;$result.TlsValidation='PinnedCertificate+HostName'}
     else{$result.TlsValidation='SystemTrust+HostName'}
-    $core=Get-Module PASeasyInstall.Core
+    $core=Get-PASOwnCoreModule
     $dataRoot=& $core {Get-PASDataRoot}
     $healthRun=[guid]::NewGuid().ToString('N')
     $gates=New-Object System.Collections.ArrayList

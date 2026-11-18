@@ -68,6 +68,36 @@ function Resolve-PASMediaItemPath {
     }finally{$zip.Dispose()}
     return $target
 }
+function Get-PASOwnCoreModule {
+    # The PASeasyInstall.Core instance that sits next to this Orchestrator (several versions may be loaded).
+    $modules=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $own=@(Get-Module PASeasyInstall.Core|Where-Object {$_.ModuleBase.StartsWith($modules,[StringComparison]::OrdinalIgnoreCase)})
+    if($own.Count){return $own[0]}
+    return (@(Get-Module PASeasyInstall.Core)|Select-Object -First 1)
+}
+function Select-PASVaultMediaRoot {
+    <# The Vault recipe scans one media folder for the packages and the VC++ runtimes. Start at the folder that
+       holds the Vault packages and walk up only while the runtimes are missing; stop at the first folder where
+       Core's own resolver finds them unambiguously, so sibling media trees (other versions) are never scanned. #>
+    param([string]$Start,[string]$Limit,[string]$Mode,[hashtable]$Overrides=@{})
+    if(-not $Start){return $Limit}
+    if(-not $Limit){$Limit=$Start}
+    $core=Get-PASOwnCoreModule
+    if(-not $core){return $Start}
+    $dir=$Start
+    while($dir){
+        $rows=@(& $core {param($p,$m,$o) Find-PASMedia -Path $p -Mode $m -Overrides $o} $dir $Mode $Overrides | Where-Object {$_.Key -in @('VCx86','VCx64')})
+        $ambiguous=@($rows|Where-Object Status -eq 'Ambiguous')
+        if($ambiguous.Count){throw ("Several copies of the VC++ runtime were found under $dir (" + (($ambiguous|ForEach-Object {$_.Candidates})-join ', ') + '). Keep one copy next to the Vault media, or add the media folder itself instead of its parent.')}
+        if(@($rows|Where-Object Status -ne 'Ready').Count -eq 0){return $dir}
+        # Never climb above the common folder of all selected Vault media (the previous behaviour).
+        if($dir.TrimEnd('\','/').Equals($Limit.TrimEnd('\','/'),[StringComparison]::OrdinalIgnoreCase)){break}
+        $parent=[IO.Path]::GetDirectoryName($dir.TrimEnd('\','/'))
+        if(-not $parent -or $parent -eq $dir){break}
+        $dir=$parent
+    }
+    return $Limit
+}
 function Get-PASCommonDirectory {
     param([string[]]$Paths)
     $dirs=@($Paths|Where-Object {$_}|ForEach-Object {
@@ -148,8 +178,9 @@ function New-PASDeploymentConfiguration {
         $anyWindows=$true
         # The media folder is the common folder of the Vault media (it also holds the VC++ runtimes and
         # the Vault Ansible role the backend takes PAKeyGen and response templates from).
-        $vaultItems=@('Vault','PACLI','DR','KeyGen','License','RecoveryKey'|Where-Object {$Media.ContainsKey($_)}|ForEach-Object {Get-PASMediaItemValue $Media[$_] 'Path'})
-        $c.mediaRoot=Get-PASCommonDirectory $vaultItems
+        $vaultItems=@('Vault','PACLI','DR','KeyGen'|Where-Object {$Media.ContainsKey($_)}|ForEach-Object {Get-PASMediaItemValue $Media[$_] 'Path'})
+        $vaultStart=Get-PASCommonDirectory $vaultItems
+        $vaultLimit=Get-PASCommonDirectory @($vaultItems+@('License','RecoveryKey'|Where-Object {$Media.ContainsKey($_)}|ForEach-Object {Get-PASMediaItemValue $Media[$_] 'Path'}))
         foreach($pair in @(@('Vault','ServerZip'),@('PACLI','PACLIZip'),@('DR','DisasterRecoveryZip'))){
             if(-not $Media.ContainsKey($pair[0])){continue}
             if($pair[0] -eq 'DR' -and $VaultMode -ne 'PrimaryDR'){continue}
@@ -158,6 +189,9 @@ function New-PASDeploymentConfiguration {
         }
         if($Media.ContainsKey('License')){$c.media.License=Resolve-PASMediaItemPath $Media.License $DataRoot}
         if($Media.ContainsKey('RecoveryKey')){$c.media.PublicRecoveryKey=Resolve-PASMediaItemPath $Media.RecoveryKey $DataRoot}
+        $mediaMode=if($VaultMode -eq 'PrimaryDR'){'PrimaryAndDR'}else{'Primary'}
+        $known=@{}; foreach($k in @($c.media.Keys)){$known[$k]=[string]$c.media[$k]}
+        $c.mediaRoot=Select-PASVaultMediaRoot -Start $vaultStart -Limit $vaultLimit -Mode $mediaMode -Overrides $known
         if($lab){$overrides['Vault.AllowRDP']=$true}
     }
     $envSafe=Get-PASSafeName $Environment 40
