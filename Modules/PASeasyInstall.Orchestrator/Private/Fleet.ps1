@@ -49,7 +49,7 @@ function ConvertTo-PASOrchestratorHashtable {
 }
 
 function Get-PASFleetUnits {
-    <# Ordered units with dependencies. Plan order: Vault/DR, PVWA, CPM, PSM, PSMP, PTA. #>
+    <# Ordered units with dependencies. Plan order: Vault/DR, PVWA, CPM, PSM, PSMP. Non-PVWA components wait for the first PVWA. #>
     param($Configuration)
     $priority=@{PVWA=30;CPM=40;PSM=50;PSMP=60;PTA=70}
     $comps=@($Configuration.components|Where-Object {$_})
@@ -63,7 +63,10 @@ function Get-PASFleetUnits {
         $deps=@(); if($vault.Count){$deps+='vault'}
         $opts=if($e.Contains('options')){$e.options}else{@{}}
         if($opts -and $opts.Contains('pvwaTrustFrom')){$deps+=[string]$opts.pvwaTrustFrom}
-        if($e.type -eq 'PTA'){$deps+=@($others|Where-Object {$_.type -eq 'PVWA'}|ForEach-Object {[string]$_.id})}
+        # PVWA registration creates the PVWA environment in the Vault (PVWAConfig safe, PVWAGWAccounts group) that
+        # CPM, PSM and PSMP registration need. Every other component waits for the first PVWA of the deployment.
+        $firstPvwa=@($others|Where-Object {$_.type -eq 'PVWA'}|Select-Object -First 1)
+        if($e.type -ne 'PVWA' -and $firstPvwa.Count){$deps+=[string]$firstPvwa[0].id}
         [void]$units.Add([ordered]@{id=[string]$e.id;components=@([string]$e.id);hosts=@([string]$e.host);dependsOn=@($deps|Select-Object -Unique);status='Pending';runId='';message=''})
     }
     return @($units.ToArray())

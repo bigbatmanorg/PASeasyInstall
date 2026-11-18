@@ -540,7 +540,7 @@ $shell=Add-NHKUiRow -UI $ui -Content {
                 Add-PASUISection 'Installation order' 'lavender' {
                     $null=Add-PASUIClass (Add-NHKUiRow -UI $ui -Content {
                         Add-PASUIChoice 'Sequential' 'One server at a time' 'Slower, simplest to follow and troubleshoot. Each server finishes before the next starts.' $state.ExecMode
-                        Add-PASUIChoice 'Parallel' 'Servers in parallel' 'Faster. The Vault installs first, then all component servers at the same time.' $state.ExecMode
+                        Add-PASUIChoice 'Parallel' 'Servers in parallel' 'Faster. The Vault installs first, then PVWA, then the other component servers at the same time.' $state.ExecMode
                     }) 'pas-choices'
                     $null=Add-NHKUiText -UI $ui -Text 'Either way, registering components with the Vault is coordinated by the installer, so registrations never collide.' -Muted
                 }

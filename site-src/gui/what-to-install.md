@@ -29,7 +29,7 @@ up front. The other installers include it in their silent setup.
 | Order | Behaviour |
 |---|---|
 | **One server at a time** | Slower, and simplest to follow and troubleshoot. Each server finishes before the next starts. |
-| **Servers in parallel** | Faster. The Vault (and DR) installs first, then all component servers at the same time. |
+| **Servers in parallel** | Faster. The Vault (and DR) installs first, then PVWA, then the other component servers (CPM, PSM, PSMP) at the same time. PVWA comes first because its registration creates the Vault objects the other components register against. |
 
 Either way, registering components with the Vault is coordinated, so registrations never collide. CPM waits for the
 PVWA whose certificate it trusts.

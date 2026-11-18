@@ -209,7 +209,7 @@ Describe 'Composed deployment runner' {
             foreach($l in $script:launches){ @($l.RunningAtLaunch).Count | Should -Be 0 }
             (Get-PASEnvironmentSnapshot -RunId $id).Status | Should -Be 'Succeeded'
         }
-        It 'Parallel: Vault first, then all servers at once, CPM after its PVWA' {
+        It 'Parallel: Vault first, then PVWA, then the other servers at once' {
             $id=& $script:m {param($c) Start-PASFleet -Configuration $c -Foreground} (Test-PASEnvironment -Configuration (New-LabConfig -Mode Parallel)).Configuration
             $order=@($script:launches|ForEach-Object Unit)
             $order[0] | Should -Be 'dr'
@@ -217,6 +217,10 @@ Describe 'Composed deployment runner' {
             $psmLaunch=@($script:launches|Where-Object Unit -eq 'pas-psmp')[0]
             @($psmLaunch.RunningAtLaunch).Count | Should -BeGreaterThan 0
             [array]::IndexOf($order,'pas-cpm') | Should -BeGreaterThan ([array]::IndexOf($order,'pas-pvwa'))
+            # PVWA registration creates the Vault objects PSM and PSMP registration need: both wait for it.
+            [array]::IndexOf($order,'pas-psm') | Should -BeGreaterThan ([array]::IndexOf($order,'pas-pvwa'))
+            [array]::IndexOf($order,'pas-psmp') | Should -BeGreaterThan ([array]::IndexOf($order,'pas-pvwa'))
+            @(@($script:launches|Where-Object Unit -eq 'pas-psm')[0].RunningAtLaunch) | Should -Not -Contain 'pas-pvwa'
             $snap=Get-PASEnvironmentSnapshot -RunId $id
             $snap.Status | Should -Be 'Succeeded'
             @($snap.Units|Where-Object Status -ne 'Succeeded').Count | Should -Be 0

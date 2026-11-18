@@ -24,8 +24,8 @@
             Tags         = @('CyberArk', 'PAM', 'Lab', 'Installer', 'PowerShell', 'Vault', 'PVWA', 'CPM', 'PSM', 'PSMP', 'Windows', 'Desktop')
             LicenseUri   = 'https://github.com/bigbatmanorg/PASeasyInstall/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/bigbatmanorg/PASeasyInstall'
-            Prerelease   = 'rc4'
-            ReleaseNotes = '1.0.0-rc4: release candidate. Fixes: composed Vault media folder with sibling media trees; a failed or abandoned deployment launch no longer blocks its environment; clear message when started from a remote PowerShell session.'
+            Prerelease   = 'rc5'
+            ReleaseNotes = '1.0.0-rc5: release candidate. Fixes: parallel installs start CPM, PSM and PSMP only after the first PVWA is registered; composed Vault media folder with sibling media trees; a failed or abandoned deployment launch no longer blocks its environment; clear message when started from a remote PowerShell session.'
         }
     }
 }

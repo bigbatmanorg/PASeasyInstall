@@ -21,7 +21,7 @@ New-PASDeploymentConfiguration -Environment <name> -VaultMode Primary|PrimaryDR|
 | `-PrimaryAddress`, `-DRAddress`, `-ExistingVaultAddress` | Vault addresses for the chosen mode. |
 | `-Username`, `-LinuxUsername` | Default accounts (`Administrator`, `root`). `-PrimaryUsername` / `-DRUsername` override them for the Vault servers. |
 | `-Media` | From [`Get-PASMediaSelection`](media.md), or `@{Vault='C:\…\Server-Rls-v15.0.zip'; …}`. |
-| `-ExecutionMode` | `Sequential` (one server at a time) or `Parallel` (the Vault/DR first, then the component servers concurrently). |
+| `-ExecutionMode` | `Sequential` (one server at a time) or `Parallel` (the Vault/DR first, then PVWA, then the other component servers concurrently). |
 | `-SecurityProfile` | `Secure` (default) or `Lab`, which adds the audited lab deviations. See [Lab and Secure profiles](../concepts/profiles.md). |
 | `-AcceptEula` | Required when PSMP is included. |
 
