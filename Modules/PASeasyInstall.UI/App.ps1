@@ -462,7 +462,7 @@ function Add-PASUIPassword {param([string]$Key,[string]$Label,$When)
 $ui=New-NHKUi -Title 'PASeasyInstall' -Width 1220 -Height 880 -Theme $nhkTheme.Theme -Density $nhkTheme.Density -ExtraCss $css
 $backendLabel=if($backendKind -eq 'Mock'){'Mock backend · no servers are contacted'}else{'Live installer · servers are contacted only on Install'}
 $backendClass=if($backendKind -eq 'Mock'){'mock'}else{'live'}
-$null=Add-NHKUiHtml -UI $ui -Markup ('<header class="pas-top"><div class="pas-brand"><span class="pas-logo">PAS</span><div><div class="pas-brand-t">PASeasyInstall</div><div class="pas-brand-s">CyberArk PAM deployment</div></div></div><span class="pas-env '+$backendClass+'">'+(Get-PASUIEscaped $backendLabel)+'</span></header>')
+$null=Add-NHKUiHtml -UI $ui -Markup ('<header class="pas-top"><div class="pas-brand"><span class="pas-logo">PAS</span><div><div class="pas-brand-t">PASeasyInstall</div><div class="pas-brand-s">CyberArk PAM lab builder · for lab use, production use at your own risk</div></div></div><span class="pas-env '+$backendClass+'">'+(Get-PASUIEscaped $backendLabel)+'</span></header>')
 
 $shell=Add-NHKUiRow -UI $ui -Content {
     $side=Add-NHKUiColumn -UI $ui -Content {
@@ -476,7 +476,7 @@ $shell=Add-NHKUiRow -UI $ui -Content {
                     param($e,$n) Invoke-PASUISafe { Set-PASUIStep $n } }) 'pas-step'
             }
         }
-        $null=Add-NHKUiHtml -UI $ui -Markup '<div class="pas-side-foot">Nothing changes on any server until you click <strong>Install</strong> on step 6.</div>'
+        $null=Add-NHKUiHtml -UI $ui -Markup '<div class="pas-side-foot">Nothing changes on any server until you click <strong>Install</strong> on step 6.<br><br>For lab use. Production use is at your own risk.</div>'
     }
     $null=Add-PASUIClass $side 'pas-side'
 
@@ -485,8 +485,9 @@ $shell=Add-NHKUiRow -UI $ui -Content {
         # 1 Project & media
         $null=Add-NHKUiWhen -UI $ui -Bind (New-PASUIEquals $state.Step 1) -Content {
             Add-PASUIPage 'Project & media' 'Name the environment and add the installer files. What you can install is worked out from them.'
+            $null=Add-NHKUiText -UI $ui -Text 'PASeasyInstall builds CyberArk PAM labs. For lab use: production use is at your own risk. Not affiliated with or endorsed by CyberArk.' -Muted
             Add-PASUISection 'Project' 'teal' {
-                $null=Add-NHKUiInput -UI $ui -Bind $state.Name -Label 'Environment name' -Placeholder 'e.g. Production or Lab01'
+                $null=Add-NHKUiInput -UI $ui -Bind $state.Name -Label 'Environment name' -Placeholder 'e.g. Lab01'
                 $null=Add-PASUIClass (Add-NHKUiRow -UI $ui -Content {
                     $null=Add-NHKUiHtml -UI $ui -Markup '<span class="pas-kv-k">Project file</span>'
                     $null=Add-PASUIClass (Add-NHKUiText -UI $ui -Bind $state.ProjectPath) 'pas-path'

@@ -5,7 +5,7 @@
     Author='PASeasyInstall contributors'
     CompanyName='Community'
     Copyright='Copyright (c) 2026 PASeasyInstall contributors'
-    Description='Optional Active Directory deployment and read-only planning without CyberArk Vault installation.'
+    Description='Optional Active Directory deployment and read-only planning without CyberArk Vault installation. Part of PASeasyInstall, intended for building CyberArk PAM labs; production use is at your own risk.'
     PowerShellVersion='5.1'
     CompatiblePSEditions=@('Desktop','Core')
     FunctionsToExport=@(

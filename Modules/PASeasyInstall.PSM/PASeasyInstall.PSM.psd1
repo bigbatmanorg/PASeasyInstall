@@ -5,7 +5,7 @@
     Author='PASeasyInstall contributors'
     CompanyName='Community'
     Copyright='Copyright (c) 2026 PASeasyInstall contributors'
-    Description='Independent PSM component setup for an existing CyberArk Vault using Core; no UI dependency.'
+    Description='Independent PSM component setup for an existing CyberArk Vault using Core; no UI dependency. Part of PASeasyInstall, intended for building CyberArk PAM labs; production use is at your own risk.'
     PowerShellVersion='5.1'
     CompatiblePSEditions=@('Desktop','Core')
     FunctionsToExport=@(

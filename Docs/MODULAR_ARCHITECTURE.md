@@ -1,3 +1,8 @@
+> **Design notes.** This is internal design documentation, kept for contributors; parts of it describe plans
+> and history rather than the current release. For user documentation see
+> <https://bigbatmanorg.github.io/PASeasyInstall/>. PASeasyInstall is intended for building CyberArk PAM
+> **labs**; production use is at your own risk. Not affiliated with or endorsed by CyberArk.
+
 # PASeasyInstall — modular design (UI-first)
 
 **Status:** Working-source skeleton, **not** native Windows or vendor acceptance evidence. The original durable engine and source recipes were redistributed; automation and GUI have **not yet been qualified on the refactored source**.

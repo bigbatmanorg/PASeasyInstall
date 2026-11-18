@@ -1,0 +1,109 @@
+name: Release
+
+# Tag vX.Y.Z or vX.Y.Z-rcN to build, create the GitHub release (portable ZIP + SHA256SUMS) and publish
+# to the PowerShell Gallery. The tag must match ModuleVersion (+ PSData.Prerelease) in PASeasyInstall.psd1.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Pester and NativeHTMLKit.UI
+        run: |
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck
+          Install-Module NativeHTMLKit.UI -MinimumVersion 0.1.1 -Scope CurrentUser -Force
+
+      - name: Version
+        id: version
+        run: |
+          $d = Import-PowerShellDataFile .\PASeasyInstall.psd1
+          $pre = [string]$d.PrivateData.PSData.Prerelease
+          $v = [string]$d.ModuleVersion + $(if ($pre) { "-$pre" } else { '' })
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$v") {
+            throw "Tag $env:GITHUB_REF_NAME does not match the manifest version v$v"
+          }
+          # ASCII: Windows PowerShell's utf8 encoding writes a BOM, which would corrupt the first output name.
+          Add-Content -Path $env:GITHUB_OUTPUT -Encoding ascii -Value "version=$v"
+          Add-Content -Path $env:GITHUB_OUTPUT -Encoding ascii -Value ("prerelease=" + ([bool]$pre).ToString().ToLowerInvariant())
+
+      - name: Static check and tests
+        run: .\Tools\Invoke-CITests.ps1 -ResultPath test-results.xml
+
+      - name: Build Gallery package and portable ZIP
+        run: .\Tools\Build-PortableRelease.ps1 -Output dist | Format-List
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS
+            dist/gallery/**
+          if-no-files-found: error
+
+  github-release:
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: dist
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+        run: |
+          flags=()
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          cat > notes.md <<NOTES
+          PASeasyInstall $VERSION builds CyberArk PAM self-hosted **labs**. Production use is at your own risk.
+
+          - **Portable:** download \`PASeasyInstall-$VERSION-portable.zip\`, unblock it, extract it and run \`Start-PASeasyInstall.cmd\`. NativeHTMLKit is included, and nothing is installed.
+          - **PowerShell Gallery:** \`Install-Module PASeasyInstall$( [ "$PRERELEASE" = "true" ] && echo ' -AllowPrerelease')\`, then \`Start-PASeasyInstall\`.
+
+          SHA256: see \`SHA256SUMS\`.
+          NOTES
+          gh release create "$GITHUB_REF_NAME" dist/*.zip dist/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --title "PASeasyInstall $VERSION" --notes-file notes.md "${flags[@]}"
+
+  publish:
+    needs: [build, github-release]
+    if: github.ref_type == 'tag'
+    runs-on: windows-latest
+    environment: powershellgallery
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: dist
+      - name: Publish to the PowerShell Gallery
+        env:
+          PSGALLERY_API_KEY: ${{ secrets.POWERSHELL_GALLERY_API_KEY }}
+        run: |
+          if (-not $env:PSGALLERY_API_KEY) { throw 'Secret POWERSHELL_GALLERY_API_KEY is not set in environment powershellgallery' }
+          Set-PSResourceRepository -Name PSGallery -Trusted
+          Install-PSResource -Name NativeHTMLKit.UI -Repository PSGallery -TrustRepository -Quiet
+          Publish-PSResource -Path dist/gallery/PASeasyInstall -Repository PSGallery -ApiKey $env:PSGALLERY_API_KEY -Verbose

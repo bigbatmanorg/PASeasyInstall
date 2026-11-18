@@ -20,3 +20,10 @@ __pycache__/
 .codex/
 artifacts/
 *.nupkg
+
+# Build output
+dist/
+test-results.xml
+
+# Built documentation site (zensical build output)
+/site/

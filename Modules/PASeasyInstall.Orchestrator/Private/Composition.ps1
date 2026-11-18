@@ -92,8 +92,8 @@ function New-PASDeploymentConfiguration {
     Composes one deployment configuration: Vault (Primary, Primary + DR, or an existing Vault) and any
     number of component instances. Nothing is contacted or installed.
     .PARAMETER Instances
-    @( @{Type='PVWA';Name='PVWA01';Address='10.0.0.21';Username=''} ). Type PVWA|CPM|PSM|PSMP|PTA
-    (PTA: one). Name is the server hostname shown in the UI; the configuration id is its lowercase
+    @( @{Type='PVWA';Name='PVWA01';Address='10.0.0.21';Username=''} ). Type PVWA|CPM|PSM|PSMP
+    (up to 4 of each). Name is the server hostname shown in the UI; the configuration id is its lowercase
     form. Instances with the same address share one server, named after the first instance.
     Linux instances may carry IdentityFile/KnownHostsFile; otherwise the controller's per-environment
     key under <DataRoot>/ssh/<environment>/ is used (created and authorised on first install).
@@ -103,6 +103,12 @@ function New-PASDeploymentConfiguration {
     .PARAMETER SecurityProfile
     Lab adds the explicit, audited lab deviations a template-built lab needs (self-signed WinRM
     certificates, RDP to the Vault from the controller, self-signed PVWA certificate pinned by CPM).
+    .EXAMPLE
+    $sel = Get-PASMediaSelection -Inventory (Get-PASMediaInventory -Path D:\CyberArkMedia)
+    $cfg = New-PASDeploymentConfiguration -Environment MyLab -VaultMode PrimaryDR -PrimaryAddress 192.0.2.11 -DRAddress 192.0.2.12 `
+             -ControllerAddress 192.0.2.10 -Media $sel -SecurityProfile Lab -ExecutionMode Parallel `
+             -Instances @(@{Type='PVWA';Name='PVWA01';Address='192.0.2.21'},@{Type='CPM';Name='CPM01';Address='192.0.2.21'})
+    Save-PASEnvironment -Configuration $cfg -Path .\MyLab.json
     #>
     [CmdletBinding()]param([Parameter(Mandatory)][string]$Environment,
         [Parameter(Mandatory)][ValidateSet('Primary','PrimaryDR','Existing')][string]$VaultMode,

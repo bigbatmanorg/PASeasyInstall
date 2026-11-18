@@ -8,8 +8,8 @@
         @{Id='upload-vc-x86';Kind='Transfer';Source=@{ConfigRef='Values.Media.VCx86'};Destination='C:\Cyberark\Automation\Prerequisites\VC_redist.x86.exe'}
         @{Id='upload-vc-x64';Kind='Transfer';Source=@{ConfigRef='Values.Media.VCx64'};Destination='C:\Cyberark\Automation\Prerequisites\VC_redist.x64.exe'}
         @{Id='upload-vc2013-x86';Kind='Transfer';Source=@{ConfigRef='Values.Media.VC2013x86'};Destination='C:\Cyberark\Automation\Prerequisites\vcredist_x86.exe'}
-        @{Id='upload-server';Kind='Transfer';Source=@{ConfigRef='Values.Media.ServerZip'};Destination='C:\Cyberark\packages\Server-Rls-v15.0.zip';TimeoutSeconds=3600}
-        @{Id='upload-pacli';Kind='Transfer';Source=@{ConfigRef='Values.Media.PACLIZip'};Destination='C:\Cyberark\packages\PACLI-Rls-v15.0.zip'}
+        @{Id='upload-server';Kind='Transfer';Source=@{ConfigRef='Values.Media.ServerZip'};Destination='C:\Cyberark\packages\Server-Rls.zip';TimeoutSeconds=3600}
+        @{Id='upload-pacli';Kind='Transfer';Source=@{ConfigRef='Values.Media.PACLIZip'};Destination='C:\Cyberark\packages\PACLI-Rls.zip'}
         @{Id='upload-keygen-exe';Kind='Transfer';Source=@{ConfigRef='Values.Media.PAKeyGenExe'};Destination='C:\Cyberark\Automation\PAKeyGen\PAKeyGen.exe'}
         @{Id='upload-keygen-dll1';Kind='Transfer';Source=@{ConfigRef='Values.Media.PAKeyGenDll1'};Destination='C:\Cyberark\Automation\PAKeyGen\calibeay32102o.dll'}
         @{Id='upload-keygen-dll2';Kind='Transfer';Source=@{ConfigRef='Values.Media.PAKeyGenDll2'};Destination='C:\Cyberark\Automation\PAKeyGen\cassleay32102o.dll'}

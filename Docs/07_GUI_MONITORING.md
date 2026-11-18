@@ -1,3 +1,8 @@
+> **Design notes.** This is internal design documentation, kept for contributors; parts of it describe plans
+> and history rather than the current release. For user documentation see
+> <https://bigbatmanorg.github.io/PASeasyInstall/>. PASeasyInstall is intended for building CyberArk PAM
+> **labs**; production use is at your own risk. Not affiliated with or endorsed by CyberArk.
+
 # Native GUI and deployment diagnostics
 
 The optional GUI calls the module's public PowerShell commands. It does not run vendor installers directly. Importing or using the CLI does not require NativeHTMLKit; `Start-PASeasyUI` loads the public SDK/UI APIs when invoked.

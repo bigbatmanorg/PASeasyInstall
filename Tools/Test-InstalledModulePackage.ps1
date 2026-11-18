@@ -1,62 +1,74 @@
-# Offline public API probe. Builder invokes this in a new powershell.exe process.
+<#
+.SYNOPSIS
+Checks an installed PASeasyInstall package (Install-Module or portable layout) from a fresh process.
+.DESCRIPTION
+Run it in a NEW powershell.exe whose PSModulePath sees only the package under test (and NativeHTMLKit).
+It checks:
+  - the expected version is found and imports;
+  - NativeHTMLKit.UI (a required dependency) loads with it;
+  - exactly the public commands are exported, and nothing PTA-related;
+  - every public command has a synopsis and at least one example;
+  - optionally, Invoke-PASeasyInstall -PlanOnly on a sample configuration (contacts no server).
+It writes a JSON proof to -OutputPath and throws on the first failed check.
+.EXAMPLE
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tools\Test-InstalledModulePackage.ps1 -ExpectedVersion 1.0.0-rc1 -OutputPath C:\Temp\probe.json
+.EXAMPLE
+.\Tools\Test-InstalledModulePackage.ps1 -ExpectedVersion 1.0.0-rc1 -OutputPath .\probe.json -SampleConfig .\Samples\lab.json
+#>
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$ConsumerRoot,[Parameter(Mandatory)][version]$ExpectedVersion,
-      [Parameter(Mandatory)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedSourceDigest,
-      [Parameter(Mandatory)][string]$SourceFileInventory,[Parameter(Mandatory)][string]$OutputPath)
+param([Parameter(Mandatory)][string]$ExpectedVersion,[Parameter(Mandatory)][string]$OutputPath,[string]$SampleConfig='')
 $ErrorActionPreference='Stop'
-. (Join-Path $PSScriptRoot 'Packaging.Common.ps1')
-if($env:OS -ne 'Windows_NT' -or $PSVersionTable.PSEdition -ne 'Desktop'){throw 'Installed-consumer qualification requires Windows PowerShell5.1'}
-$consumer=Assert-PASeasyPackageLocalPath $ConsumerRoot
-$output=Assert-PASeasyPackageLocalPath $OutputPath
-if(Test-Path $output){throw 'Consumer proof already exists; preserve prior evidence'}
-if(Get-Module PASeasyInstall,NativeHTMLKit*,PSSteps){throw 'Probe requires a fresh process without imported development modules'}
-$env:PSModulePath=$consumer+';'+(Join-Path $PSHOME 'Modules')
-$nativeVisible=@(Get-Module NativeHTMLKit* -ListAvailable).Count
-$psstepsVisible=@(Get-Module PSSteps -ListAvailable).Count
-if($nativeVisible -or $psstepsVisible){throw 'Dependency isolation failed; optional/forbidden SDK remains visible'}
-Assert-PASeasyPackageTrustedPath $consumer
-Assert-PASeasyPackageTrustedPath $SourceFileInventory
-Assert-PASeasyPackageTrustedPath (Split-Path $output -Parent)
-$base=Join-Path (Join-Path $consumer 'PASeasyInstall') ([string]$ExpectedVersion)
-Assert-PASeasyPackageTrustedPath $base
-$inventory=Get-Content -LiteralPath $SourceFileInventory -Raw -Encoding UTF8|ConvertFrom-Json
-if($inventory.SchemaVersion -ne 1 -or [string]$inventory.SourceDigest -ine $ExpectedSourceDigest -or [string]$inventory.Version -ne [string]$ExpectedVersion){throw 'Invalid expected package source inventory'}
-if([string]$inventory.InventorySHA256 -ine (Get-PASeasyPackageInventoryDigest @($inventory.Files))){throw 'Package source inventory digest is inconsistent'}
-$seen=@{}
-foreach($file in @($inventory.Files)){
-    $relative=[string]$file.Relative
-    if(-not(Test-PASeasyPackageSourcePath ('PASeasyInstall/'+$relative)) -or $seen.ContainsKey($relative)){throw 'Invalid/duplicate expected installed source path'}
-    $seen[$relative]=$true
-    $path=Join-Path $base $relative
-    Assert-PASeasyPackageTrustedPath $path
-    if(-not(Test-Path -LiteralPath $path -PathType Leaf) -or (Get-Item -LiteralPath $path).Length -ne [long]$file.Bytes -or (Get-FileHash $path -Algorithm SHA256).Hash -ine [string]$file.SHA256){throw 'Saved package source bytes differ from the committed export'}
+Set-StrictMode -Version 2.0
+$expected=@('Start-PASeasyInstall','Invoke-PASeasyInstall','New-PASDeploymentConfiguration','Get-PASMediaInventory',
+    'Get-PASMediaSelection','Test-PASEnvironment','Get-PASEnvironmentPlan','Save-PASEnvironment','Start-PASEnvironment',
+    'Get-PASEnvironmentSnapshot','Get-PASEnvironmentEvents','Get-PASStageCatalog','Resume-PASeasyDeployment',
+    'Test-PASEnvironmentHealth','Export-PASRunData')
+$proof=[ordered]@{schemaVersion=2;checkedUtc=[DateTime]::UtcNow.ToString('o');powershell=$PSVersionTable.PSVersion.ToString();
+    edition=$PSVersionTable.PSEdition;expectedVersion=$ExpectedVersion;checks=[ordered]@{};passed=$false}
+function Pass([string]$Name,$Value){$proof.checks[$Name]=$Value}
+try{
+    if(Get-Module PASeasyInstall,PASeasyInstall.*){throw 'Run this probe in a fresh process (PASeasyInstall is already imported)'}
+    $available=@(Get-Module PASeasyInstall -ListAvailable)
+    if(-not $available.Count){throw 'PASeasyInstall is not installed or not on PSModulePath'}
+    $match=@($available|Where-Object {
+        $pre=[string]$_.PrivateData.PSData.Prerelease
+        ([string]$_.Version+$(if($pre){'-'+$pre}else{''})) -eq $ExpectedVersion})
+    if(-not $match.Count){throw ("Expected $ExpectedVersion; found: "+(($available|ForEach-Object {[string]$_.Version}) -join ', '))}
+    Pass 'installedAt' $match[0].ModuleBase
+    Import-Module $match[0].Path -ErrorAction Stop
+    $ui=Get-Module NativeHTMLKit.UI
+    if(-not $ui){throw 'NativeHTMLKit.UI did not load as a required module'}
+    Pass 'nativeHtmlKitUI' ([string]$ui.Version+' '+$ui.ModuleBase)
+    $exported=@((Get-Command -Module PASeasyInstall).Name|Sort-Object)
+    $missing=@($expected|Where-Object {$exported -notcontains $_})
+    $extra=@($exported|Where-Object {$expected -notcontains $_})
+    if($missing.Count -or $extra.Count){throw ("Exported command mismatch. Missing: "+($missing -join ',')+' Extra: '+($extra -join ','))}
+    if(@($exported|Where-Object {$_ -match 'PTA'}).Count){throw 'PTA commands must not be exported in this release'}
+    Pass 'exportedCommands' $exported
+    $helpIssues=@()
+    foreach($name in $expected){
+        $h=Get-Help $name -Full -ErrorAction Stop
+        $examples=@()
+        if($h.PSObject.Properties['examples'] -and $h.examples){$examples=@($h.examples.example)}
+        if(-not ([string]$h.Synopsis).Trim() -or ([string]$h.Synopsis).Trim() -like "$name *" ){$helpIssues+="$name has no synopsis"}
+        if(-not $examples.Count){$helpIssues+="$name has no example"}
+    }
+    if($helpIssues.Count){throw ('Help incomplete: '+($helpIssues -join '; '))}
+    Pass 'helpComplete' $true
+    $about=Get-Help about_PASeasyInstall -ErrorAction SilentlyContinue
+    Pass 'aboutHelp' ([bool]$about)
+    if(@(Get-PASStageCatalog -Component Vault).Count -lt 5){throw 'Stage catalog for Vault is unexpectedly small'}
+    Pass 'stageCatalog' $true
+    if($SampleConfig){
+        $plan=Invoke-PASeasyInstall -Config $SampleConfig -PlanOnly 3>$null
+        if(-not @($plan.Items).Count){throw 'PlanOnly returned no items'}
+        Pass 'planOnly' (@($plan.Items)|ForEach-Object {"$($_.Id) $($_.Type) $($_.Address)"})
+    }
+    $proof.passed=$true
+}catch{
+    $proof.error=$_.Exception.Message
+    throw
+}finally{
+    [IO.File]::WriteAllText([IO.Path]::GetFullPath($OutputPath),($proof|ConvertTo-Json -Depth 6),(New-Object Text.UTF8Encoding($false)))
 }
-foreach($file in @(Get-ChildItem -LiteralPath $base -Recurse -File)){
-    $relative=$file.FullName.Substring($base.Length).Replace('\','/').TrimStart('/')
-    if(-not $seen.ContainsKey($relative) -and $relative -ne 'PSGetModuleInfo.xml'){throw 'Installed package contains an unexpected file'}
-}
-$module=Import-Module PASeasyInstall -RequiredVersion $ExpectedVersion -PassThru -Force -ErrorAction Stop
-$base=[IO.Path]::GetFullPath($module.ModuleBase)
-if(-not $base.StartsWith($consumer.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Module resolved outside the isolated installed-consumer directory'}
-$manifest=Test-ModuleManifest (Join-Path $base 'PASeasyInstall.psd1')
-$expected=@('Initialize-PASeasyController','New-PASeasyConfig','Test-PASeasyConfig','Get-PASeasyPlan','Start-PASeasyDeployment','Resume-PASeasyDeployment','Get-PASeasyRun','Get-PASeasyRuns','Get-PASeasyLog','Get-PASeasyLogSources','Get-PASeasyComponentStatus','Test-PASeasyDeployment','Start-PASeasyUI')
-$actual=@(Get-Command -Module PASeasyInstall|ForEach-Object Name)
-if(@(Compare-Object ($expected|Sort-Object) ($actual|Sort-Object)).Count){throw 'Installed public API differs from the13-command contract'}
-if(@($manifest.RequiredModules).Count){throw 'Installed module unexpectedly requires another module'}
-$digest=& $module {Get-PASeasySourceDigest}
-if($digest -ine $ExpectedSourceDigest){throw 'Installed module source digest differs from the tracked export'}
-$plans=@()
-foreach($template in @('Vault','VaultDR','FullLab','ExistingVault','DomainJoin')){
-    $configuration=New-PASeasyConfig -Template $template -Path (Join-Path (Split-Path $output -Parent) ($template+'-not-written.json')) -WhatIf
-    $assessment=Test-PASeasyConfig -Configuration $configuration
-    if(-not $assessment.Valid){throw ('Installed sample invalid: '+$template)}
-    $plan=Get-PASeasyPlan -Configuration $configuration
-    if($plan.SourceDigest -ine $ExpectedSourceDigest){throw 'Installed planner read development source'}
-    $plans+=@{Template=$template;Components=@($plan.Items).Count;Joins=@($plan.DomainJoins).Count;SourceDigest=$plan.SourceDigest}
-}
-$guiDependencyBlocked=$false
-try{Start-PASeasyUI}catch{if($_.Exception.Message -match 'NativeHTMLKit.UI is optional and not installed'){$guiDependencyBlocked=$true}else{throw}}
-if(-not $guiDependencyBlocked -or @(Get-Module NativeHTMLKit*,PSSteps).Count){throw 'CLI/optional GUI dependency boundary failed'}
-$proof=[ordered]@{Passed=$true;PSVersion=[string]$PSVersionTable.PSVersion;ModulePath=$module.Path;Version=[string]$manifest.Version;SourceDigest=$digest;InventorySHA256=[string]$inventory.InventorySHA256;PublicCommands=$actual.Count;NativeSDKVisible=$nativeVisible;NativeSDKImported=@(Get-Module NativeHTMLKit*).Count;PSStepsVisible=$psstepsVisible;PSStepsImported=@(Get-Module PSSteps).Count;GUIUnavailableClearly=$guiDependencyBlocked;Plans=$plans;Scope='Fresh process and isolated installed-module path on existing controller; clean VM and component deployment NotTested';CapturedUtc=[DateTime]::UtcNow.ToString('o')}
-Write-PASeasyPackageJson $output $proof
 [pscustomobject]$proof

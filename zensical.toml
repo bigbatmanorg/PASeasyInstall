@@ -1,0 +1,110 @@
+[project]
+site_name = "PASeasyInstall"
+site_description = "Build CyberArk PAM self-hosted labs from one PowerShell controller with a native desktop UI. For labs; production use at your own risk."
+site_url = "https://bigbatmanorg.github.io/PASeasyInstall/"
+docs_dir = "site-src"
+site_dir = "site"
+extra_css = ["stylesheets/theme.css", "stylesheets/nav-dropdown.css"]
+extra_javascript = ["javascripts/nav-dropdown.js"]
+strict = true
+repo_url = "https://github.com/bigbatmanorg/PASeasyInstall"
+edit_uri = "edit/main/site-src/"
+copyright = "PASeasyInstall contributors · MIT License · For lab use; production use at your own risk · Not affiliated with CyberArk"
+
+# Diataxis: getting started (learning), GUI guide and lab guide (how-to), concepts (explanation),
+# commands and components (reference).
+nav = [
+  { "Home" = [
+    "index.md",
+    { "Lab first" = "lab-first.md" },
+    { "Videos" = "videos.md" },
+    { "Release notes" = "release-notes.md" },
+  ] },
+  { "Get started" = [
+    "getting-started/index.md",
+    { "Requirements" = "getting-started/requirements.md" },
+    { "Portable ZIP" = "getting-started/portable.md" },
+    { "PowerShell Gallery" = "getting-started/gallery.md" },
+    { "Execution policy" = "getting-started/execution-policy.md" },
+    { "Your first lab" = "getting-started/first-lab.md" },
+  ] },
+  { "Desktop UI" = [
+    "gui/index.md",
+    { "1 Project & media" = "gui/project-media.md" },
+    { "2 What to install" = "gui/what-to-install.md" },
+    { "3 Servers" = "gui/servers.md" },
+    { "4 Credentials" = "gui/credentials.md" },
+    { "5 Review plan" = "gui/review.md" },
+    { "6 Install" = "gui/install.md" },
+  ] },
+  { "Components" = [
+    "components/index.md",
+    { "Vault" = "components/vault.md" },
+    { "DR Vault" = "components/dr.md" },
+    { "PVWA" = "components/pvwa.md" },
+    { "CPM" = "components/cpm.md" },
+    { "PSM" = "components/psm.md" },
+    { "PSMP" = "components/psmp.md" },
+    { "Active Directory" = "components/ad.md" },
+  ] },
+  { "Commands" = [
+    "commands/index.md",
+    { "Start-PASeasyInstall" = "commands/start-paseasyinstall.md" },
+    { "Invoke-PASeasyInstall" = "commands/invoke-paseasyinstall.md" },
+    { "Media: Get-PASMediaInventory / Selection" = "commands/media.md" },
+    { "New-PASDeploymentConfiguration" = "commands/new-deploymentconfiguration.md" },
+    { "Test-PASEnvironment" = "commands/test-environment.md" },
+    { "Get-PASEnvironmentPlan" = "commands/environment-plan.md" },
+    { "Save-PASEnvironment" = "commands/save-environment.md" },
+    { "Start-PASEnvironment" = "commands/start-environment.md" },
+    { "Snapshot and events" = "commands/snapshot-events.md" },
+    { "Resume-PASeasyDeployment" = "commands/resume.md" },
+    { "Get-PASStageCatalog" = "commands/stage-catalog.md" },
+    { "Test-PASEnvironmentHealth" = "commands/health.md" },
+    { "Export-PASRunData" = "commands/export-rundata.md" },
+    { "Single-component builders" = "commands/builders.md" },
+  ] },
+  { "Concepts" = [
+    "concepts/index.md",
+    { "Architecture" = "concepts/architecture.md" },
+    { "Durable runs and resume" = "concepts/durable-runs.md" },
+    { "Security model" = "concepts/security.md" },
+    { "Lab and Secure profiles" = "concepts/profiles.md" },
+    { "Coordination and locks" = "concepts/coordination.md" },
+  ] },
+  { "Lab guide" = [
+    "lab-guide/index.md",
+    { "Topology and sizing" = "lab-guide/topology.md" },
+    { "Preparing target servers" = "lab-guide/targets.md" },
+    { "Snapshot strategy" = "lab-guide/snapshots.md" },
+  ] },
+  { "Troubleshooting" = [
+    "troubleshooting/index.md",
+  ] },
+]
+
+[project.theme]
+features = ["navigation.instant", "navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.top", "navigation.indexes", "navigation.path", "content.tabs.link",
+            "search.suggest", "content.code.copy"]
+
+[project.theme.palette]
+scheme = "slate"
+primary = "indigo"
+accent = "blue"
+
+[project.markdown_extensions.admonition]
+[project.markdown_extensions.pymdownx.details]
+[project.markdown_extensions.pymdownx.superfences]
+custom_fences = [{ name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" }]
+[project.markdown_extensions.pymdownx.tabbed]
+alternate_style = true
+[project.markdown_extensions.pymdownx.highlight]
+[project.markdown_extensions.pymdownx.inlinehilite]
+[project.markdown_extensions.attr_list]
+[project.markdown_extensions.md_in_html]
+[project.markdown_extensions.tables]
+[project.markdown_extensions.toc]
+permalink = true
+
+[project.extra]
+generator = false

@@ -98,7 +98,7 @@ function Protect-PASeasyVaultWorkspace {
 }
 function Get-PASeasyVaultArchiveName {
     param([string]$Component)
-    switch -Exact ($Component){'Server'{'Server-Rls-v15.0.zip'}'Disaster Recovery'{'Disaster Recovery-Rls-v15.0.zip'}'PACLI'{'PACLI-Rls-v15.0.zip'}default{throw 'Unknown Vault media component'}}
+    switch -Exact ($Component){'Server'{'Server-Rls.zip'}'Disaster Recovery'{'Disaster Recovery-Rls.zip'}'PACLI'{'PACLI-Rls.zip'}default{throw 'Unknown Vault media component'}}
 }
 function Test-PASeasyVaultExtractedMedia {
     param([hashtable]$Settings,[string]$Component)

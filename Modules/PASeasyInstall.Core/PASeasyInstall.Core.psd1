@@ -5,7 +5,7 @@
     Author='PASeasyInstall contributors'
     CompanyName='Community'
     Copyright='Copyright (c) 2026 PASeasyInstall contributors'
-    Description='Shared PowerShell installation engine: secure transports, frozen workflows, event journals, recovery, and read-only diagnostics. No GUI dependency.'
+    Description='Shared PowerShell installation engine: secure transports, frozen workflows, event journals, recovery, and read-only diagnostics. No GUI dependency. Part of PASeasyInstall, intended for building CyberArk PAM labs; production use is at your own risk.'
     PowerShellVersion='5.1'
     CompatiblePSEditions=@('Desktop','Core')
     FunctionsToExport=@(

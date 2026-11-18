@@ -84,7 +84,7 @@ Describe 'Vault atomic archive admission and pinned completion' {
     BeforeEach {
         $fixture=Join-Path $env:SystemDrive ('PAeasyVaultWorkspaceQualification-'+[guid]::NewGuid().ToString('N'));New-PASeasyVaultDirectory $fixture
         $settings=@{PackagesRoot=(Join-Path $fixture 'packages')};New-PASeasyVaultDirectory $settings.PackagesRoot
-        $zip=Join-Path $settings.PackagesRoot 'PACLI-Rls-v15.0.zip'
+        $zip=Join-Path $settings.PackagesRoot 'PACLI-Rls.zip'
         $destination=Join-Path $settings.PackagesRoot 'PACLI'
         $outsideAcl=(Get-Acl ([IO.Path]::GetPathRoot($fixture))).Sddl
     }
@@ -165,7 +165,7 @@ Describe 'Private inherited SYSTEM vendor descendants preserve safe resume' {
         $fixture=Join-Path $env:SystemDrive ('PAeasyVaultWorkspaceQualification-'+[guid]::NewGuid().ToString('N'));New-PASeasyVaultDirectory $fixture
         $settings=@{PackagesRoot=(Join-Path $fixture 'packages');AutomationRoot=(Join-Path $fixture 'automation');KeysDir=(Join-Path $fixture 'keys');DataDrive='C:'}
         foreach($path in @($settings.PackagesRoot,$settings.AutomationRoot,$settings.KeysDir)){New-PASeasyVaultDirectory $path}
-        $zip=Join-Path $settings.PackagesRoot 'PACLI-Rls-v15.0.zip'
+        $zip=Join-Path $settings.PackagesRoot 'PACLI-Rls.zip'
         New-VaultZip $zip @(@{Name='Pacli.exe';Body='safe'})
         Invoke-PASeasyWithRestorePrivilege {([IO.FileInfo]::new($zip)).SetAccessControl((New-PASeasyVaultSecurity $false))}
         $null=Expand-PASeasyVaultMedia $settings 'PACLI'

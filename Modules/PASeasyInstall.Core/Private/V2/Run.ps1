@@ -202,6 +202,17 @@ function Start-PASeasyDeployment {
     return $id
 }
 function Resume-PASeasyDeployment {
+    <#
+    .SYNOPSIS
+    Resumes a failed or interrupted engine run after reconciling what already happened on the targets.
+    .DESCRIPTION
+    Uses the run's frozen configuration and plan. Completed attempts are reconciled and never repeated
+    blindly. A run whose outcome is uncertain must be reconciled first. -RetryFailedPreflight runs a failed
+    read-only preflight again, for example after you install a missing OS package on the target.
+    Invoke-PASeasyInstall -Resume prompts for the credentials and calls this command.
+    .EXAMPLE
+    Resume-PASeasyDeployment -RunId 688d8e04f1874d41a75cda4441c00553 -CredentialMap $creds -SecretMap $secrets -Confirm:$false
+    #>
     [CmdletBinding(SupportsShouldProcess=$true)]param([Parameter(Mandatory)][string]$RunId,
         [hashtable]$CredentialMap=@{},[hashtable]$SecretMap=@{},[string]$DataRoot=(Get-PASDataRoot),
         [switch]$Foreground,[switch]$AllowUnknownRetry,[switch]$RetryFailedPreflight)

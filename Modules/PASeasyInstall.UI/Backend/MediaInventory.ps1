@@ -69,9 +69,14 @@ function Get-PASZipMedia {
 }
 function Get-PASMediaInventory {
     <#
-      .SYNOPSIS Classifies installer media in files, ZIP bundles and folders (recursive, max depth 4).
-      .OUTPUTS Items @{Component; Name; Version; Variant; Path; Entry; Source; Container}.
-               Component is Vault|PACLI|DR|KeyGen|PVWA|CPM|PSM|PSMP|PTA|License|RecoveryKey|Unknown.
+    .SYNOPSIS
+    Finds CyberArk installer media in files, folders and ZIP bundles (folders searched to depth 4). Read-only.
+    .DESCRIPTION
+    Detects components by file name, including inside the CyberArk bundle ZIP, which is read and never
+    extracted. Returns items with Component, Name, Version, Variant, Path, Entry, Source and Container.
+    Component is Vault, PACLI, DR, KeyGen, PVWA, CPM, PSM, PSMP, License, RecoveryKey, Prerequisite or Unknown.
+    .EXAMPLE
+    Get-PASMediaInventory -Path D:\CyberArkMedia | Format-Table Component,Version,Variant,Name
     #>
     [CmdletBinding()]param([Parameter(Mandatory)][string[]]$Path)
     $items = New-Object System.Collections.ArrayList
@@ -111,8 +116,15 @@ function Get-PASMediaInventory {
     return @($items.ToArray() | Where-Object { -not $_.Entry -or -not $plain.ContainsKey(($_.Component + '|' + $_.Name).ToLowerInvariant()) })
 }
 function Get-PASMediaSelection {
-    <# Picks one item per component (highest version; PSMP prefers Ubuntu24, then RHEL9; at equal version a
-       plain file beats the same installer inside a bundle, which would have to be extracted). Returns @{Component = item}. #>
+    <#
+    .SYNOPSIS
+    Picks one installer per component from Get-PASMediaInventory output; returns @{ Component = item }.
+    .DESCRIPTION
+    Picks the highest version. PSMP prefers Ubuntu 24, then RHEL 9. At equal versions, a plain file beats the
+    same installer inside a bundle, which would have to be extracted.
+    .EXAMPLE
+    $sel = Get-PASMediaSelection -Inventory (Get-PASMediaInventory -Path D:\CyberArkMedia)
+    #>
     param([object[]]$Inventory)
     $pick = @{}
     foreach ($group in @($Inventory | Where-Object { $_.Component -in $script:PASMediaInstallable } | Group-Object Component)) {

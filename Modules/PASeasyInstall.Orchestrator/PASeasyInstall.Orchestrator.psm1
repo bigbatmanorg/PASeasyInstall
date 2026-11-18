@@ -9,7 +9,7 @@ function Import-PASComponentModule {
     Import-Module $file -ErrorAction Stop
 }
 Import-PASComponentModule Core
-foreach($private in @('MediaInventory.ps1','Composition.ps1','Fleet.ps1')){. (Join-Path (Join-Path $PSScriptRoot 'Private') $private)}
+foreach($private in @('MediaInventory.ps1','Composition.ps1','Fleet.ps1','Release.ps1')){. (Join-Path (Join-Path $PSScriptRoot 'Private') $private)}
 
 function New-PASFreshEnvironment {
     [CmdletBinding()]param([Parameter(Mandatory)][string]$PrimaryIP,
@@ -57,6 +57,15 @@ function Assert-PASDeploymentTopology {
     }
 }
 function Test-PASEnvironment {
+    <#
+    .SYNOPSIS
+    Validates a deployment configuration: structure, topology rules and, with -CheckMedia, the installer media.
+    .DESCRIPTION
+    Returns Valid, Issues, Warnings and the normalized Configuration. Lab security deviations are listed as
+    warnings ("SECURITY DEVIATION: ..."). It contacts no server.
+    .EXAMPLE
+    Test-PASEnvironment -Config .\MyLab.json -CheckMedia | Format-List Valid,Issues,Warnings
+    #>
     [CmdletBinding()]param([string]$Config,$Configuration,[switch]$CheckMedia)
     $valid=Test-PASeasyConfig -Config $Config -Configuration $Configuration -CheckMedia:$CheckMedia
     if($valid.Configuration){
@@ -70,12 +79,30 @@ function Test-PASEnvironment {
     return $valid
 }
 function Get-PASEnvironmentPlan {
+    <#
+    .SYNOPSIS
+    Shows what a configuration would install: one item per component with its server, installer and dependencies.
+    .DESCRIPTION
+    Read-only dry run. -ResolveMedia also resolves and hashes the exact installer files that would be used.
+    .EXAMPLE
+    (Get-PASEnvironmentPlan -Config .\MyLab.json).Items | Format-Table Id,Type,Address,Media,DependsOn
+    .EXAMPLE
+    Get-PASEnvironmentPlan -Config .\MyLab.json -ResolveMedia
+    #>
     [CmdletBinding()]param([string]$Config,$Configuration,[switch]$ResolveMedia)
     $valid=Test-PASEnvironment -Config $Config -Configuration $Configuration
     if(-not $valid.Valid){throw ('Configuration incomplete: '+($valid.Issues -join '; '))}
     return (Add-PASPlanDetail -Plan (Get-PASeasyPlan -Configuration $valid.Configuration -ResolveMedia:$ResolveMedia) -Configuration $valid.Configuration)
 }
 function Save-PASEnvironment {
+    <#
+    .SYNOPSIS
+    Saves a validated deployment configuration as JSON (no passwords are ever part of it).
+    .DESCRIPTION
+    Refuses to overwrite an existing file unless -Force is given. The file is written atomically.
+    .EXAMPLE
+    Save-PASEnvironment -Configuration $cfg -Path .\MyLab.json
+    #>
     [CmdletBinding(SupportsShouldProcess=$true)]param([Parameter(Mandatory)]$Configuration,[Parameter(Mandatory)][string]$Path,[switch]$Force)
     $valid=Test-PASEnvironment -Configuration $Configuration
     if(-not $valid.Valid){throw ('Configuration incomplete: '+($valid.Issues -join '; '))}
@@ -94,6 +121,17 @@ function Save-PASEnvironment {
     }
 }
 function Start-PASEnvironment {
+    <#
+    .SYNOPSIS
+    Starts the detached installer for a configuration with credentials you supply; returns the deployment id.
+    .DESCRIPTION
+    Lower-level building block of Invoke-PASeasyInstall, which also prompts for missing credentials.
+    CredentialMap: @{ <server id> = PSCredential }. SecretMap: @{ VaultAdmin / VaultMaster / DRPassword /
+    ADSafeMode / DomainJoinPassword = SecureString }. Validates media first. -PlanOnly returns the plan instead.
+    The installation continues if this console closes. Follow it with Get-PASEnvironmentSnapshot.
+    .EXAMPLE
+    $id = Start-PASEnvironment -Config .\MyLab.json -CredentialMap $creds -SecretMap $secrets -Confirm:$false
+    #>
     [CmdletBinding(SupportsShouldProcess=$true)]param([string]$Config,$Configuration,
         [hashtable]$CredentialMap=@{},[hashtable]$SecretMap=@{},[switch]$PlanOnly)
     $valid=Test-PASEnvironment -Config $Config -Configuration $Configuration -CheckMedia:(!$PlanOnly)
@@ -110,9 +148,18 @@ function Start-PASEnvironment {
     }
 }
 function Get-PASEnvironmentSnapshot {
-    <# Progress of a deployment started by Start-PASEnvironment (composed deployment or single run).
-       Events: TimestampUtc, Component (plan item id), Stage, Event, Level, Status (Running|Complete|
-       Failed|Warning|Info), Message. Never a guessed percentage. #>
+    <#
+    .SYNOPSIS
+    Shows the status and progress events of a deployment (desktop, Invoke-PASeasyInstall or Start-PASEnvironment).
+    .DESCRIPTION
+    Returns RunId, Status, CurrentComponent, LastStep, ErrorEvents and Events. Each event has TimestampUtc,
+    Component (plan item id), Stage, Event, Level, Status (Running, Complete, Failed, Warning or Info) and Message.
+    Progress comes from recorded events. There is no estimated percentage.
+    .EXAMPLE
+    Get-PASEnvironmentSnapshot -RunId 688d8e04f1874d41a75cda4441c00553 | Format-List Status,CurrentComponent,LastStep
+    .EXAMPLE
+    (Get-PASEnvironmentSnapshot -RunId $id -Tail 500).Events | Format-Table TimestampUtc,Component,Stage,Status,Message
+    #>
     [CmdletBinding()]param([Parameter(Mandatory)][string]$RunId,[int]$Tail=150)
     if(Test-PASFleetId $RunId){return (Get-PASFleetSnapshot -FleetId $RunId -Tail $Tail)}
     $snap=Get-PASDeploymentSnapshot -RunId $RunId -Tail $Tail
@@ -121,10 +168,22 @@ function Get-PASEnvironmentSnapshot {
     return $snap
 }
 function Get-PASEnvironmentEvents {
+    <#
+    .SYNOPSIS
+    Returns only the progress events of a deployment (see Get-PASEnvironmentSnapshot).
+    .EXAMPLE
+    Get-PASEnvironmentEvents -RunId $id -Tail 50 | Where-Object Status -eq 'Failed'
+    #>
     [CmdletBinding()]param([Parameter(Mandatory)][string]$RunId,[int]$Tail=150)
     return @((Get-PASEnvironmentSnapshot -RunId $RunId -Tail $Tail).Events)
 }
 function Get-PASStageCatalog {
+    <#
+    .SYNOPSIS
+    Lists the installation stages of a component, in order (Vault, DR, PVWA, CPM, PSM, PSMP or AD).
+    .EXAMPLE
+    Get-PASStageCatalog -Component Vault | Format-Table Stage
+    #>
     [CmdletBinding()]param([Parameter(Mandatory)][ValidateSet('Vault','DR','PVWA','CPM','PSM','PSMP','AD')][string]$Component)
     Import-PASComponentModule $Component
     switch($Component){
@@ -141,4 +200,5 @@ function Get-PASStageCatalog {
 Export-ModuleMember -Function @('New-PASFreshEnvironment','New-PASExistingVaultComponent',
     'Get-PASMediaInventory','Get-PASMediaSelection','New-PASDeploymentConfiguration',
     'Test-PASEnvironment','Get-PASEnvironmentPlan','Save-PASEnvironment','Start-PASEnvironment',
-    'Get-PASEnvironmentSnapshot','Get-PASEnvironmentEvents','Get-PASStageCatalog')
+    'Get-PASEnvironmentSnapshot','Get-PASEnvironmentEvents','Get-PASStageCatalog',
+    'Test-PASEnvironmentHealth','Export-PASRunData')

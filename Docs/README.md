@@ -1,3 +1,8 @@
+> **Design notes.** This is internal design documentation, kept for contributors; parts of it describe plans
+> and history rather than the current release. For user documentation see
+> <https://bigbatmanorg.github.io/PASeasyInstall/>. PASeasyInstall is intended for building CyberArk PAM
+> **labs**; production use is at your own risk. Not affiliated with or endorsed by CyberArk.
+
 # PASeasyInstall — Architecture & Development Specification
 
 **Status:** Design baseline for implementation, 16 November 2026. **Not an implemented release.**

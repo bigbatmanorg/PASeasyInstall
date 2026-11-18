@@ -1,0 +1,50 @@
+TOPIC
+    about_PASeasyInstall
+
+SHORT DESCRIPTION
+    Builds CyberArk PAM self-hosted labs from one Windows PowerShell 5.1 controller.
+
+LONG DESCRIPTION
+    PASeasyInstall installs a Primary Vault (optionally with a DR Vault), PVWA, CPM, PSM, PSMP and an
+    Active Directory lab forest on servers you provide. You can use the native desktop wizard or the
+    command line. Installs are durable and resumable: every step runs as a recorded attempt on the
+    target, survives a closed console or a lost controller, and is never blindly repeated.
+
+    PASeasyInstall is intended for LABS, demos and training. Production use is at your own risk.
+    You supply the CyberArk installation media and license. Not affiliated with or endorsed by CyberArk.
+
+  DESKTOP
+        Start-PASeasyInstall                 six-step wizard: media, what to install, servers,
+                                             credentials, review, install with live progress
+        Start-PASeasyInstall -Backend Mock   the same window with simulated installs (demo/training)
+
+  COMMAND LINE
+        Invoke-PASeasyInstall -Config .\MyLab.json -PlanOnly     validate and show the plan
+        Invoke-PASeasyInstall -Config .\MyLab.json -Wait         install, streaming progress
+        Invoke-PASeasyInstall -Resume <runId>                    continue a failed or interrupted run
+        Get-PASEnvironmentSnapshot -RunId <id>                   status and events of a deployment
+        Test-PASEnvironmentHealth -Config .\MyLab.json -VaultCredential (Get-Credential)
+        Export-PASRunData -RunId <id>                            sanitized ZIP for support or docs
+
+    Composing a configuration without the desktop:
+        $inv = Get-PASMediaInventory -Path D:\CyberArkMedia
+        $cfg = New-PASDeploymentConfiguration -Environment MyLab -VaultMode Primary `
+                 -PrimaryAddress 192.0.2.11 -ControllerAddress 192.0.2.10 `
+                 -Instances @(@{Type='PVWA';Name='PVWA01';Address='192.0.2.21'}) `
+                 -Media (Get-PASMediaSelection -Inventory $inv) -SecurityProfile Lab
+        Save-PASEnvironment -Configuration $cfg -Path .\MyLab.json
+
+  CREDENTIALS
+    Passwords are held only in memory as SecureString. They are never written to the project file,
+    logs, journals or command lines. Lab mode can use one password for everything (-LabPassword).
+
+  EXECUTION POLICY
+    The module is not Authenticode-signed. Under RemoteSigned (the Windows Server default) a
+    Gallery-installed module runs as it is. Under AllSigned, allow it for the current window only:
+        Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+    Unblock a ZIP copy once: Get-ChildItem -Path <folder> -Recurse | Unblock-File
+
+SEE ALSO
+    https://github.com/bigbatmanorg/PASeasyInstall
+    Get-Help Start-PASeasyInstall -Full
+    Get-Help Invoke-PASeasyInstall -Full

@@ -1,3 +1,8 @@
+> **Design notes.** This is internal design documentation, kept for contributors; parts of it describe plans
+> and history rather than the current release. For user documentation see
+> <https://bigbatmanorg.github.io/PASeasyInstall/>. PASeasyInstall is intended for building CyberArk PAM
+> **labs**; production use is at your own risk. Not affiliated with or endorsed by CyberArk.
+
 # 10 — Architecture Decisions (ADRs)
 
 All are **Accepted for the proposed implementation**, subject to evidence-driven revision. Avoid reopening without a demonstrated defect or failed qualification gate.

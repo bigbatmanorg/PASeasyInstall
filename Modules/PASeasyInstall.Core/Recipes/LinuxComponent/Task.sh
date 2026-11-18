@@ -82,9 +82,14 @@ psmp_ubuntu_native() {
     command -v getfacl >/dev/null || return 1
     local package file hash actual
     package=$(dpkg-query -W -f='${Status} ${Version}' carkpsmp) || return 1
-    [[ $package = 'install ok installed 15.0.0.5' ]] || return 1
+    [[ $package =~ ^install\ ok\ installed\ (15\.[0-9]+(\.[0-9]+){1,2})$ ]] || return 1
+    local version=${BASH_REMATCH[1]}
     while read -r hash file; do
         psmp_ubuntu_trusted "$file" || return 1
+        [[ -s $file ]] || return 1
+        # Content hashes are pinned only for vendor versions observed in qualification.
+        # Other 15.x versions: native files must exist, be non-empty and pass the ownership/mode checks.
+        [[ $version = 15.0.0.5 ]] || continue
         actual=$(sha256sum "$file" | cut -d' ' -f1) || return 1
         [[ $actual = "$hash" ]] || return 1
     done <<'NATIVE'

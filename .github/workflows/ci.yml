@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Windows PowerShell 5.1
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Pester and NativeHTMLKit.UI
+        run: |
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck
+          Install-Module NativeHTMLKit.UI -MinimumVersion 0.1.1 -Scope CurrentUser -Force
+          $PSVersionTable.PSVersion
+
+      - name: Static check and tests
+        run: .\Tools\Invoke-CITests.ps1 -ResultPath test-results.xml
+
+      - name: Gallery package and portable ZIP build
+        run: |
+          $license = if (Test-Path LICENSE) { @{} } else { Write-Warning 'LICENSE missing: building with -AllowMissingLicense'; @{ AllowMissingLicense = $true } }
+          .\Tools\Build-PortableRelease.ps1 -Output dist @license | Format-List
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results.xml
+          if-no-files-found: ignore

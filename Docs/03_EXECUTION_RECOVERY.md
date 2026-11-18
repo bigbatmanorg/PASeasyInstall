@@ -1,3 +1,8 @@
+> **Design notes.** This is internal design documentation, kept for contributors; parts of it describe plans
+> and history rather than the current release. For user documentation see
+> <https://bigbatmanorg.github.io/PASeasyInstall/>. PASeasyInstall is intended for building CyberArk PAM
+> **labs**; production use is at your own risk. Not affiliated with or endorsed by CyberArk.
+
 # 03 — Reliable Execution, State, Recovery and Locking
 
 ## Non-negotiable contract
