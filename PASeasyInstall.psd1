@@ -24,8 +24,8 @@
             Tags         = @('CyberArk', 'PAM', 'Lab', 'Installer', 'PowerShell', 'Vault', 'PVWA', 'CPM', 'PSM', 'PSMP', 'Windows', 'Desktop')
             LicenseUri   = 'https://github.com/bigbatmanorg/PASeasyInstall/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/bigbatmanorg/PASeasyInstall'
-            Prerelease   = 'rc6'
-            ReleaseNotes = '1.0.0-rc6: release candidate. Fixes: install progress no longer un-marks completed stages on long or parallel runs; parallel installs start CPM, PSM and PSMP only after the first PVWA is registered; composed Vault media folder with sibling media trees; a failed or abandoned deployment launch no longer blocks its environment; clear message when started from a remote PowerShell session.'
+            Prerelease   = 'rc7'
+            ReleaseNotes = '1.0.0-rc7: release candidate. Supports PAM 15.2 media (PACLI admitted when reviewed or signed by CyberArk). Fixes: install progress no longer un-marks completed stages on long or parallel runs; parallel installs start CPM, PSM and PSMP only after the first PVWA is registered; composed Vault media folder with sibling media trees; a failed or abandoned deployment launch no longer blocks its environment; clear message when started from a remote PowerShell session.'
         }
     }
 }

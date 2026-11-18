@@ -85,3 +85,10 @@ Describe 'PACLI private batch construction' {
         {Invoke-PAPacliProcess -Pacli unused -Operation DEFAULT -SessionId 123 -Arguments @('PASSWORD=synthetic')}|Should -Throw '*secret-bearing*'
     }
 }
+Describe 'PACLI binary admission' {
+    It 'refuses an executable that is neither a reviewed build nor signed by CyberArk' -Skip:($env:OS -ne 'Windows_NT') {
+        # whoami.exe is validly signed, but by Microsoft: a valid signature alone is not enough.
+        $exe=Join-Path $env:SystemRoot 'System32\whoami.exe'
+        {Assert-PAPacliBinary -Path $exe}|Should -Throw '*neither a reviewed build nor validly signed by CyberArk*'
+    }
+}

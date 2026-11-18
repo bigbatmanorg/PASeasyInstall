@@ -63,7 +63,12 @@ function Assert-PAPacliBinary {
     param([string]$Path)
     $full=[IO.Path]::GetFullPath($Path)
     if($full -notmatch '^[A-Za-z]:\\' -or $full.StartsWith('\\')){throw 'PACLI requires a local Windows volume path'}
-    if((Get-FileHash -LiteralPath $full -Algorithm SHA256 -ErrorAction Stop).Hash -ine '37697F5A91FDAC47997B2D39CA997F161D3FC86D326937F7298C726F53ADBBD4'){throw 'PACLI executable is not the reviewed supplied v15 binary'}
+    # Reviewed PACLI builds are accepted by hash; other releases only when Authenticode-signed by CyberArk Software Ltd.
+    $reviewed=@('37697F5A91FDAC47997B2D39CA997F161D3FC86D326937F7298C726F53ADBBD4')
+    if((Get-FileHash -LiteralPath $full -Algorithm SHA256 -ErrorAction Stop).Hash -notin $reviewed){
+        $sig=Get-AuthenticodeSignature -LiteralPath $full -ErrorAction Stop
+        if($sig.Status -ne 'Valid' -or -not $sig.SignerCertificate -or $sig.SignerCertificate.Subject -notmatch '(^|,\s*)O=CyberArk Software Ltd\.(,|$)'){throw 'PACLI executable is neither a reviewed build nor validly signed by CyberArk Software Ltd.'}
+    }
     $trusted=@('S-1-5-18','S-1-5-32-544','S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
     $caller=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     if($caller -notmatch '^S-1-5-94-'){$trusted+=@($caller)}
