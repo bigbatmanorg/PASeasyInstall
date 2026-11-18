@@ -5,7 +5,7 @@ BeforeAll {
     $script:expected = @('Start-PASeasyInstall','Invoke-PASeasyInstall','New-PASDeploymentConfiguration','Get-PASMediaInventory',
         'Get-PASMediaSelection','Test-PASEnvironment','Get-PASEnvironmentPlan','Save-PASEnvironment','Start-PASEnvironment',
         'Get-PASEnvironmentSnapshot','Get-PASEnvironmentEvents','Get-PASStageCatalog','Resume-PASeasyDeployment',
-        'Test-PASEnvironmentHealth','Export-PASRunData')
+        'Test-PASEnvironmentHealth','Export-PASRunData','Close-PASDeployment')
     function Copy-RepoForBuild([string]$To) {
         New-Item -ItemType Directory -Path $To -Force | Out-Null
         foreach ($item in 'PASeasyInstall.psd1','PASeasyInstall.psm1','en-US','Modules','Tools','Docs') {

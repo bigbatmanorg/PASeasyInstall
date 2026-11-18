@@ -283,3 +283,73 @@ function Export-PASRunData {
     }finally{Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue}
     return [pscustomobject]@{Path=$Path;RunId=$RunId;Files=$included.Count;Excluded=@($excluded)}
 }
+
+function Close-PASDeployment {
+    <#
+    .SYNOPSIS
+    Closes an unresolved deployment record so its environment can be deployed again. Does not change any server.
+    .DESCRIPTION
+    A deployment whose outcome is Unknown or Interrupted, or that failed while holding a coordination claim, blocks
+    new deployments of the same environment and the servers it claimed. After you have decided what to do with
+    those servers (typically: reset or rebuild them), Close-PASDeployment records that decision: it marks the
+    unresolved run(s) Abandoned with your reason, writes a RunAbandoned journal event, and releases the controller
+    claims owned by those runs. It refuses while a controller of the deployment is still running.
+    It never contacts or changes a server. Servers may hold a partial installation; reset them before reinstalling.
+    A Linux server also keeps its own lock (~/.paeasyinstall/locks) until it is reset or the lock is removed.
+    PASeasyInstall builds labs. Production use is at your own risk.
+    .PARAMETER RunId
+    The deployment id returned by Start-PASEnvironment / Invoke-PASeasyInstall, or one engine run id.
+    .PARAMETER Reason
+    Why the record is closed (kept in the run journal).
+    .PARAMETER Force
+    Do not ask for confirmation.
+    .EXAMPLE
+    Close-PASDeployment -RunId 83cf015f78bd4743a54e6d0a9d0dd301 -Reason 'Vault server reset to its clean state'
+    #>
+    [CmdletBinding(SupportsShouldProcess=$true,ConfirmImpact='High')]
+    param([Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{32}$')][string]$RunId,
+          [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Reason,[switch]$Force)
+    $core=Get-PASOwnCoreModule
+    $dataRoot=& $core {Get-PASDataRoot}
+    $isFleet=Test-PASFleetId -RunId $RunId -DataRoot $dataRoot
+    $runIds=@($RunId); $fleetPath=$null; $fleet=$null
+    if($isFleet){
+        $fleetPath=Join-Path (Get-PASFleetDirectory $RunId $dataRoot) 'fleet.json'
+        $fleet=ConvertTo-PASOrchestratorHashtable (Read-PASFleetJson $fleetPath)
+        if($fleet.controllerPid -and [string]$fleet.status -in @('Launching','Running') -and (Get-Process -Id ([int]$fleet.controllerPid) -ErrorAction SilentlyContinue)){
+            throw "Deployment $RunId is still running (controller process $($fleet.controllerPid)). Wait for it or stop it first."
+        }
+        $runIds=@($fleet.units|Where-Object {$_.runId}|ForEach-Object {[string]$_.runId})
+    }
+    $runs=@()
+    foreach($id in $runIds){
+        $run=& $core {param($i,$d) Get-PASeasyRun -RunId $i -DataRoot $d} $id $dataRoot
+        if(-not $run){continue}
+        if([string]$run.status -in @('Launching','Running')){throw "Run $id is still running. Wait for it or stop its controller first."}
+        $runs+=,$run
+    }
+    $root=& $core {Get-PASeasyCoordinationRoot}
+    $claims=@(Get-ChildItem -LiteralPath $root -Force -Filter '*.json' -ErrorAction SilentlyContinue|Where-Object {
+        $c=$null; try{$c=Get-Content -LiteralPath $_.FullName -Raw|ConvertFrom-Json}catch{}; $c -and [string]$c.RunId -in $runIds })
+    $toAbandon=@($runs|Where-Object {[string]$_.status -in @('Unknown','Interrupted','LaunchFailed','Failed')})
+    $what="$(@($toAbandon).Count) run(s) marked Abandoned, $($claims.Count) controller claim(s) released; servers are not changed"
+    if(-not ($Force -or $PSCmdlet.ShouldProcess($RunId,$what))){return}
+    foreach($run in $toAbandon){
+        $dir=& $core {param($i,$d) Get-PASeasyRunDirectory $i $d} ([string]$run.id) $dataRoot
+        $path=Join-Path $dir 'run-v2.json'
+        $h=ConvertTo-PASOrchestratorHashtable (Get-Content -LiteralPath $path -Raw|ConvertFrom-Json)
+        $previous=[string]$h.status
+        $h.status='Abandoned';$h.message="Abandoned by operator (was $previous): $Reason";$h.finishedUtc=[DateTime]::UtcNow.ToString('o')
+        & $core {param($p,$d) Write-PASJsonAtomic -Path $p -Data $d} $path $h
+        $evt=[ordered]@{timestampUtc=[DateTime]::UtcNow.ToString('o');event='RunAbandoned';component='';message=$h.message}
+        Add-Content -LiteralPath (Join-Path $dir 'events-v2.jsonl') -Value ($evt|ConvertTo-Json -Compress) -Encoding UTF8
+    }
+    foreach($c in $claims){Remove-Item -LiteralPath $c.FullName -Force}
+    if($isFleet -and [string]$fleet.status -notin @('Succeeded')){
+        $fleet.status='Abandoned';$fleet.message="Abandoned by operator: $Reason";$fleet.finishedUtc=[DateTime]::UtcNow.ToString('o')
+        Write-PASFleetJson $fleetPath $fleet
+        Write-PASFleetEvent (Split-Path -Parent $fleetPath) 'RunAbandoned' $fleet.message
+    }
+    [pscustomobject]@{RunId=$RunId;AbandonedRuns=@($toAbandon|ForEach-Object {[string]$_.id});ReleasedClaims=$claims.Count
+        Note='No server was changed. Reset servers that may hold a partial installation before deploying again.'}
+}

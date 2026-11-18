@@ -14,14 +14,16 @@ password works on the console.
 account names. Keep the plain name `Administrator` in the configuration, because the Vault's management endpoint
 requires an unqualified local account name.
 
-## "Unreconciled resource 'environment-…'" or "PAExecLocked"
+## "Unreconciled resource 'environment-…'", "… has unresolved deployment …" or "PAExecLocked"
 
-**Cause:** a previous run of the same environment failed, and its claims and locks are kept until it is reconciled.
-See [Coordination and locks](../concepts/coordination.md).
+**Cause:** an earlier run of this environment, or one that used the same servers, ended without a known outcome
+(Unknown/Interrupted) or failed while holding a claim. PASeasyInstall will not start another installation on those
+servers until that is resolved, so it never repeats an installer whose result is unknown.
 
-**Fix:** resume that run. If it provably dispatched nothing (for example it failed during validation), remove only
-that run's claim files from `C:\ProgramData\PASeasyInstall-Coordination` and, on Linux targets, the lock folder
-`~/.paeasyinstall/locks/<host>` whose `owner` file contains that run ID.
+**Fix:** if the earlier run can continue, resume it with `Resume-PASeasyDeployment -RunId <id>`. If you reset or
+rebuilt those servers instead, close the old record with
+[`Close-PASDeployment -RunId <id> -Reason '…'`](../commands/close-deployment.md), then install again. For
+`PAExecLocked` on a Linux server that was not reset, also remove `~/.paeasyinstall/locks/<host>` on that server.
 
 ## "Vault media VCx86: Missing"
 

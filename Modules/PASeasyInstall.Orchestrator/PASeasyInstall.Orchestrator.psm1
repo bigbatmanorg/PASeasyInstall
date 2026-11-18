@@ -201,4 +201,4 @@ Export-ModuleMember -Function @('New-PASFreshEnvironment','New-PASExistingVaultC
     'Get-PASMediaInventory','Get-PASMediaSelection','New-PASDeploymentConfiguration',
     'Test-PASEnvironment','Get-PASEnvironmentPlan','Save-PASEnvironment','Start-PASEnvironment',
     'Get-PASEnvironmentSnapshot','Get-PASEnvironmentEvents','Get-PASStageCatalog',
-    'Test-PASEnvironmentHealth','Export-PASRunData')
+    'Test-PASEnvironmentHealth','Export-PASRunData','Close-PASDeployment')

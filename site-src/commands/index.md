@@ -20,6 +20,7 @@ Everything the desktop does is a PowerShell command. Commands never print passwo
 | [`Get-PASStageCatalog`](stage-catalog.md) | List a component's stages |
 | [`Test-PASEnvironmentHealth`](health.md) | Check that an installed lab is healthy |
 | [`Export-PASRunData`](export-rundata.md) | Export a sanitized bundle of a run for support or documentation |
+| [`Close-PASDeployment`](close-deployment.md) | Close an unresolved deployment record after you reset its servers |
 | [`New-PASFreshEnvironment`, `New-PASExistingVaultComponent`](builders.md) | Build single-purpose configurations |
 
 ## A complete lab from a script

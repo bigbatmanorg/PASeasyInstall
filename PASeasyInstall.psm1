@@ -223,4 +223,4 @@ Export-ModuleMember -Function @(
     'New-PASDeploymentConfiguration','Get-PASMediaInventory','Get-PASMediaSelection',
     'Test-PASEnvironment','Get-PASEnvironmentPlan','Save-PASEnvironment','Start-PASEnvironment',
     'Get-PASEnvironmentSnapshot','Get-PASEnvironmentEvents','Get-PASStageCatalog',
-    'Resume-PASeasyDeployment','Test-PASEnvironmentHealth','Export-PASRunData')
+    'Resume-PASeasyDeployment','Test-PASEnvironmentHealth','Export-PASRunData','Close-PASDeployment')

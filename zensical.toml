@@ -62,6 +62,7 @@ nav = [
     { "Get-PASStageCatalog" = "commands/stage-catalog.md" },
     { "Test-PASEnvironmentHealth" = "commands/health.md" },
     { "Export-PASRunData" = "commands/export-rundata.md" },
+    { "Close-PASDeployment" = "commands/close-deployment.md" },
     { "Single-component builders" = "commands/builders.md" },
   ] },
   { "Concepts" = [
