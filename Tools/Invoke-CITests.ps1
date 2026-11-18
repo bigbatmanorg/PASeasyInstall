@@ -14,10 +14,17 @@ Set-Location $repo
 & (Join-Path $repo 'Tools\Check-Modular.ps1') 3>$null
 Import-Module Pester -MinimumVersion 5.5.0 -Force
 $exclude=@(Get-Content (Join-Path $repo 'Tests\ci-exclude.txt')|Where-Object {$_ -and -not $_.TrimStart().StartsWith('#')}|ForEach-Object {($_ -split '\|')[0].Trim()})
+$hosted=($env:GITHUB_ACTIONS -eq 'true')
+if($hosted){
+    # GitHub-hosted runners lack the built-in Administrator identity and lab-controller filesystem layout these
+    # tests assume. They still run on a real Windows Server controller (release gate), see Tests\ci-exclude-hosted.txt.
+    $exclude+=@(Get-Content (Join-Path $repo 'Tests\ci-exclude-hosted.txt')|Where-Object {$_ -and -not $_.TrimStart().StartsWith('#')}|ForEach-Object {($_ -split '\|')[0].Trim()})
+}
 $files=@(Get-ChildItem (Join-Path $repo 'Tests') -Filter '*.Tests.ps1'|Where-Object {$exclude -notcontains $_.Name}|ForEach-Object FullName)
 Write-Host "Running $($files.Count) test files; excluded: $($exclude -join ', ')"
 $c=New-PesterConfiguration
 $c.Run.Path=$files;$c.Run.PassThru=$true;$c.Output.Verbosity='Normal'
+if($hosted){$c.Filter.ExcludeTag=@('RequiresLabController')}
 $c.TestResult.Enabled=$true;$c.TestResult.OutputFormat='NUnitXml';$c.TestResult.OutputPath=[IO.Path]::GetFullPath($ResultPath)
 $r=Invoke-Pester -Configuration $c
 Write-Host "Passed $($r.PassedCount), failed $($r.FailedCount), skipped $($r.SkippedCount)"

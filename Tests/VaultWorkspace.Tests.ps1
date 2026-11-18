@@ -120,7 +120,7 @@ Describe 'Vault atomic archive admission and pinned completion' {
         if($Kind -eq 'size'){{Expand-PASeasyVaultMedia $settings 'PACLI' -MaxBytes 1}|Should -Throw '*size*'}else{{Expand-PASeasyVaultMedia $settings 'PACLI'}|Should -Throw}
         Test-Path $destination|Should -BeFalse
     }
-    It 'limits entry count and removes only its own failed extraction after a write failure' {
+    It 'limits entry count and removes only its own failed extraction after a write failure' -Tag 'RequiresLabController' {
         New-VaultZip $zip @(@{Name='Pacli.exe';Body='safe'},@{Name='other.dll';Body='fixture'})
         Invoke-PASeasyWithRestorePrivilege {([IO.FileInfo]::new($zip)).SetAccessControl((New-PASeasyVaultSecurity $false))}
         {Expand-PASeasyVaultMedia $settings 'PACLI' -MaxFiles 1}|Should -Throw '*count*'

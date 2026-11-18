@@ -90,7 +90,7 @@ Describe 'Protected key generation publication (mocked vendor execution)' {
         Test-Path (Join-Path $settings.KeysDir '.paeasy-key-generation.claim.json')|Should -BeFalse
         Should -Invoke Invoke-PASeasyKeyNative -Times 0
     }
-    It 'retains partial publication without overwriting or regenerating' {
+    It 'retains partial publication without overwriting or regenerating' -Tag 'RequiresLabController' {
         Mock Write-PASeasyVaultOwnedFile {throw 'Synthetic protected publication failure'} -ParameterFilter {$Path -like '*\keys\recprv.key'}
         {Invoke-PASeasyKeyGeneration $settings}|Should -Throw '*publication failure*'
         Test-Path (Join-Path $settings.KeysDir 'server.key')|Should -BeTrue

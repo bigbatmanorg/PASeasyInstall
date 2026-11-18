@@ -109,7 +109,7 @@ Describe 'Stable workspace ownership across elevated identities' {
         $after.GetOwner([Security.Principal.SecurityIdentifier]).Value|Should -BeExactly 'S-1-5-32-544'
         @($after.Access|Where-Object {$_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -notin @('S-1-5-18','S-1-5-32-544')}).Count|Should -Be 0
     }
-    It 'does not trust a previous virtual-account SID namespace' {
+    It 'does not trust a previous virtual-account SID namespace' -Tag 'RequiresLabController' {
         $base=Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         $media=Join-Path $base 'media\oldva\installer.zip';New-Item -ItemType Directory (Split-Path -Parent $media) -Force|Out-Null
         Set-Content $media 'fixture'

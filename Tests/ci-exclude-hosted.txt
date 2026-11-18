@@ -1,0 +1,5 @@
+# Excluded ONLY on GitHub-hosted runners (GITHUB_ACTIONS=true). They pass on a real Windows Server controller,
+# which remains the release gate. Tests tagged 'RequiresLabController' are skipped on hosted runners as well:
+#   ComponentWorkspace: virtual-account SID namespace test; KeyGeneration: partial publication test;
+#   VaultWorkspace: failed-extraction cleanup test (mock path filters depend on the controller filesystem layout).
+ManagementEndpoint.Tests.ps1 | translates the built-in local Administrator identity, which hosted runners do not have
