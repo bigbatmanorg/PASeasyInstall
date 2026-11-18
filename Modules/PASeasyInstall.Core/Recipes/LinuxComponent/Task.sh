@@ -43,6 +43,13 @@ if [[ $type != 'PSMP' && $type != 'PTA' ]]; then echo "Unsupported Linux recipe 
 # v15 SingleStepRunner uses this same signed vendor wizard and stdin contract.
 # This explicit transport keeps SELinux enforcing when installer-webapp authentication
 # is incompatible with the supplied ptaweb policy. The API variant remains separate.
+paeasy_needrestart_guard() {
+    # Ubuntu's needrestart restarts services after library upgrades (also those run by unattended-upgrades).
+    # PASeasyInstall attempt units must never be restarted mid-stage; this rule only exempts them.
+    [[ -d /etc/needrestart ]] || return 0
+    install -d -m 755 /etc/needrestart/conf.d || return 0
+    printf '%s\n' '# PASeasyInstall: never restart its own attempt units mid-stage.' '$nrconf{override_rc}{qr(^paeasy-.*)} = 0;' > /etc/needrestart/conf.d/90-paeasyinstall.conf || true
+}
 # BEGIN PAEASY_UBUNTU24_PSMP_BASELINE (identical independent Task/Verify closure)
 psmp_ubuntu_trusted() {
     local path=$1 mode owner
@@ -527,11 +534,12 @@ if [[ $type = PTA ]];then pta_os_preflight || exit 3;fi
 case "$stage" in
   Preflight)
     [[ -f "$media" ]] || { echo "Media missing: $media" >&2; exit 3; }
+    paeasy_needrestart_guard
     if ! command -v unzip >/dev/null; then
       # unzip is an installer prerequisite missing from minimal/cloud images: install it from the OS repositories.
       if command -v apt-get >/dev/null; then
-        DEBIAN_FRONTEND=noninteractive timeout 600 apt-get -q update >/dev/null 2>&1 || true
-        DEBIAN_FRONTEND=noninteractive timeout 600 apt-get -q install -y unzip >/dev/null 2>&1 || true
+        DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 timeout 600 apt-get -q update >/dev/null 2>&1 || true
+        DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 timeout 600 apt-get -q install -y --no-upgrade unzip >/dev/null 2>&1 || true
       elif command -v dnf >/dev/null; then
         timeout 600 dnf -q install -y unzip >/dev/null 2>&1 || true
       fi
@@ -570,7 +578,10 @@ case "$stage" in
     if [[ $type = 'PSMP' ]]; then
       command -v systemctl >/dev/null || exit 4
       if [[ $ID = ubuntu ]]; then
-        DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=180 install -y libssh-4 libpam-runtime openssh-server acl
+        paeasy_needrestart_guard
+        # Install only what is missing: upgrading installed packages here (e.g. libc6) makes needrestart restart
+        # services, which can include this very attempt. OS updates are the operator's decision.
+        DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 apt-get -o DPkg::Lock::Timeout=180 install -y --no-upgrade libssh-4 libpam-runtime openssh-server acl
       else
         command -v dnf >/dev/null || exit 4
         install_missing_rpms policycoreutils-python-utils gnupg2 openssh-clients openssh-server acl
