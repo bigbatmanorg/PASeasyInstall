@@ -1,0 +1,22 @@
+# Protected secrets and vendor installation media
+*.key
+*.p12
+*.pfx
+*.cer
+*.lic
+license.xml
+**/credentials-*.json
+**/secrets*.json
+**/install_media/
+**/media/
+**/RunState/
+**/Runs/
+**/Evidence/secret*/
+*.zip
+# Internal generated resources
+__pycache__/
+.venv/
+.vscode/
+.codex/
+artifacts/
+*.nupkg

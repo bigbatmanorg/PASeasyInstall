@@ -1,0 +1,15 @@
+{
+  "ImportedUtc": "2026-11-14T17:14:19.9467192Z",
+  "PSSteps": {
+    "Commit": "adf2089bc996c99cb8258daa60189484dde2baef",
+    "Repository": "https://github.com/bigbatmanorg/pssteps.git",
+    "License": "MIT"
+  },
+  "PASInstaller": {
+    "Commit": "2478beade4cb4b910c629dfac8499bf7a88aa3e4",
+    "Repository": "https://github.com/bigbatmanorg/pas-installer.git",
+    "License": "MIT"
+  },
+  "PrimaryOnly": "Derived from proven primary workflow: removes DR Safe dependency and DR user setup; requires independent lab qualification",
+  "Notes": "No vendor media, licenses, keys or credentials imported"
+}
