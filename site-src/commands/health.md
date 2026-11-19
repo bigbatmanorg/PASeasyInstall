@@ -26,19 +26,29 @@ $h = Test-PASEnvironmentHealth -Config C:\Labs\Lab01.json -VaultCredential (Get-
 $h.Components | Format-Table Component,User,Address,LoggedOn,Version
 ```
 
-Observed in the reference lab, as the Vault reported it:
+Captured with 1.0 on a PAM 15.2 lab (addresses replaced). Both PSMP servers had been shut down, which is what
+"not logged on" looks like:
 
 ```text
-Component         User              Address     LoggedOn Version
----------         ----              -------     -------- -------
-PVWA              PVWAAppUser       10.10.0.21  True     15.0.0.58
-CPM               PasswordManager   10.10.0.22  True     15.0.0.58
-SessionManagement PSMApp_PAS-PSM    10.10.0.23  True     15.0.0.58
-SessionManagement PSMPApp_PAS-PSMP  10.10.0.31  True     15.0.0.0
+PS> $h.Healthy; $h.TlsValidation; $h.Issues
+False
+PinnedCertificate+HostName
+SessionManagement PSMPApp_LB-PSMP (10.10.0.31) is not logged on to the Vault
+SessionManagement PSMPApp_LB-PSMP2 (10.10.0.32) is not logged on to the Vault
+
+PS> $h.Components | Format-Table Component,User,Address,LoggedOn,Version
+
+Component         User             Address     LoggedOn Version
+---------         ----             -------     -------- -------
+PVWA              PVWAAppUser      10.10.0.21      True 15.2.4.115
+CPM               PasswordManager  10.10.0.21      True 15.2.4.115
+SessionManagement PSMApp_LB-PSM    10.10.0.23      True 15.2.4.115
+SessionManagement PSMPApp_LB-PSMP  10.10.0.31     False 15.2.4.0
+SessionManagement PSMPApp_LB-PSMP2 10.10.0.32     False 15.2.4.0
 ```
 
-<!-- TODO(parent): replace with real captured Test-PASEnvironmentHealth output (the values above are from the lab
-     health check script, reformatted to the command's Components columns). -->
+The PVWA certificate is pinned automatically when the deployment captured it for CPM at install time (desktop and
+composed labs), or from `-PvwaCertificateFile`.
 
 A component that is installed but **not** logged on usually means its server is stopped, it cannot reach the Vault,
 or the Vault restarted underneath it. See [Troubleshooting](../troubleshooting/index.md).
