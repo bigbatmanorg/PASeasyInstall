@@ -200,6 +200,10 @@ Describe 'Pinned PSM registry informational status' {
         $script:record.InvocationInfo.ScriptLineNumber=699;$script:record.InvocationInfo.Line='$rc = Reg delete $RegistryBackupPath'
         Test-PASeasyPinnedRegImportInfo $script:record|Should -BeFalse
     }
+    It 'accepts the reviewed 15.2.2 build of the same source (re-signed, identical code)' {
+        Mock Get-FileHash {@{Hash='1E9B54FD138C590C38B346976DF822F0431E32F9157D399B041A00E6B7BDFBBB'}}
+        Test-PASeasyPinnedRegImportInfo $script:record|Should -BeTrue
+    }
     It 'rejects changed source hashes, other messages and PowerShell error classes' {
         Mock Get-FileHash {@{Hash=('0'*64)}}
         Test-PASeasyPinnedRegImportInfo $script:record|Should -BeFalse

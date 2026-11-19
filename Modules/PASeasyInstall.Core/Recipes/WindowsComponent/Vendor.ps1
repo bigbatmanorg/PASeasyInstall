@@ -1,4 +1,4 @@
-# Exact informational native status from the supplied, independently hashed v15 PSM source.
+# Exact informational native status from the supplied, independently hashed v15.0/v15.2 PSM source.
 function Test-PASeasyPinnedRegImportInfo {
     param([Parameter(Mandatory)]$Record)
     try {
@@ -11,7 +11,9 @@ function Test-PASeasyPinnedRegImportInfo {
         $where=$Record.InvocationInfo
         if(-not $where -or [IO.Path]::GetFileName([string]$where.ScriptName) -cne 'InstallationCommon.ps1' -or $where.ScriptLineNumber -ne 699 -or [string]$where.Line -notmatch '^\s*\$rc\s*=\s*Reg\s+import\s+\$RegistryBackupPath\s*$'){return $false}
         if(-not(Test-Path -LiteralPath $where.ScriptName -PathType Leaf)){return $false}
-        return ((Get-FileHash -LiteralPath $where.ScriptName -Algorithm SHA256 -ErrorAction Stop).Hash -ieq '5CB31809DFD0A16A3AD0EBA2DCC1E1E5A1BE9121696738A0DE40CC0F3D6E21BA')
+        # Reviewed InstallationCommon.ps1 builds: 15.0 and 15.2.2 (identical code; only the Authenticode block differs).
+        $reviewed=@('5CB31809DFD0A16A3AD0EBA2DCC1E1E5A1BE9121696738A0DE40CC0F3D6E21BA','1E9B54FD138C590C38B346976DF822F0431E32F9157D399B041A00E6B7BDFBBB')
+        return ((Get-FileHash -LiteralPath $where.ScriptName -Algorithm SHA256 -ErrorAction Stop).Hash.ToUpperInvariant() -in $reviewed)
     }catch{return $false}
 }
 # Vendor scripts use relative modules/configuration paths. Parameter names must be splatted
