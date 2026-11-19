@@ -11,7 +11,7 @@ Start-PASeasyInstall [-Config <path>] [-Advanced] [-Backend Orchestrator|Mock] [
 | `-Backend` | `Orchestrator` (default) drives the real installer. `Mock` simulates plans and installations and never contacts a server. |
 | `-Theme` | `v2` (default, dark and compact) or `v1` (light). |
 | `-Advanced` | Shows advanced options. |
-| `-Config` | A project file. <!-- TODO(parent): reopening a saved project in the desktop is not wired yet; document once it is. --> |
+| `-Config` | Reserved. Reopening a saved project in the desktop is not part of 1.0; run a saved project with [`Invoke-PASeasyInstall`](invoke-paseasyinstall.md). |
 
 The desktop runs in its own process. Closing it never stops an installation that is already running.
 

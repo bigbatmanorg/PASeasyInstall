@@ -22,8 +22,6 @@ and a new run against a locked server with:
 PAExecLocked: target 'psmp01' is locked by another run (locked:<runId>); inspect before any takeover
 ```
 
-**What to do:** resume the owning run (`Resume-PASeasyDeployment`). Or, if the failed run provably dispatched nothing
-to the server (for example it failed during validation), remove only that run's claims and locks. See
-[Troubleshooting](../troubleshooting/index.md).
-
-<!-- TODO(parent): link the stale-lock command once it exists (release plan item 4). -->
+**What to do:** resume the owning run (`Resume-PASeasyDeployment`). If you will not resume it (for example you reset
+the server), close it with [`Close-PASDeployment`](../commands/close-deployment.md): the run is marked Abandoned and
+only its own claims are released; servers are not contacted. See [Troubleshooting](../troubleshooting/index.md).

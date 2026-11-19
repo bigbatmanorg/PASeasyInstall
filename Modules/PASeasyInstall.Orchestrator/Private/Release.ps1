@@ -46,6 +46,21 @@ function Get-PASHealthPinnedCertificate {
             if($f -and (Test-Path -LiteralPath $f -PathType Leaf)){return $f}
         }
     }
+    # A CPM that trusts 'the PVWA of this deployment' had that certificate read over the authenticated management
+    # channel at install time and stored with the composed deployment: reuse the newest one for this environment.
+    foreach($comp in @($Configuration.components|Where-Object {$_ -and $_.type -eq 'CPM'})){
+        if(-not($comp -is [System.Collections.IDictionary] -and $comp.Contains('options') -and $comp.options -and $comp.options.Contains('pvwaTrustFrom'))){continue}
+        $src=[string]$comp.options.pvwaTrustFrom
+        if($src -notmatch '^[a-z0-9][a-z0-9_-]{0,63}$'){continue}
+        $root=Get-PASFleetRoot
+        if(-not(Test-Path -LiteralPath $root)){continue}
+        foreach($d in @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue|Sort-Object LastWriteTimeUtc -Descending)){
+            $cer=Join-Path $d.FullName ('pvwa-trust-'+$src+'.cer')
+            if(-not(Test-Path -LiteralPath $cer -PathType Leaf)){continue}
+            $f=Read-PASFleetJson (Join-Path $d.FullName 'fleet.json')
+            if($f -and [string]$f.name -eq [string]$Configuration.name){return $cer}
+        }
+    }
     return ''
 }
 
@@ -157,7 +172,8 @@ function Test-PASEnvironmentHealth {
         try{
             $token=Invoke-RestMethod -Method Post -Uri ($api+'/auth/CyberArk/Logon') -Body $body -ContentType 'application/json' -TimeoutSec $TimeoutSeconds -ErrorAction Stop
         }catch{
-            $text=[string]$_.ErrorDetails.Message+' '+[string]$_.Exception.Message
+            $details=if($_.ErrorDetails){[string]$_.ErrorDetails.Message}else{''}
+            $text=$details+' '+[string]$_.Exception.Message
             if($text -match 'PASWS383E'){
                 $result.PvwaLogin='VaultMaintenanceMode'
                 [void]$issues.Add('PVWA reports PASWS383E (Vault maintenance mode). It most likely started before the Vault was up: recycle the PasswordVaultWebAccessPool app pool on the PVWA server.')
