@@ -41,4 +41,21 @@ Get-PASEnvironmentSnapshot -RunId $id
 Invoke-PASeasyInstall -Resume 476e08eea7024de4ab7cfb889cd1c5f1 -RetryFailedPreflight
 ```
 
-<!-- TODO(parent): add a real captured -PlanOnly / -Wait transcript from the test campaign. -->
+Captured with 1.0 for a full lab (Primary + DR, PVWA, CPM, PSM, PSMP; Lab profile, servers in parallel):
+
+```text
+PS> $plan = Invoke-PASeasyInstall -Config C:\Labs\Lab01.json -PlanOnly
+PS> $plan.Items | Format-Table Id,Type,Address,Os,DependsOn
+
+Id     Type    Address    Os      DependsOn
+--     ----    -------    --      ---------
+vault  Vault   10.10.0.11 Windows {}
+dr     DRVault 10.10.0.12 Windows {vault}
+pvwa01 PVWA    10.10.0.21 Windows {vault}
+cpm01  CPM     10.10.0.22 Windows {vault, pvwa01}
+psm01  PSM     10.10.0.23 Windows {vault, pvwa01}
+psmp01 PSMP    10.10.0.31 Linux   {vault, pvwa01}
+```
+
+`$plan.Warnings` lists every deviation the Lab profile makes (for example `SECURITY DEVIATION: WinRM.SkipCACheck = True`)
+and notes such as the PSMP distribution check. Nothing is contacted.
