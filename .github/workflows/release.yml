@@ -34,7 +34,7 @@ jobs:
         id: version
         run: |
           $d = Import-PowerShellDataFile .\PASeasyInstall.psd1
-          $pre = [string]$d.PrivateData.PSData.Prerelease
+          $pre = [string]$d['PrivateData']['PSData']['Prerelease']
           $v = [string]$d.ModuleVersion + $(if ($pre) { "-$pre" } else { '' })
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$v") {
             throw "Tag $env:GITHUB_REF_NAME does not match the manifest version v$v"

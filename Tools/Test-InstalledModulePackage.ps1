@@ -31,7 +31,7 @@ try{
     $available=@(Get-Module PASeasyInstall -ListAvailable)
     if(-not $available.Count){throw 'PASeasyInstall is not installed or not on PSModulePath'}
     $match=@($available|Where-Object {
-        $pre=[string]$_.PrivateData.PSData.Prerelease
+        $pre=if($_.PrivateData -and $_.PrivateData['PSData']){[string]$_.PrivateData['PSData']['Prerelease']}else{''}
         ([string]$_.Version+$(if($pre){'-'+$pre}else{''})) -eq $ExpectedVersion})
     if(-not $match.Count){throw ("Expected $ExpectedVersion; found: "+(($available|ForEach-Object {[string]$_.Version}) -join ', '))}
     Pass 'installedAt' $match[0].ModuleBase

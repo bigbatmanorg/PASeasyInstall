@@ -88,18 +88,20 @@ services and `/opt/paeasyinstall`, so it runs as root.
 
 ## PSMP preflight: "unzip required"
 
-**Cause:** Ubuntu cloud images don't ship `unzip`. Since 1.0.0-rc3 the preflight installs it from the OS
-repositories itself; this message means the server could not reach its package repositories.
+**Cause:** the server has no `unzip`, and the preflight could not install it from the OS repositories (it does so
+automatically when they are reachable).
 
 **Fix:** make the OS repositories reachable (or `apt-get install -y unzip` on the PSMP server), then resume the run
 with `-RetryFailedPreflight`.
 
 ## PSMP register: "User [PSMPApp_<host>] already exists in the Vault"
 
-**Cause:** the server was rebuilt and PSMP installed again; its PSMP users from the first installation are still in
-the Vault. Versions before 1.0.0-rc12 did not let the vendor setup recreate their credential files.
+**Cause:** PASeasyInstall lets the vendor setup recreate the credential files of an existing PSMP server's users, so a
+rebuilt server re-registers by itself. This message means the setup still refused, for example because another PSMP
+server with the same hostname is registered and running.
 
-**Fix:** use 1.0.0-rc12 or later, reset the PSMP server, and start the deployment again.
+**Fix:** give each PSMP server a unique hostname. If the old server is gone, remove its `PSMPApp_<host>`,
+`PSMPGW_<host>` and `PSMP_ADB_<host>` users in PVWA (**Administration → Users**), then start the deployment again.
 
 ## Recordings not visible: "PSMRecordings" not found
 
