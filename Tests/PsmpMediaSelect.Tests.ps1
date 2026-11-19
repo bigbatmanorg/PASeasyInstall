@@ -20,7 +20,7 @@ Describe 'PSMP package for the server distribution' {
         Set-Content $u 'u'; Set-Content $r 'r'
         InModuleScope PASeasyInstall.Orchestrator -Parameters @{ U = $u; R = $r; H = $script:host9 } {
             param($U, $R, $H)
-            Mock Invoke-PASNativeQuiet { [pscustomobject]@{ ExitCode = 0; Output = 'rocky|9.8|rhel centos fedora|Rocky Linux 9.8 (Blue Onyx)' } }
+            Mock Invoke-PASNativeQuiet { [pscustomobject]@{ ExitCode = 0; Output = "NAME=`"Rocky Linux`"`nVERSION_ID=`"9.8`"`nID=`"rocky`"`nID_LIKE=`"rhel centos fedora`"`nPRETTY_NAME=`"Rocky Linux 9.8 (Blue Onyx)`"" } }
             Mock Write-PASFleetEvent {}
             $c = @{ id = 'psmp'; type = 'PSMP'; media = $U; mediaSource = @{ path = $U; entry = '' } }
             Select-PASPsmpMediaForHost -Component $c -HostRecord $H -Directory 'x' -DataRoot $TestDrive
@@ -38,7 +38,7 @@ Describe 'PSMP package for the server distribution' {
         $z.Dispose()
         InModuleScope PASeasyInstall.Orchestrator -Parameters @{ B = $bundle; H = $script:host9 } {
             param($B, $H)
-            Mock Invoke-PASNativeQuiet { [pscustomobject]@{ ExitCode = 0; Output = 'rocky|9.8|rhel centos fedora|Rocky Linux 9.8' } }
+            Mock Invoke-PASNativeQuiet { [pscustomobject]@{ ExitCode = 0; Output = "ID=rocky`nVERSION_ID=9.8`nID_LIKE='rhel centos fedora'`nPRETTY_NAME=`"Rocky Linux 9.8`"" } }
             Mock Write-PASFleetEvent {}
             $c = @{ id = 'psmp'; type = 'PSMP'; media = 'C:\cache\PrivilegedSessionManagerSSHProxy-Ubuntu24-Intel64-Rls-v15.2.1.zip'
                 mediaSource = @{ path = $B; entry = 'PSMP/PrivilegedSessionManagerSSHProxy-Ubuntu24-Intel64-Rls-v15.2.1.zip' } }
@@ -51,12 +51,21 @@ Describe 'PSMP package for the server distribution' {
         InModuleScope PASeasyInstall.Orchestrator -Parameters @{ H = $script:host9; D = $TestDrive } {
             param($H, $D)
             Mock Write-PASFleetEvent {}
-            Mock Invoke-PASNativeQuiet { [pscustomobject]@{ ExitCode = 0; Output = 'ubuntu|24.04|debian|Ubuntu 24.04' } }
+            Mock Invoke-PASNativeQuiet { [pscustomobject]@{ ExitCode = 0; Output = "ID=ubuntu`nVERSION_ID=`"24.04`"`nID_LIKE=debian`nPRETTY_NAME=`"Ubuntu 24.04`"" } }
             $c = @{ id = 'psmp'; type = 'PSMP'; media = (Join-Path $D 'PrivilegedSessionManagerSSHProxy-Ubuntu24-Intel64-Rls-v15.2.1.zip') }
             Select-PASPsmpMediaForHost -Component $c -HostRecord $H -Directory 'x' -DataRoot $D
             $c.media | Should -BeLike '*Ubuntu24*'
-            Mock Invoke-PASNativeQuiet { [pscustomobject]@{ ExitCode = 0; Output = 'rocky|8.10|rhel|Rocky Linux 8.10' } }
+            Mock Invoke-PASNativeQuiet { [pscustomobject]@{ ExitCode = 0; Output = "ID=`"rocky`"`nVERSION_ID=`"8.10`"`nID_LIKE=`"rhel`"`nPRETTY_NAME=`"Rocky Linux 8.10`"" } }
             { Select-PASPsmpMediaForHost -Component $c -HostRecord $H -Directory 'x' -DataRoot $D } | Should -Throw '*is for Ubuntu24*Rocky Linux 8.10*RHELinux8*'
+        }
+    }
+    It 'sends a remote command the SSH tool wrapper accepts' {
+        InModuleScope PASeasyInstall.Orchestrator -Parameters @{ H = $script:host9; D = $TestDrive } {
+            param($H, $D)
+            Mock Write-PASFleetEvent {}
+            Mock Invoke-PASNativeQuiet { foreach ($a in $Arguments) { if ([string]$a -match '["%!\r\n]') { throw 'Unsupported character in an SSH tool argument' } }; [pscustomobject]@{ ExitCode = 0; Output = "ID=ubuntu`nVERSION_ID=24.04" } }
+            $c = @{ id = 'psmp'; type = 'PSMP'; media = (Join-Path $D 'PrivilegedSessionManagerSSHProxy-Ubuntu24-Intel64-Rls-v15.2.1.zip') }
+            { Select-PASPsmpMediaForHost -Component $c -HostRecord $H -Directory 'x' -DataRoot $D } | Should -Not -Throw
         }
     }
 }

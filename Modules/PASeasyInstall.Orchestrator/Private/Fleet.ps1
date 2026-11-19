@@ -382,6 +382,15 @@ function Invoke-PASNativeQuiet {
         return @{ExitCode=$process.ExitCode;Output=$text.TrimEnd()}
     }finally{if($process){$process.Dispose()};Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue}
 }
+function ConvertFrom-PASOsRelease {
+    <# Parses /etc/os-release text (KEY=value, value optionally quoted) into a hashtable. #>
+    param([string]$Text)
+    $o=@{}
+    foreach($l in @($Text -split "`n")){
+        if($l -match '^\s*([A-Z_][A-Z0-9_]*)=(.*)$'){$v=$Matches[2].Trim();if($v.Length -ge 2 -and $v[0] -eq $v[-1] -and $v[0] -in @([char]'"',[char]"'")){$v=$v.Substring(1,$v.Length-2)};$o[$Matches[1]]=$v}
+    }
+    return $o
+}
 function Get-PASPsmpVariantForOs {
     <# Maps /etc/os-release ID, VERSION_ID and ID_LIKE to the vendor's PSMP package variant name. #>
     param([string]$Id,[string]$VersionId,[string]$IdLike)
@@ -402,12 +411,13 @@ function Select-PASPsmpMediaForHost {
     if(-not $have){return}
     $base=@('-i',[string]$HostRecord.identityFile,'-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=yes','-o',('UserKnownHostsFile='+[string]$HostRecord.knownHostsFile),'-o','ConnectTimeout=15','-n')
     if($HostRecord.Contains('port') -and $HostRecord.port){$base+=@('-p',[string][int]$HostRecord.port)}
-    $r=Invoke-PASNativeQuiet 'ssh.exe' ($base+@(([string]$HostRecord.user+'@'+[string]$HostRecord.address),'. /etc/os-release; echo "$ID|$VERSION_ID|$ID_LIKE|$PRETTY_NAME"'))
-    $line=@(([string]$r.Output) -split "`n" | Where-Object {$_ -match '\|'})[0]
-    if($r.ExitCode -ne 0 -or -not $line){throw "Cannot read the operating system of $($HostRecord.address): $($r.Output)"}
-    $f=$line.Trim() -split '\|'
-    $want=Get-PASPsmpVariantForOs $f[0] $f[1] $f[2]
-    $pretty=if($f.Count -gt 3 -and $f[3]){$f[3]}else{"$($f[0]) $($f[1])"}
+    # Plain command: the SSH tool wrapper refuses quotes in arguments; the file is parsed here.
+    $r=Invoke-PASNativeQuiet 'ssh.exe' ($base+@(([string]$HostRecord.user+'@'+[string]$HostRecord.address),'cat /etc/os-release'))
+    $os=ConvertFrom-PASOsRelease ([string]$r.Output)
+    $osId=[string]$os['ID'];$osVer=[string]$os['VERSION_ID']
+    if($r.ExitCode -ne 0 -or -not $osId){throw "Cannot read the operating system of $($HostRecord.address): $($r.Output)"}
+    $want=Get-PASPsmpVariantForOs $osId $osVer ([string]$os['ID_LIKE'])
+    $pretty=if($os['PRETTY_NAME']){[string]$os['PRETTY_NAME']}else{"$osId $osVer"}
     if(-not $want){throw "PSMP does not support $pretty on $($HostRecord.address) (supported: Ubuntu 22/24, RHEL-family 8/9, SLES 15)."}
     if($want -eq $have){return}
     $wantName=$name -replace ('(?i)SSHProxy-'+[regex]::Escape($have)+'-'),('SSHProxy-'+$want+'-')
