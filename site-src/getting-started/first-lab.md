@@ -53,11 +53,20 @@ redistributables into one folder, for example `C:\CyberArk\media`.
 
 ## 4. Watch it run
 
-The Vault installs first (about 10 minutes, including hardening and a reboot), then the DR Vault, then PVWA, and then CPM,
-PSM and PSMP in parallel. PSM reboots several times; that is expected. A full lab typically completes in 40–60
-minutes, depending on your hardware.
+The Vault installs first, then the DR Vault, then PVWA, and then CPM, PSM and PSMP in parallel. PSM reboots several
+times; that is expected. Measured in the 1.0 test labs (PAM 15.0 and 15.2, 2–4 vCPU servers):
 
-<!-- TODO(parent): replace the timing with measured numbers from the test campaign. -->
+| Step | Time |
+|---|---|
+| Vault alone | about 7 minutes |
+| Vault + DR pair | about 17 minutes |
+| PVWA | about 8 minutes |
+| CPM | about 4 minutes |
+| PSM (several reboots) | 13–15 minutes |
+| PSMP | 3–6 minutes |
+
+With **Servers in parallel** selected, a full lab (Vault + DR, PVWA, CPM, PSM, PSMP) takes about 40 minutes plus
+media upload; one server at a time takes about an hour.
 
 ## 5. Check the result
 

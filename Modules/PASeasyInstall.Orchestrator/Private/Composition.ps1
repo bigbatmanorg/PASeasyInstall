@@ -315,5 +315,17 @@ function Add-PASPlanDetail {
     $existing=if($Configuration.vault.existing){[string]$Configuration.vault.address}else{''}
     $Plan|Add-Member -NotePropertyName ExistingVault -NotePropertyValue $existing -Force
     if($Configuration.Contains('execution') -and $Configuration.execution.mode){$Plan.ExecutionMode=[string]$Configuration.execution.mode}
+    # Show the order the composed deployment really uses (e.g. CPM, PSM and PSMP wait for the first PVWA), not only
+    # the engine's per-component Vault dependency.
+    if($Configuration.Contains('execution')){
+        $byComponent=@{}
+        foreach($u in @(Get-PASFleetUnits -Configuration $Configuration)){
+            if($u.id -eq 'vault'){continue}
+            foreach($cid in @($u.components)){$byComponent[[string]$cid]=@($u.dependsOn)}
+        }
+        foreach($item in @($Plan.Items)){
+            if($byComponent.ContainsKey([string]$item.Id)){$item|Add-Member -NotePropertyName DependsOn -NotePropertyValue @($byComponent[[string]$item.Id]) -Force}
+        }
+    }
     return $Plan
 }
