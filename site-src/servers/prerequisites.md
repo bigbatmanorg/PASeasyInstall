@@ -23,9 +23,12 @@ Vault, DR, PVWA, CPM, PSM and the optional domain controller run on **Windows Se
 ## PSMP (Linux)
 
 - Ubuntu 24.04 (or RHEL/Rocky 8/9), with a static address and a unique hostname.
-- `unzip` installed (`apt-get install -y unzip`). Ubuntu cloud images do not include it.
-- SSH (TCP 22) from the controller. Allow `root` (or the account you enter) to sign in **with its password once**, so
-  PASeasyInstall can authorise its own key. Or authorise the controller's public key yourself when the run asks for it.
+- `jq` installed (included in Ubuntu and Rocky cloud images). `unzip` is installed by the run when missing.
+- SSH (TCP 22) from the controller, signing in as **`root`**: the installation writes system packages, services and
+  `/opt/paeasyinstall`, so other accounts (even with `sudo`) are refused at the start with a clear message.
+  Allow `root` to sign in **with its password once**, so PASeasyInstall can authorise its own key, or authorise the
+  controller's public key for `root` yourself when the run asks for it. Cloud images usually block this; for
+  example, set a root password and add `PermitRootLogin yes` to a file in `/etc/ssh/sshd_config.d/` while you install.
 
 ## Check from the controller
 

@@ -6,7 +6,7 @@ Passwords stay in memory for this session only. They are never written to the pr
 
 - **Default username on Windows servers:** `Administrator`. This is the local administrator account the controller
   signs in with. A plain name is used as the target's **local** account (`.\Administrator`).
-- **Default username on Linux servers:** `root`.
+- **Username on Linux servers:** `root`. The Linux installation runs as root; other accounts are refused when the run starts.
 - **Use a different username on some servers** shows a per-server table.
 
 ## Lab mode

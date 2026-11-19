@@ -379,6 +379,17 @@ function Invoke-PASNativeQuiet {
         return @{ExitCode=$process.ExitCode;Output=$text.TrimEnd()}
     }finally{if($process){$process.Dispose()};Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue}
 }
+function Assert-PASSshRoot {
+    <# Linux stages install packages, write /opt/paeasyinstall and systemd units: they run as root. Checked
+       right after key sign-in works, so a non-root account fails here with a clear message instead of
+       halfway through the media upload. #>
+    param([string]$Key,[object[]]$Base,[string]$User,[string]$Address)
+    $r=Invoke-PASNativeQuiet 'ssh.exe' (@('-i',$Key,'-o','BatchMode=yes','-o','IdentitiesOnly=yes')+$Base+@(($User+'@'+$Address),'id -u'))
+    $uid=([string]$r.Output).Trim()
+    if($r.ExitCode -ne 0 -or $uid -ne '0'){
+        throw "PASeasyInstall signs in to Linux servers as root, but $User@$Address is not root (uid '$uid'). Use the root account: allow root to sign in with its password once (for example 'PermitRootLogin yes' while you install), or authorise the controller key for root."
+    }
+}
 function Invoke-PASSshBootstrap {
     <# Makes key-based SSH work for one Linux server:
          1. the controller key exists (generated once per environment, private to this user);
@@ -416,7 +427,7 @@ function Invoke-PASSshBootstrap {
     $base=@('-o','StrictHostKeyChecking=yes','-o',('UserKnownHostsFile='+$known),'-o','ConnectTimeout=15','-n')
     if($port){$base+=@('-p',$port)}
     $probe=Invoke-PASNativeQuiet 'ssh.exe' (@('-i',$key,'-o','BatchMode=yes','-o','IdentitiesOnly=yes')+$base+@(($user+'@'+$addr),'true'))
-    if($probe.ExitCode -eq 0){Write-PASFleetEvent $Directory 'TaskCompleted' "Key-based SSH to $user@$addr works" $HostId 'ssh-bootstrap';return}
+    if($probe.ExitCode -eq 0){Assert-PASSshRoot $key $base $user $addr;Write-PASFleetEvent $Directory 'TaskCompleted' "Key-based SSH to $user@$addr works" $HostId 'ssh-bootstrap';return}
     $pub=([IO.File]::ReadAllText($key+'.pub')).Trim()
     if(-not $Credential -or $Credential.Password.Length -eq 0){throw "Key-based SSH to $user@$addr is not authorised and no password was given. Authorise this key for $user on the server: $pub"}
     if($pub -notmatch '^ssh-ed25519 [A-Za-z0-9+/=]+ [A-Za-z0-9@._-]+$'){throw 'Unexpected controller public key format'}
@@ -440,6 +451,7 @@ function Invoke-PASSshBootstrap {
     if($r.ExitCode -ne 0){throw "Password sign-in to $user@$addr failed (the server may refuse password logins for $user). Authorise this key for $user on the server instead: $pub"}
     $probe=Invoke-PASNativeQuiet 'ssh.exe' (@('-i',$key,'-o','BatchMode=yes','-o','IdentitiesOnly=yes')+$base+@(($user+'@'+$addr),'true'))
     if($probe.ExitCode -ne 0){throw "The controller key was added for $user@$addr but key sign-in still fails: $($probe.Output)"}
+    Assert-PASSshRoot $key $base $user $addr
     Write-PASFleetEvent $Directory 'TaskCompleted' "Authorised the controller key for $user@$addr (password used once, not stored)" $HostId 'ssh-bootstrap'
 }
 

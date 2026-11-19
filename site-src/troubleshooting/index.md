@@ -77,6 +77,15 @@ the DR Vault is stopped.
 
 **Fix:** start the DR Vault. It catches up within one replication cycle.
 
+## Linux: "signs in to Linux servers as root, but … is not root"
+
+**Cause:** the account entered for the Linux server is not `root`. The installation writes system packages,
+services and `/opt/paeasyinstall`, so it runs as root.
+
+**Fix:** use `root`. If the server's image blocks root sign-in, allow it while you install (a root password and
+`PermitRootLogin yes` in `/etc/ssh/sshd_config.d/`), or authorise the controller key for root. See
+[Prerequisites](../servers/prerequisites.md#psmp-linux).
+
 ## PSMP preflight: "unzip required"
 
 **Cause:** Ubuntu cloud images don't ship `unzip`. Since 1.0.0-rc3 the preflight installs it from the OS
