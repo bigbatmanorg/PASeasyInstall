@@ -275,6 +275,9 @@ function Start-PASFleetUnit {
             $h=$Configuration.hosts[$hostId]
             if($h.os -eq 'Linux'){Invoke-PASSshBootstrap -HostId $hostId -HostRecord $h -Credential $Auth.Credentials[$hostId] -Lab $Lab -Directory $Directory}
         }
+        foreach($c in @($Configuration.components|Where-Object {$_.type -eq 'PSMP' -and @($Unit.components) -contains $_.id})){
+            Select-PASPsmpMediaForHost -Component $c -HostRecord $Configuration.hosts[[string]$c.host] -Directory $Directory -DataRoot $DataRoot
+        }
         $child=New-PASFleetChildConfiguration -Configuration $Configuration -Unit $Unit -Trust $Trust
         $valid=Test-PASeasyConfig -Configuration $child -CheckMedia
         if(-not $valid.Valid){throw ('Configuration check failed: '+($valid.Issues -join '; '))}
@@ -378,6 +381,52 @@ function Invoke-PASNativeQuiet {
         for($i=0;$i -lt 20;$i++){try{$text=$(if(Test-Path $stdout){[IO.File]::ReadAllText($stdout)}else{''})+$(if(Test-Path $stderr){[IO.File]::ReadAllText($stderr)}else{''});break}catch [IO.IOException]{Start-Sleep -Milliseconds 100}}
         return @{ExitCode=$process.ExitCode;Output=$text.TrimEnd()}
     }finally{if($process){$process.Dispose()};Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue}
+}
+function Get-PASPsmpVariantForOs {
+    <# Maps /etc/os-release ID, VERSION_ID and ID_LIKE to the vendor's PSMP package variant name. #>
+    param([string]$Id,[string]$VersionId,[string]$IdLike)
+    $major=([string]$VersionId -split '\.')[0]
+    if($Id -eq 'ubuntu' -and $major -in @('22','24')){return 'Ubuntu'+$major}
+    if(($Id -in @('rhel','rocky','almalinux','centos','ol') -or $IdLike -match '(^|\s)rhel(\s|$)') -and $major -in @('8','9')){return 'RHELinux'+$major}
+    if($Id -match '^sles' -and $major -eq '15'){return 'SLES15'}
+    return ''
+}
+function Select-PASPsmpMediaForHost {
+    <# The selected PSMP package is for one distribution. Once key-based SSH works, read the server's OS and,
+       if it differs, use the package for that distribution from the same bundle or folder. Stops before any
+       upload when no matching package is available. #>
+    param($Component,$HostRecord,[string]$Directory,[string]$DataRoot)
+    $media=[string]$Component.media
+    $name=[IO.Path]::GetFileName($media)
+    $have=Get-PASMediaVariant 'PSMP' $name
+    if(-not $have){return}
+    $base=@('-i',[string]$HostRecord.identityFile,'-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=yes','-o',('UserKnownHostsFile='+[string]$HostRecord.knownHostsFile),'-o','ConnectTimeout=15','-n')
+    if($HostRecord.Contains('port') -and $HostRecord.port){$base+=@('-p',[string][int]$HostRecord.port)}
+    $r=Invoke-PASNativeQuiet 'ssh.exe' ($base+@(([string]$HostRecord.user+'@'+[string]$HostRecord.address),'. /etc/os-release; echo "$ID|$VERSION_ID|$ID_LIKE|$PRETTY_NAME"'))
+    $line=@(([string]$r.Output) -split "`n" | Where-Object {$_ -match '\|'})[0]
+    if($r.ExitCode -ne 0 -or -not $line){throw "Cannot read the operating system of $($HostRecord.address): $($r.Output)"}
+    $f=$line.Trim() -split '\|'
+    $want=Get-PASPsmpVariantForOs $f[0] $f[1] $f[2]
+    $pretty=if($f.Count -gt 3 -and $f[3]){$f[3]}else{"$($f[0]) $($f[1])"}
+    if(-not $want){throw "PSMP does not support $pretty on $($HostRecord.address) (supported: Ubuntu 22/24, RHEL-family 8/9, SLES 15)."}
+    if($want -eq $have){return}
+    $wantName=$name -replace ('(?i)SSHProxy-'+[regex]::Escape($have)+'-'),('SSHProxy-'+$want+'-')
+    $found=''
+    $src=$null; if($Component.Contains('mediaSource')){$src=$Component.mediaSource}
+    if($src -and $src.entry){
+        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+        $entryWant=($src.entry -replace ('(?i)SSHProxy-'+[regex]::Escape($have)+'-'),('SSHProxy-'+$want+'-'))
+        $zip=[IO.Compression.ZipFile]::OpenRead([string]$src.path)
+        try{$hit=@($zip.Entries|Where-Object {$_.FullName -eq $entryWant}).Count -eq 1}finally{$zip.Dispose()}
+        if($hit){$found=Resolve-PASMediaItemPath ([pscustomobject]@{Path=[string]$src.path;Entry=$entryWant}) $DataRoot}
+    }else{
+        $folder=if($src -and $src.path){[IO.Path]::GetDirectoryName([string]$src.path)}else{[IO.Path]::GetDirectoryName($media)}
+        $candidate=Join-Path $folder $wantName
+        if(Test-Path -LiteralPath $candidate -PathType Leaf){$found=$candidate}
+    }
+    if(-not $found){throw "The selected PSMP package $name is for $have, but $($HostRecord.address) runs $pretty. Add the $want package ($wantName) to the media folder."}
+    $Component.media=$found
+    Write-PASFleetEvent $Directory 'TaskCompleted' "Using $([IO.Path]::GetFileName($found)) for $pretty" ([string]$Component.id) 'media-select'
 }
 function Assert-PASSshRoot {
     <# Linux stages install packages, write /opt/paeasyinstall and systemd units: they run as root. Checked

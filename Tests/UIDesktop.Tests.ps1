@@ -192,6 +192,7 @@ Describe 'Composed deployment runner' {
             Mock -ModuleName PASeasyInstall.Orchestrator Start-Sleep {}
             Mock -ModuleName PASeasyInstall.Orchestrator Test-PASeasyConfig { [pscustomobject]@{Valid=$true;Issues=@();Warnings=@();Configuration=$Configuration} }
             Mock -ModuleName PASeasyInstall.Orchestrator Invoke-PASSshBootstrap {}
+            Mock -ModuleName PASeasyInstall.Orchestrator Select-PASPsmpMediaForHost {}
             Mock -ModuleName PASeasyInstall.Orchestrator Get-PASFleetPVWACertificate { @{File='pin.cer';SHA256=('A'*64)} }
             Mock -ModuleName PASeasyInstall.Orchestrator Start-PASeasyDeployment {
                 $running=@($script:polls.Keys|Where-Object {$script:polls[$_] -lt 2})

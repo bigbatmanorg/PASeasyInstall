@@ -13,6 +13,10 @@ Installs **PSM for SSH** on Linux: Ubuntu 22.04/24.04 or RHEL/Rocky 8/9. The lab
 | `harden` | Baseline verification. On Ubuntu, the vendor's RHEL hardening does not apply. |
 | `verify` | `psmpsrv` is active |
 
+The media step selects one PSMP package. Once it can sign in, the run reads the server's `/etc/os-release` and uses
+the package for that distribution (Ubuntu 22/24, RHEL-family 8/9 including Rocky and AlmaLinux, SLES 15) from the same
+bundle or folder. On RHEL-family servers the RPM must be signed by CyberArk's published key.
+
 Connect through PSMP with the standard syntax: `ssh <vault-user>@<target-account>@<target-address>@<psmp-address>`.
 
 Depending on the platform's policy, PSMP asks for a reason for the connection before it opens the session.

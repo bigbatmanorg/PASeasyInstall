@@ -225,8 +225,16 @@ function New-PASDeploymentConfiguration {
             $c.hosts[$hostId]=$h
             if($addr){$byAddress[$addrKey]=$hostId}
         }
-        $mediaPath=''
-        if($Media.ContainsKey($type)){$mediaPath=Resolve-PASMediaItemPath $Media[$type] $DataRoot}
+        $mediaPath='';$mediaSource=$null
+        if($Media.ContainsKey($type)){
+            $mediaPath=Resolve-PASMediaItemPath $Media[$type] $DataRoot
+            # PSMP packages are per distribution: remember where this one came from, so the controller can use the
+            # package that matches the server once it can read the server's OS (after the SSH bootstrap).
+            if($type -eq 'PSMP'){
+                $srcPath=[string](Get-PASMediaItemValue $Media[$type] 'Path'); if(-not $srcPath){$srcPath=[string]$Media[$type]}
+                $mediaSource=[ordered]@{path=$srcPath;entry=[string](Get-PASMediaItemValue $Media[$type] 'Entry')}
+            }
+        }
         $options=[ordered]@{}
         switch($type){
             'PVWA'{
@@ -238,6 +246,7 @@ function New-PASDeploymentConfiguration {
             'PTA'{if($lab){$overrides['PTA.GenerateLabCA']=$true}}
         }
         $entry=[ordered]@{id=$id;name=$name;type=$type;host=$hostId;variant='Standard';media=$mediaPath;options=$options}
+        if($mediaSource){$entry.mediaSource=$mediaSource}
         if($user -ne [string]$c.hosts[$hostId].user){$entry.user=$user}
         [void]$components.Add($entry)
     }
