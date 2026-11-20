@@ -8,7 +8,9 @@ Describe 'Multi-component execution inventory' {
         $c=New-PASConfigurationTemplate -Template ExistingVault -Path (Join-Path $TestDrive ('optional-ad-'+$Type+'.json')) -WhatIf
         $c.activeDirectory=@{mode='None';join=@()}
         $c.hosts=@{plain=@{address='192.0.2.31';os=$OS;user=$(if($OS -eq 'Linux'){'root'}else{'Administrator'})}}
-        $c.components=@(@{id='component';type=$Type;host='plain';variant='Standard';options=@{}})
+        # The PSMP installer needs the operator's explicit EULA acceptance; validation refuses a PSMP without it.
+        $options=@{}; if($Type -eq 'PSMP'){$options.acceptEula=$true}
+        $c.components=@(@{id='component';type=$Type;host='plain';variant='Standard';options=$options})
         (Test-PASConfiguration -Configuration $c).Valid | Should -BeTrue
         $before=(Get-PASDeploymentPlan -Configuration $c).ConfigDigest
         $inventory=& (Get-Module PASeasyInstall) {param($value) New-PASRuntimeInventory -Config $value -RunDirectory 'unused' -SkipMediaHash} $c
