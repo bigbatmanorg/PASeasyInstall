@@ -118,19 +118,19 @@ function Install-PASPVWA {
     }
 
     $install = @{
-        Type               = 'PVWA'
-        Cmdlet             = $PSCmdlet
-        ComputerName       = $ComputerName
-        VaultAddress       = $VaultAddress
-        MediaPath          = $MediaPath
-        Name               = $Name
-        Credential         = $Credential
+        Type = 'PVWA'
+        Cmdlet = $PSCmdlet
+        ComputerName = $ComputerName
+        VaultAddress = $VaultAddress
+        MediaPath = $MediaPath
+        Name = $Name
+        Credential = $Credential
         VaultAdminPassword = $VaultAdminPassword
-        LabPassword        = $LabPassword
-        SecurityProfile    = $SecurityProfile
-        Options            = $componentOptions
-        Wait               = $Wait
-        PlanOnly           = $PlanOnly
+        LabPassword = $LabPassword
+        SecurityProfile = $SecurityProfile
+        Options = $componentOptions
+        Wait = $Wait
+        PlanOnly = $PlanOnly
     }
     return (Invoke-PASComponentInstall @install)
 }

@@ -6,21 +6,24 @@
 
 $script:PASMediaRules = @(
     # Component, regex on the file/entry base name. First match wins; order matters.
-    @{C='Ignore';      R='(?i)ansible|upgrade|add-ons|docs|documentation|replicate|exportvaultdata|remote control|signed dna|self-hosted_on|html5 gateway'}
-    @{C='Vault';       R='(?i)^server-rls-v'}
-    @{C='PACLI';       R='(?i)^pacli-rls-v'}
-    @{C='DR';          R='(?i)^disaster recovery-rls-v'}
-    @{C='KeyGen';      R='(?i)^pa key gen-rls-v'}
-    @{C='PVWA';        R='(?i)^(password vault web access|pvwa)-rls-v'}
-    @{C='CPM';         R='(?i)^(central policy manager|cpm)-rls-v'}
-    @{C='PSM';         R='(?i)^(privileged session manager|psm)-rls-v'}
-    @{C='PSMP';        R='(?i)^privilegedsessionmanagersshproxy-'}
-    @{C='License';     R='(?i)licen[cs]e.*\.xml$'}
-    @{C='RecoveryKey'; R='(?i)^recpub\.key$'}
+    @{
+        C = 'Ignore'
+        R = '(?i)ansible|upgrade|add-ons|docs|documentation|replicate|exportvaultdata|remote control|signed dna|self-hosted_on|html5 gateway'
+    }
+    @{C = 'Vault'; R = '(?i)^server-rls-v' }
+    @{C = 'PACLI'; R = '(?i)^pacli-rls-v' }
+    @{C = 'DR'; R = '(?i)^disaster recovery-rls-v' }
+    @{C = 'KeyGen'; R = '(?i)^pa key gen-rls-v' }
+    @{C = 'PVWA'; R = '(?i)^(password vault web access|pvwa)-rls-v' }
+    @{C = 'CPM'; R = '(?i)^(central policy manager|cpm)-rls-v' }
+    @{C = 'PSM'; R = '(?i)^(privileged session manager|psm)-rls-v' }
+    @{C = 'PSMP'; R = '(?i)^privilegedsessionmanagersshproxy-' }
+    @{C = 'License'; R = '(?i)licen[cs]e.*\.xml$' }
+    @{C = 'RecoveryKey'; R = '(?i)^recpub\.key$' }
     # Needed by the Vault install, found by the backend in the media folder; not a selectable installer.
-    @{C='Prerequisite'; R='(?i)^(vc_redist\.(x86|x64)|vcredist_x86(_2013)?)\.exe$'}
+    @{C = 'Prerequisite'; R = '(?i)^(vc_redist\.(x86|x64)|vcredist_x86(_2013)?)\.exe$' }
 )
-$script:PASMediaInstallable = @('Vault','PACLI','DR','KeyGen','PVWA','CPM','PSM','PSMP','License','RecoveryKey')
+$script:PASMediaInstallable = @('Vault', 'PACLI', 'DR', 'KeyGen', 'PVWA', 'CPM', 'PSM', 'PSMP', 'License', 'RecoveryKey')
 
 function Get-PASMediaClassification {
     param([string]$Name)

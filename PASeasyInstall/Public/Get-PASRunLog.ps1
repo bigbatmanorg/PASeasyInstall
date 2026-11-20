@@ -65,10 +65,10 @@ function Get-PASRunLog {
 
         $source = Resolve-PASConfigurationInput -Path $Path
         $log = @{
-            Config    = $source.Config
+            Config = $source.Config
             Component = $Component
-            Name      = $LogName
-            Tail      = $Tail
+            Name = $LogName
+            Tail = $Tail
         }
         if ($Credential) {
             # WinRM to a workgroup server needs the '.\Administrator' form: the same rule as for a run.

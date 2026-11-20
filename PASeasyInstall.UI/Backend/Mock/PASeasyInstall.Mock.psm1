@@ -57,22 +57,42 @@ function New-PASMockTimeline {
     $outcome = 'Succeeded'
     for ($i = 0; $i -lt $Steps.Count; $i++) {
         $step = $Steps[$i]
-        [void]$events.Add(@{ At = $time; Component = $step.Id; Stage = $step.Stage; Event = 'TaskStarted'; Level = 'Information'
-                Message = "Running $($step.Stage) on $($step.Host) ($($step.Address))" })
+        [void]$events.Add(@{ At = $time
+                Component = $step.Id
+                Stage = $step.Stage
+                Event = 'TaskStarted'
+                Level = 'Information'
+                Message = "Running $($step.Stage) on $($step.Host) ($($step.Address))"
+            })
         $time += $seconds
         if ($i -eq $failIndex) {
-            [void]$events.Add(@{ At = $time; Component = $step.Id; Stage = $step.Stage; Event = 'TaskFailed'; Level = 'Error'
-                    Message = 'Simulated failure: the installer exited with code 1603.' })
+            [void]$events.Add(@{ At = $time
+                    Component = $step.Id
+                    Stage = $step.Stage
+                    Event = 'TaskFailed'
+                    Level = 'Error'
+                    Message = 'Simulated failure: the installer exited with code 1603.'
+                })
             $outcome = 'Failed'
             break
         }
         if ($Warn -and $step.Stage -match 'reboot') {
-            [void]$events.Add(@{ At = $time; Component = $step.Id; Stage = $step.Stage; Event = 'RebootWarning'; Level = 'Warning'
-                    Message = 'The server is restarting; waiting for it to come back.' })
+            [void]$events.Add(@{ At = $time
+                    Component = $step.Id
+                    Stage = $step.Stage
+                    Event = 'RebootWarning'
+                    Level = 'Warning'
+                    Message = 'The server is restarting; waiting for it to come back.'
+                })
             $time += $seconds
         }
-        [void]$events.Add(@{ At = $time; Component = $step.Id; Stage = $step.Stage; Event = 'TaskCompleted'; Level = 'Information'
-                Message = "$($step.Stage) completed" })
+        [void]$events.Add(@{ At = $time
+                Component = $step.Id
+                Stage = $step.Stage
+                Event = 'TaskCompleted'
+                Level = 'Information'
+                Message = "$($step.Stage) completed"
+            })
     }
     return @{ Events = $events; End = $time; Outcome = $outcome }
 }
@@ -108,10 +128,22 @@ function Get-PASMockEvents {
         }
         $status = 'Info'
         switch -Regex ([string]$entry.Event) {
-            'Failed' { $status = 'Failed'; break }
-            'Warning' { $status = 'Warning'; break }
-            'Completed' { $status = 'Complete'; break }
-            'Started' { $status = 'Running'; break }
+            'Failed' {
+                $status = 'Failed'
+                break
+            }
+            'Warning' {
+                $status = 'Warning'
+                break
+            }
+            'Completed' {
+                $status = 'Complete'
+                break
+            }
+            'Started' {
+                $status = 'Running'
+                break
+            }
         }
         $source = 'Engine'
         if (-not $entry.Stage) {
@@ -119,15 +151,15 @@ function Get-PASMockEvents {
         }
         [pscustomobject]@{
             TimestampUtc = $Run.StartUtc.AddSeconds($entry.At).ToString('o')
-            RunId        = $RunId
-            Component    = [string]$entry.Component
-            Stage        = [string]$entry.Stage
-            Event        = [string]$entry.Event
-            Level        = [string]$entry.Level
-            Status       = $status
-            Source       = $source
-            Message      = [string]$entry.Message
-            Sequence     = $sequence
+            RunId = $RunId
+            Component = [string]$entry.Component
+            Stage = [string]$entry.Stage
+            Event = [string]$entry.Event
+            Level = [string]$entry.Level
+            Status = $status
+            Source = $source
+            Message = [string]$entry.Message
+            Sequence = $sequence
         }
         $sequence++
     }
@@ -183,19 +215,19 @@ function Get-PASMockSnapshot {
         $message = 'Simulated run ended: ' + $clock.Status
     }
     return [pscustomobject]@{
-        RunId            = $RunId
-        Name             = [string]$run.Name
-        Status           = [string]$clock.Status
+        RunId = $RunId
+        Name = [string]$run.Name
+        Status = [string]$clock.Status
         CurrentComponent = $currentComponent
-        Message          = $message
-        LastStep         = $lastStep
-        StartedUtc       = $run.StartUtc.ToString('o')
-        FinishedUtc      = $finishedUtc
-        CompletedEvents  = @($events | Where-Object { $_.Event -eq 'TaskCompleted' }).Count
-        ErrorEvents      = @($events | Where-Object { $_.Status -eq 'Failed' }).Count
-        RunDirectory     = [string]$run.RunDirectory
-        Components       = @(Get-PASMockComponents -Run $run -Events $events -RunStatus $clock.Status)
-        Events           = @($events | Select-Object -Last $Tail)
+        Message = $message
+        LastStep = $lastStep
+        StartedUtc = $run.StartUtc.ToString('o')
+        FinishedUtc = $finishedUtc
+        CompletedEvents = @($events | Where-Object { $_.Event -eq 'TaskCompleted' }).Count
+        ErrorEvents = @($events | Where-Object { $_.Status -eq 'Failed' }).Count
+        RunDirectory = [string]$run.RunDirectory
+        Components = @(Get-PASMockComponents -Run $run -Events $events -RunStatus $clock.Status)
+        Events = @($events | Select-Object -Last $Tail)
     }
 }
 
@@ -233,24 +265,34 @@ function Install-PASLab {
         $stages = @(Get-PASMockStages ([string]$item.Type))
         $items += @{ Id = [string]$item.Id; Type = [string]$item.Type; StageCount = $stages.Count }
         foreach ($stage in $stages) {
-            $steps += @{ Id = [string]$item.Id; Host = [string]$item.Host; Address = [string]$item.Address; Stage = $stage }
+            $steps += @{
+                Id = [string]$item.Id
+                Host = [string]$item.Host
+                Address = [string]$item.Address
+                Stage = $stage
+            }
         }
     }
     $timeline = New-PASMockTimeline -Steps $steps -Start 0.3 -Fail ($name -match '(?i)fail') -Warn ($name -match '(?i)warn')
     $events = New-Object System.Collections.ArrayList
-    [void]$events.Add(@{ At = 0.0; Component = 'controller'; Stage = ''; Event = 'ControllerLaunched'; Level = 'Information'
-            Message = 'Simulated controller started (no servers are contacted)' })
+    [void]$events.Add(@{ At = 0.0
+            Component = 'controller'
+            Stage = ''
+            Event = 'ControllerLaunched'
+            Level = 'Information'
+            Message = 'Simulated controller started (no servers are contacted)'
+        })
     $events.AddRange($timeline.Events)
     $runId = [guid]::NewGuid().ToString('N')
     $script:Runs[$runId] = @{
-        Name         = $name
-        StartUtc     = [datetime]::UtcNow
-        Items        = $items
-        Steps        = $steps
-        Timeline     = $events
-        End          = $timeline.End
-        Outcome      = $timeline.Outcome
-        StoppedAt    = $null
+        Name = $name
+        StartUtc = [datetime]::UtcNow
+        Items = $items
+        Steps = $steps
+        Timeline = $events
+        End = $timeline.End
+        Outcome = $timeline.Outcome
+        StoppedAt = $null
         RunDirectory = (Join-Path (Join-Path ([IO.Path]::GetTempPath()) 'PASeasyInstall-Mock') $runId)
     }
     return $runId
@@ -265,8 +307,13 @@ function Get-PASRun {
     }
     $list = foreach ($id in @($script:Runs.Keys)) {
         $snapshot = Get-PASMockSnapshot -RunId $id -Tail 1
-        [pscustomobject]@{ RunId = $id; Name = $snapshot.Name; Status = $snapshot.Status; StartedUtc = $snapshot.StartedUtc
-            FinishedUtc = $snapshot.FinishedUtc; Message = $snapshot.Message }
+        [pscustomobject]@{ RunId = $id
+            Name = $snapshot.Name
+            Status = $snapshot.Status
+            StartedUtc = $snapshot.StartedUtc
+            FinishedUtc = $snapshot.FinishedUtc
+            Message = $snapshot.Message
+        }
     }
     return @($list | Sort-Object -Property StartedUtc -Descending)
 }
@@ -287,8 +334,13 @@ function Stop-PASRun {
         return
     }
     if ($PSCmdlet.ShouldProcess($RunId, 'Stop the simulated run')) {
-        [void]$run.Timeline.Add(@{ At = $clock.Position; Component = 'controller'; Stage = ''; Event = 'RunStopped'; Level = 'Warning'
-                Message = 'Simulated run stopped by the operator' })
+        [void]$run.Timeline.Add(@{ At = $clock.Position
+                Component = 'controller'
+                Stage = ''
+                Event = 'RunStopped'
+                Level = 'Warning'
+                Message = 'Simulated run stopped by the operator'
+            })
         $run.StoppedAt = $clock.Position
     }
 }
@@ -320,7 +372,8 @@ function Resume-PASRun {
     $remaining = @($run.Steps | Where-Object { -not $completed.ContainsKey($_.Id + '|' + $_.Stage) })
     $now = ([datetime]::UtcNow - $run.StartUtc).TotalSeconds
     [void]$kept.Add(@{ At = $now; Component = 'controller'; Stage = ''; Event = 'RunResumed'; Level = 'Information'
-            Message = 'Simulated run resumed' })
+            Message = 'Simulated run resumed'
+        })
     $timeline = New-PASMockTimeline -Steps $remaining -Start ($now + 0.3) -Fail $false -Warn $false
     $kept.AddRange($timeline.Events)
     $run.Timeline = $kept

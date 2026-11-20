@@ -199,12 +199,12 @@ $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvar
 $sums = Join-Path $Output 'SHA256SUMS'
 [IO.File]::WriteAllText($sums, "$hash  $(Split-Path -Leaf $zipPath)`n", (New-Object Text.UTF8Encoding($false)))
 [pscustomobject]@{
-    Version         = $gallery.Version
-    Zip             = $zipPath
-    SizeMB          = [math]::Round((Get-Item -LiteralPath $zipPath).Length / 1MB, 1)
-    SHA256          = $hash
-    Folder          = $root
+    Version = $gallery.Version
+    Zip = $zipPath
+    SizeMB = [math]::Round((Get-Item -LiteralPath $zipPath).Length / 1MB, 1)
+    SHA256 = $hash
+    Folder = $root
     NativeHTMLKitUI = $uiKitVersion
-    NativeHTMLKit   = $kitVersion
-    GalleryRoot     = $gallery.GalleryRoot
+    NativeHTMLKit = $kitVersion
+    GalleryRoot = $gallery.GalleryRoot
 }

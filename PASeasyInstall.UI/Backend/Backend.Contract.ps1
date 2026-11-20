@@ -40,23 +40,23 @@
 #   Mock  Backend/Mock: the same module for everything that only computes, and a simulated run.
 
 $script:PASUIBackendContract = [ordered]@{
-    'Get-PASMediaInventory'        = @('Path')
-    'Get-PASMediaSelection'        = @('Inventory')
-    'New-PASLabConfiguration'      = @('Environment', 'VaultMode', 'Instances', 'ControllerAddress', 'PrimaryAddress', 'DRAddress',
-                                       'ExistingVaultAddress', 'Username', 'LinuxUsername', 'PrimaryUsername', 'DRUsername',
-                                       'Media', 'SecurityProfile', 'AcceptEula')
-    'Test-PASLabConfiguration'     = @('Configuration', 'CheckMedia')
-    'Get-PASLabPlan'               = @('Configuration')
+    'Get-PASMediaInventory' = @('Path')
+    'Get-PASMediaSelection' = @('Inventory')
+    'New-PASLabConfiguration' = @('Environment', 'VaultMode', 'Instances', 'ControllerAddress', 'PrimaryAddress', 'DRAddress',
+        'ExistingVaultAddress', 'Username', 'LinuxUsername', 'PrimaryUsername', 'DRUsername',
+        'Media', 'SecurityProfile', 'AcceptEula')
+    'Test-PASLabConfiguration' = @('Configuration', 'CheckMedia')
+    'Get-PASLabPlan' = @('Configuration')
     'Get-PASCredentialRequirement' = @('Configuration')
-    'Export-PASLabConfiguration'   = @('Configuration', 'Path', 'Force')
-    'Import-PASLabConfiguration'   = @('Path')
-    'Install-PASLab'               = @('Configuration', 'CredentialMap', 'SecretMap')
-    'Get-PASRun'                   = @('RunId', 'Tail')
-    'Get-PASRunEvent'              = @('RunId', 'Tail')
-    'Get-PASStageCatalog'          = @('Component')
-    'Resume-PASRun'                = @('RunId', 'RetryStep', 'CredentialMap', 'SecretMap')
-    'Stop-PASRun'                  = @('RunId')
-    'Export-PASDiagnostics'        = @('RunId', 'Path')
+    'Export-PASLabConfiguration' = @('Configuration', 'Path', 'Force')
+    'Import-PASLabConfiguration' = @('Path')
+    'Install-PASLab' = @('Configuration', 'CredentialMap', 'SecretMap')
+    'Get-PASRun' = @('RunId', 'Tail')
+    'Get-PASRunEvent' = @('RunId', 'Tail')
+    'Get-PASStageCatalog' = @('Component')
+    'Resume-PASRun' = @('RunId', 'RetryStep', 'CredentialMap', 'SecretMap')
+    'Stop-PASRun' = @('RunId')
+    'Export-PASDiagnostics' = @('RunId', 'Path')
 }
 
 function Get-PASUIBackendContract {

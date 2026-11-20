@@ -28,15 +28,16 @@ Describe 'Public command list' {
             $name | Should -Not -Match 'PASeasy|PAExec|PAEasy|PASEnvironment|PASDeployment|PTA'
         }
         foreach ($old in 'Invoke-PASeasyInstall', 'Test-PASEnvironment', 'Get-PASEnvironmentPlan', 'Save-PASEnvironment',
-                         'Start-PASEnvironment', 'Get-PASEnvironmentSnapshot', 'Get-PASEnvironmentEvents',
-                         'Test-PASEnvironmentHealth', 'Export-PASRunData', 'Close-PASDeployment', 'Start-PASInstall', 'Invoke-PASInstall') {
+            'Start-PASEnvironment', 'Get-PASEnvironmentSnapshot', 'Get-PASEnvironmentEvents',
+            'Test-PASEnvironmentHealth', 'Export-PASRunData', 'Close-PASDeployment', 'Start-PASInstall', 'Invoke-PASInstall') {
             Get-Command -Module PASeasyInstall -Name $old -ErrorAction SilentlyContinue | Should -BeNullOrEmpty -Because $old
         }
     }
     It 'keeps the run controller and the engine private' {
         Get-Command Invoke-PASRunController -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
         Get-Command Invoke-PASWorkflow -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
-        (InModuleScope PASeasyInstall { (Get-Command Invoke-PASRunController -CommandType Function).Name }) | Should -BeExactly 'Invoke-PASRunController'
+        (InModuleScope PASeasyInstall { (Get-Command Invoke-PASRunController -CommandType Function).Name }) |
+            Should -BeExactly 'Invoke-PASRunController'
     }
 }
 
@@ -68,13 +69,13 @@ Describe 'The core module stands alone' {
     }
     It 'never imports NativeHTMLKit or the UI module from its own files' {
         $hits = @(Get-ChildItem -LiteralPath $PASModuleRoot -Recurse -File -Include '*.ps1', '*.psm1' |
-            Select-String -Pattern 'Import-Module\s+\S*(NativeHTMLKit|PASeasyInstall\.UI)')
+                Select-String -Pattern 'Import-Module\s+\S*(NativeHTMLKit|PASeasyInstall\.UI)')
         $hits | Should -BeNullOrEmpty
     }
     It 'imports in a fresh process without loading NativeHTMLKit' -Skip:($env:OS -ne 'Windows_NT') {
         $exe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
         $command = "Import-Module '" + $PASModuleManifest.Replace("'", "''") + "' -ErrorAction Stop; " +
-            "'COMMANDS=' + @(Get-Command -Module PASeasyInstall).Count; 'KIT=' + @(Get-Module NativeHTMLKit*).Count"
+        "'COMMANDS=' + @(Get-Command -Module PASeasyInstall).Count; 'KIT=' + @(Get-Module NativeHTMLKit*).Count"
         $output = @(& $exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command $command 2>&1 | ForEach-Object { [string]$_ })
         $LASTEXITCODE | Should -Be 0
         $output | Should -Contain ('COMMANDS=' + $script:publicNames.Count)

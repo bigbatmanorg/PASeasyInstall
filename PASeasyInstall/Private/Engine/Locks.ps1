@@ -13,7 +13,7 @@ function Enter-PASVaultLock {
     # Waits for the Vault lock of one Vault address and returns it. Pass the result to Exit-PASVaultLock.
     # The mutex is re-entrant on the same thread: a workflow step may take it again while the controller
     # already holds it for the whole Vault installation.
-    param([Parameter(Mandatory)][string]$Address,[int]$TimeoutSeconds = 180)
+    param([Parameter(Mandatory)][string]$Address, [int]$TimeoutSeconds = 180)
     $key = $Address.Trim().TrimEnd('.').ToLowerInvariant() -replace '[^a-z0-9.-]', '_'
     if (-not $key) { throw 'The Vault lock needs the Vault address' }
     $name = 'Global\PASeasyInstall-Vault-' + $key

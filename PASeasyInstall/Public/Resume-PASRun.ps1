@@ -106,12 +106,12 @@ function Resume-PASRun {
 
         $auth = Resolve-PASInstallCredential -Configuration $configuration -CredentialMap $CredentialMap -SecretMap $SecretMap -LabPassword $LabPassword
         $resume = @{
-            RunId                = $id
-            CredentialMap        = $auth.Credentials
-            SecretMap            = $auth.Secrets
-            RetryStep            = $steps
+            RunId = $id
+            CredentialMap = $auth.Credentials
+            SecretMap = $auth.Secrets
+            RetryStep = $steps
             RetryFailedPreflight = $RetryFailedPreflight
-            Confirm              = $false
+            Confirm = $false
         }
         [void](Resume-PASDeployment @resume)
         $auth = $null

@@ -3,14 +3,25 @@
 BeforeAll {
     $repo = Split-Path -Parent $PSScriptRoot
     $env:PAS_EASY_DATA_ROOT = Join-Path $TestDrive 'data'
-    . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule; . (Get-PASTestPrivateProxy)
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1')
+    Import-PASTestModule
+    . (Get-PASTestPrivateProxy)
     Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
     function New-TestZip([string]$Path, [string[]]$Entries) {
-        $dir = [IO.Path]::GetDirectoryName($Path); if (-not (Test-Path $dir)) { New-Item -ItemType Directory $dir -Force | Out-Null }
+        $dir = [IO.Path]::GetDirectoryName($Path)
+        if (-not (Test-Path $dir)) { New-Item -ItemType Directory $dir -Force | Out-Null }
         $fs = [IO.File]::Open($Path, [IO.FileMode]::Create)
         $zip = New-Object IO.Compression.ZipArchive($fs, [IO.Compression.ZipArchiveMode]::Create)
-        try { foreach ($e in $Entries) { $w = New-Object IO.StreamWriter($zip.CreateEntry($e).Open()); $w.Write('synthetic ' + $e); $w.Dispose() } }
-        finally { $zip.Dispose(); $fs.Dispose() }
+        try {
+            foreach ($e in $Entries) {
+                $w = New-Object IO.StreamWriter($zip.CreateEntry($e).Open())
+                $w.Write('synthetic ' + $e)
+                $w.Dispose()
+            }
+        } finally {
+            $zip.Dispose()
+            $fs.Dispose()
+        }
     }
     function New-MediaTree([string]$Root) {
         New-TestZip (Join-Path $Root 'CorePAS/Vault/Server-Rls-v15.0.zip') @('setup.exe')

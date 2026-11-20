@@ -11,23 +11,27 @@ BeforeAll {
         $directory = Join-Path (Join-Path $script:dataRoot 'Runs') $id
         New-Item -ItemType Directory -Path $directory -Force | Out-Null
         $record = [ordered]@{
-            schemaVersion        = 2
-            id                   = $id
-            name                 = 'StopRunFixture'
-            status               = $Status
-            startedUtc           = [DateTime]::UtcNow.ToString('o')
-            finishedUtc          = $null
-            controllerPid        = $ControllerPid
+            schemaVersion = 2
+            id = $id
+            name = 'StopRunFixture'
+            status = $Status
+            startedUtc = [DateTime]::UtcNow.ToString('o')
+            finishedUtc = $null
+            controllerPid = $ControllerPid
             controllerStartedUtc = [DateTime]::UtcNow.ToString('o')
-            currentComponent     = ''
-            message              = 'synthetic'
+            currentComponent = ''
+            message = 'synthetic'
         }
         [IO.File]::WriteAllText((Join-Path $directory 'run.json'), ($record | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
         return @{ Id = $id; Directory = $directory; Record = (Join-Path $directory 'run.json') }
     }
     function Stop-FakeRun {
         param([string]$RunId, [switch]$Force)
-        InModuleScope PASeasyInstall -Parameters @{ RunId = $RunId; DataRoot = $script:dataRoot; Force = [bool]$Force } {
+        InModuleScope PASeasyInstall -Parameters @{
+            RunId = $RunId
+            DataRoot = $script:dataRoot
+            Force = [bool]$Force
+        } {
             param($RunId, $DataRoot, $Force)
             Stop-PASDeployment -RunId $RunId -DataRoot $DataRoot -Force:$Force -Confirm:$false
         }

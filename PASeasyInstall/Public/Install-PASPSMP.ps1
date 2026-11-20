@@ -98,20 +98,20 @@ function Install-PASPSMP {
     }
 
     $install = @{
-        Type               = 'PSMP'
-        Cmdlet             = $PSCmdlet
-        ComputerName       = $ComputerName
-        VaultAddress       = $VaultAddress
-        MediaPath          = $MediaPath
-        Name               = $Name
-        Credential         = $Credential
+        Type = 'PSMP'
+        Cmdlet = $PSCmdlet
+        ComputerName = $ComputerName
+        VaultAddress = $VaultAddress
+        MediaPath = $MediaPath
+        Name = $Name
+        Credential = $Credential
         VaultAdminPassword = $VaultAdminPassword
-        LabPassword        = $LabPassword
-        SecurityProfile    = $SecurityProfile
-        Options            = $componentOptions
-        AcceptEula         = $AcceptEula
-        Wait               = $Wait
-        PlanOnly           = $PlanOnly
+        LabPassword = $LabPassword
+        SecurityProfile = $SecurityProfile
+        Options = $componentOptions
+        AcceptEula = $AcceptEula
+        Wait = $Wait
+        PlanOnly = $PlanOnly
     }
     return (Invoke-PASComponentInstall @install)
 }

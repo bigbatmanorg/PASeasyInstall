@@ -147,19 +147,19 @@ foreach ($name in $moduleNames) {
 
     # 4. Inventory
     $files = @(Get-ChildItem -LiteralPath $stage -Recurse -File -Force | Sort-Object FullName | ForEach-Object {
-        [pscustomobject]@{
-            Path   = ($_.FullName.Substring($stage.Length + 1) -replace '\\', '/')
-            Length = $_.Length
-            SHA256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
-        }
-    })
+            [pscustomobject]@{
+                Path = ($_.FullName.Substring($stage.Length + 1) -replace '\\', '/')
+                Length = $_.Length
+                SHA256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+            }
+        })
     $inventory = [ordered]@{
         schemaVersion = 1
-        module        = $name
-        version       = $version
-        builtUtc      = [DateTime]::UtcNow.ToString('o')
-        fileCount     = $files.Count
-        files         = $files
+        module = $name
+        version = $version
+        builtUtc = [DateTime]::UtcNow.ToString('o')
+        fileCount = $files.Count
+        files = $files
     }
     $inventoryPath = Join-Path $galleryRoot ($name + '.inventory.json')
     [IO.File]::WriteAllText($inventoryPath, ($inventory | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding($false)))
@@ -185,10 +185,10 @@ foreach ($name in $moduleNames) {
 
     $size = ($files | Measure-Object -Property Length -Sum).Sum
     $packages += [pscustomobject]@{
-        Module    = $name
-        Stage     = $stage
-        Files     = $files.Count
-        SizeKB    = [math]::Round($size / 1KB)
+        Module = $name
+        Stage = $stage
+        Files = $files.Count
+        SizeKB = [math]::Round($size / 1KB)
         Inventory = $inventoryPath
     }
 }
@@ -218,8 +218,8 @@ if ($published) {
     $localRepository = $LocalRepositoryPath
 }
 [pscustomobject]@{
-    Version         = $version
-    GalleryRoot     = $galleryRoot
-    Packages        = $packages
+    Version = $version
+    GalleryRoot = $galleryRoot
+    Packages = $packages
     LocalRepository = $localRepository
 }

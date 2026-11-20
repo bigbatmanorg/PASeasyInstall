@@ -28,13 +28,13 @@ function Read-PASJson {
 }
 
 function Get-PASValue {
-    param($Object,[string]$Name,$Default=$null)
+    param($Object, [string]$Name, $Default = $null)
     if ($null -eq $Object) { return $Default }
     if ($Object -is [System.Collections.IDictionary]) {
         if ($Object.Contains($Name)) { return $Object[$Name] }
         return $Default
     }
-    $p=$Object.PSObject.Properties[$Name]
+    $p = $Object.PSObject.Properties[$Name]
     if ($null -ne $p) { return $p.Value }
     return $Default
 }

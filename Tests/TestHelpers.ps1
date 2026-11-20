@@ -31,7 +31,9 @@ function Get-PASTestPrivateProxy {
         throw 'Import-PASTestModule must be called before Get-PASTestPrivateProxy'
     }
     $exported = @($module.ExportedFunctions.Keys)
-    $names = @(& $module { Get-Command -CommandType Function | Where-Object { $_.Module -and $_.Module.Name -eq 'PASeasyInstall' } | ForEach-Object { $_.Name } })
+    $names = @(& $module { Get-Command -CommandType Function |
+                Where-Object { $_.Module -and $_.Module.Name -eq 'PASeasyInstall' } |
+                ForEach-Object { $_.Name } })
     $lines = New-Object System.Collections.ArrayList
     foreach ($name in $names) {
         if ($exported -contains $name -or $name -notmatch '^[A-Za-z]+-[A-Za-z0-9]+$') {

@@ -1,7 +1,8 @@
 # The plan shown before installing must match the real order: CPM, PSM and PSMP wait for the first PVWA
 # (its registration creates the Vault objects they register against).
 BeforeAll {
-    . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1')
+    Import-PASTestModule
 }
 Describe 'Plan dependencies' {
     It 'shows the first PVWA as a dependency of CPM, PSM and PSMP' {

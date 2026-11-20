@@ -2,16 +2,16 @@
 # start it with: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <this file> ...
 # It loads the module and runs the controller inside the module scope (the controller is not exported).
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$RunId,[Parameter(Mandatory)][string]$DataRoot,
-      [Parameter(Mandatory)][string]$Envelope,[switch]$Resume,[switch]$RetryFailedPreflight,
-      # Step ids the operator wants executed again (Resume-PASDeployment -RetryStep), comma-separated.
-      [string]$RetryStep='')
-$ErrorActionPreference='Stop'
+param([Parameter(Mandatory)][string]$RunId, [Parameter(Mandatory)][string]$DataRoot,
+    [Parameter(Mandatory)][string]$Envelope, [switch]$Resume, [switch]$RetryFailedPreflight,
+    # Step ids the operator wants executed again (Resume-PASDeployment -RetryStep), comma-separated.
+    [string]$RetryStep = '')
+$ErrorActionPreference = 'Stop'
 try {
     $module = Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall.psd1') -Force -PassThru
     $retrySteps = @($RetryStep -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     & $module {
-        param($id,$root,$credentialEnvelope,$resumeRun,$retryPreflight,$steps)
+        param($id, $root, $credentialEnvelope, $resumeRun, $retryPreflight, $steps)
         Invoke-PASRunController -RunId $id -DataRoot $root -Envelope $credentialEnvelope -Resume:$resumeRun -RetryFailedPreflight:$retryPreflight -RetryStep $steps
     } $RunId $DataRoot $Envelope ([bool]$Resume) ([bool]$RetryFailedPreflight) $retrySteps
 } catch {
@@ -27,7 +27,7 @@ try {
             if ($record.controllerPid) { $owner = [int]$record.controllerPid }
             if ($owner -eq $PID) {
                 # This process claimed the run; the controller records every outcome except a crash.
-                $write = ([string]$record.status -in @('Launching','Running'))
+                $write = ([string]$record.status -in @('Launching', 'Running'))
             } else {
                 # A previous controller's record (resume) or none yet: only when that process is gone.
                 $write = (-not $owner -or -not (Get-Process -Id $owner -ErrorAction SilentlyContinue))
@@ -45,5 +45,5 @@ try {
     Write-Error ('Deployment controller stopped: ' + $message) -ErrorAction Continue
     exit 1
 } finally {
-    if(Test-Path -LiteralPath $Envelope){Remove-Item -LiteralPath $Envelope -Force -ErrorAction SilentlyContinue}
+    if (Test-Path -LiteralPath $Envelope) { Remove-Item -LiteralPath $Envelope -Force -ErrorAction SilentlyContinue }
 }

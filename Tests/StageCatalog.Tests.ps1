@@ -11,7 +11,13 @@ BeforeAll {
         $runDirectory = Join-Path $TestDrive ('run-' + [guid]::NewGuid().ToString('N'))
         $path = InModuleScope PASeasyInstall -Parameters @{ Type = $Type; RunDirectory = $runDirectory } {
             param($Type, $RunDirectory)
-            $component = @{ id = 'fixture'; type = $Type; host = 'host01'; media = 'C:\media\installer.zip'; options = @{} }
+            $component = @{
+                id = 'fixture'
+                type = $Type
+                host = 'host01'
+                media = 'C:\media\installer.zip'
+                options = @{}
+            }
             $configuration = @{ activeDirectory = @{ mode = 'None'; join = @() } }
             New-PASComponentWorkflow -Component $component -Configuration $configuration -RunDirectory $RunDirectory
         }

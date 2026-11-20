@@ -182,7 +182,10 @@ function Test-PASPreflight {
             # 3a. Linux: sign in with the controller key, if it exists already. Reads only.
             $keyFile = [string](Get-PASValue $server 'identityFile' '')
             $knownHosts = [string](Get-PASValue $server 'knownHostsFile' '')
-            $keyReady = [bool]($keyFile -and $knownHosts -and (Test-Path -LiteralPath $keyFile -PathType Leaf) -and (Test-Path -LiteralPath $knownHosts -PathType Leaf))
+            $keyReady = [bool]($keyFile -and
+                $knownHosts -and
+                (Test-Path -LiteralPath $keyFile -PathType Leaf) -and
+                (Test-Path -LiteralPath $knownHosts -PathType Leaf))
             if (-not $keyReady) {
                 New-PASPreflightResult -Server $serverId -Address $address -Check 'SSH key sign-in' -Passed $null -Detail 'Not checked: the SSH key of the configuration does not exist yet. The first installation creates and authorises it.'
                 continue
@@ -261,18 +264,20 @@ function Test-PASPreflight {
                     $pending += 'Windows Update'
                 }
                 $sessionManager = Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -ErrorAction SilentlyContinue
-                if ($sessionManager -and $sessionManager.PSObject.Properties['PendingFileRenameOperations'] -and $sessionManager.PendingFileRenameOperations) {
+                if ($sessionManager -and
+                    $sessionManager.PSObject.Properties['PendingFileRenameOperations'] -and
+                    $sessionManager.PendingFileRenameOperations) {
                     $pending += 'pending file rename operations'
                 }
                 @{
-                    Caption       = [string]$os.Caption
-                    Version       = [string]$os.Version
-                    SystemDrive   = [string]$env:SystemDrive
-                    FreeBytes     = [long]$disk.FreeSpace
+                    Caption = [string]$os.Caption
+                    Version = [string]$os.Version
+                    SystemDrive = [string]$env:SystemDrive
+                    FreeBytes = [long]$disk.FreeSpace
                     PendingReboot = ($pending -join ', ')
-                    PSVersion     = $PSVersionTable.PSVersion.ToString()
-                    PSMajor       = [int]$PSVersionTable.PSVersion.Major
-                    PSMinor       = [int]$PSVersionTable.PSVersion.Minor
+                    PSVersion = $PSVersionTable.PSVersion.ToString()
+                    PSMajor = [int]$PSVersionTable.PSVersion.Major
+                    PSMinor = [int]$PSVersionTable.PSVersion.Minor
                 }
             }
 

@@ -66,8 +66,8 @@ function Stop-PASRun {
         }
 
         $stop = @{
-            RunId   = $id
-            Force   = $Force
+            RunId = $id
+            Force = $Force
             Confirm = $false
         }
         if ($CredentialMap) {

@@ -1,7 +1,8 @@
 # Test-PASDeploymentStatus: the service-only probe opens no session; the authenticated probe holds the
 # Vault lock (Locks.ps1) while its PVWA session is open and always releases it.
 BeforeAll {
-    . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1')
+    Import-PASTestModule
     $credential = [pscredential]::new('Administrator', (ConvertTo-SecureString 'SYNTHETIC_PUBLIC_HEALTH_SECRET' -AsPlainText -Force))
 }
 Describe 'Deployment status and authenticated health' {
@@ -9,11 +10,18 @@ Describe 'Deployment status and authenticated health' {
         $global:PAeasyHealthFixture = @{ Events = (New-Object System.Collections.ArrayList); Held = $false }
         Mock Get-PASComponentStatus -ModuleName PASeasyInstall {
             @([pscustomobject]@{ Component = 'pvwa'; Type = 'PVWA'; ServiceStatus = 'Running' },
-              [pscustomobject]@{ Component = 'cpm'; Type = 'CPM'; ServiceStatus = 'Running' },
-              [pscustomobject]@{ Component = 'psm'; Type = 'PSM'; ServiceStatus = 'Running' })
+                [pscustomobject]@{ Component = 'cpm'; Type = 'CPM'; ServiceStatus = 'Running' },
+                [pscustomobject]@{ Component = 'psm'; Type = 'PSM'; ServiceStatus = 'Running' })
         }
         Mock Read-PASConfiguration -ModuleName PASeasyInstall {
-            @{ vault = @{ address = 'vault.alias' }; components = @(@{ id = 'pvwa'; type = 'PVWA'; options = @{ pvwaUrl = 'https://pvwa.test/PasswordVault' } }) }
+            @{
+                vault = @{ address = 'vault.alias' }
+                components = @(@{
+                        id = 'pvwa'
+                        type = 'PVWA'
+                        options = @{ pvwaUrl = 'https://pvwa.test/PasswordVault' }
+                    })
+            }
         }
         Mock Enter-PASVaultLock -ModuleName PASeasyInstall {
             [void]$global:PAeasyHealthFixture.Events.Add('lock:' + $Address)
@@ -28,7 +36,18 @@ Describe 'Deployment status and authenticated health' {
         Mock Invoke-PASAuthenticatedWebHealth -ModuleName PASeasyInstall {
             $global:PAeasyHealthFixture.Held | Should -BeTrue
             [void]$global:PAeasyHealthFixture.Events.Add('authenticate')
-            [pscustomobject]@{ SessionState = 'Closed'; FailureCode = ''; PVWA = @{ Passed = $true; OperationallyVerified = $true }; CPM = @{ Passed = $true; OperationallyVerified = $false } }
+            [pscustomobject]@{
+                SessionState = 'Closed'
+                FailureCode = ''
+                PVWA = @{
+                    Passed = $true
+                    OperationallyVerified = $true
+                }
+                CPM = @{
+                    Passed = $true
+                    OperationallyVerified = $false
+                }
+            }
         }
     }
     AfterAll { Remove-Variable -Name PAeasyHealthFixture -Scope Global -ErrorAction SilentlyContinue }
@@ -72,7 +91,14 @@ Describe 'Deployment status and authenticated health' {
         ($r | ConvertTo-Json -Depth 10) | Should -Not -Match SYNTHETIC_PUBLIC_HEALTH_SECRET
     }
     It 'requires an explicit URL if no PVWA URL is configured and refuses HTTP' {
-        Mock Read-PASConfiguration -ModuleName PASeasyInstall { @{ vault = @{ address = 'vault.alias' }; components = @(@{ id = 'pvwa'; type = 'PVWA'; options = @{} }) } }
+        Mock Read-PASConfiguration -ModuleName PASeasyInstall { @{
+                vault = @{ address = 'vault.alias' }
+                components = @(@{
+                        id = 'pvwa'
+                        type = 'PVWA'
+                        options = @{}
+                    })
+            } }
         $first = InModuleScope PASeasyInstall -Parameters @{ C = $credential } { param($C) Test-PASDeploymentStatus -Config test.json -VaultCredential $C }
         $first.FailureCode | Should -BeExactly ExplicitApiBaseUriRequired
         $second = InModuleScope PASeasyInstall -Parameters @{ C = $credential } { param($C) Test-PASDeploymentStatus -Config test.json -VaultCredential $C -ApiBaseUri http://pvwa.test/API }
@@ -82,7 +108,15 @@ Describe 'Deployment status and authenticated health' {
     }
     It 'reports the failure code of a session that could not be closed' {
         Mock Invoke-PASAuthenticatedWebHealth -ModuleName PASeasyInstall {
-            [pscustomobject]@{ SessionState = 'Unknown'; FailureCode = 'LogoffFailed'; PVWA = @{ Passed = $false; OperationallyVerified = $false }; CPM = $null }
+            [pscustomobject]@{
+                SessionState = 'Unknown'
+                FailureCode = 'LogoffFailed'
+                PVWA = @{
+                    Passed = $false
+                    OperationallyVerified = $false
+                }
+                CPM = $null
+            }
         }
         $r = InModuleScope PASeasyInstall -Parameters @{ C = $credential } { param($C) Test-PASDeploymentStatus -Config test.json -VaultCredential $C }
         $r.FailureCode | Should -BeExactly LogoffFailed

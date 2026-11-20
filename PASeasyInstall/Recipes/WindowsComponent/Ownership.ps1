@@ -1,6 +1,6 @@
 # Enables only an EXISTING token privilege for a bounded, already-validated filesystem operation.
 # This neither grants account rights nor changes machine policy. Callers validate their boundary first.
-if(-not ('PASeasyInstall.Native.RestorePrivilegeScopeV1' -as [type])){
+if (-not ('PASeasyInstall.Native.RestorePrivilegeScopeV1' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
@@ -63,12 +63,16 @@ namespace PASeasyInstall.Native {
 '@
 }
 function Get-PASeasyRestorePrivilegeState {
-    $attributes=[PASeasyInstall.Native.RestorePrivilegeScopeV1]::Attributes()
-    [pscustomobject]@{Present=($attributes -ge 0);Enabled=($attributes -ge 0 -and ($attributes -band 2) -ne 0);Attributes=$attributes}
+    $attributes = [PASeasyInstall.Native.RestorePrivilegeScopeV1]::Attributes()
+    [pscustomobject]@{
+        Present = ($attributes -ge 0)
+        Enabled = ($attributes -ge 0 -and ($attributes -band 2) -ne 0)
+        Attributes = $attributes
+    }
 }
 function Invoke-PASeasyWithRestorePrivilege {
     [CmdletBinding()]
     param([Parameter(Mandatory)][scriptblock]$Action)
-    $scope=[PASeasyInstall.Native.RestorePrivilegeScopeV1]::Enable()
-    try {& $Action}finally{$scope.Dispose()}
+    $scope = [PASeasyInstall.Native.RestorePrivilegeScopeV1]::Enable()
+    try { & $Action }finally { $scope.Dispose() }
 }

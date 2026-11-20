@@ -154,14 +154,14 @@ function Install-PASVault {
         $vaultMode = 'PrimaryDR'
     }
     $configuration = New-PASComposedConfiguration @{
-        Environment       = $Name
-        VaultMode         = $vaultMode
-        PrimaryAddress    = $ComputerName.Trim()
-        DRAddress         = $DRComputerName.Trim()
+        Environment = $Name
+        VaultMode = $vaultMode
+        PrimaryAddress = $ComputerName.Trim()
+        DRAddress = $DRComputerName.Trim()
         ControllerAddress = $ControllerAddress.Trim()
-        Username          = $user
-        Media             = $media
-        SecurityProfile   = $SecurityProfile
+        Username = $user
+        Media = $media
+        SecurityProfile = $SecurityProfile
     }
     if (-not $configuration.mediaRoot) {
         # No Vault package was recognised by name: let the Vault media check search the folder itself.
@@ -195,14 +195,14 @@ function Install-PASVault {
     }
     $install = @{
         Configuration = $configuration
-        Cmdlet        = $PSCmdlet
-        Action        = $action
-        Target        = $target
+        Cmdlet = $PSCmdlet
+        Action = $action
+        Target = $target
         CredentialMap = $credentialMap
-        SecretMap     = $secretMap
-        LabPassword   = $LabPassword
-        PlanOnly      = $PlanOnly
-        Wait          = $Wait
+        SecretMap = $secretMap
+        LabPassword = $LabPassword
+        PlanOnly = $PlanOnly
+        Wait = $Wait
     }
     return (Invoke-PASInstallCommand @install)
 }

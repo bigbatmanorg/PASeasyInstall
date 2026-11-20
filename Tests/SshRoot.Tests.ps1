@@ -1,7 +1,8 @@
 # Linux servers are installed as root: a non-root sign-in must stop at the SSH bootstrap with a clear message
 # (it used to fail later, at media upload, with "mkdir: cannot create directory '/opt/paeasyinstall'").
 BeforeAll {
-    . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1')
+    Import-PASTestModule
 }
 Describe 'Linux sign-in account' {
     It 'accepts root' {

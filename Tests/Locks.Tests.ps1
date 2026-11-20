@@ -59,17 +59,17 @@ Describe 'Vault lock' {
         # Another thread of this process stands in for a second controller.
         $other = [powershell]::Create()
         [void]$other.AddScript({
-            param($MutexName, $Ready, $Release)
-            $mutex = New-Object Threading.Mutex($false, $MutexName)
-            [void]$mutex.WaitOne()
-            try {
-                [void]$Ready.Set()
-                [void]$Release.WaitOne(60000)
-            } finally {
-                $mutex.ReleaseMutex()
-                $mutex.Dispose()
-            }
-        }).AddArgument($name).AddArgument($ready).AddArgument($release)
+                param($MutexName, $Ready, $Release)
+                $mutex = New-Object Threading.Mutex($false, $MutexName)
+                [void]$mutex.WaitOne()
+                try {
+                    [void]$Ready.Set()
+                    [void]$Release.WaitOne(60000)
+                } finally {
+                    $mutex.ReleaseMutex()
+                    $mutex.Dispose()
+                }
+            }).AddArgument($name).AddArgument($ready).AddArgument($release)
         $pending = $other.BeginInvoke()
         try {
             $ready.WaitOne(15000) | Should -BeTrue

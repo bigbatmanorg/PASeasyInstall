@@ -4,9 +4,16 @@ BeforeAll {
     . (Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall.UI/Presentation.ps1')
     function New-Evt([int]$Second, [string]$Component, [string]$Stage, [string]$Status, [string]$Message = '') {
         [pscustomobject]@{ TimestampUtc = ([datetime]'2026-11-18T10:00:00Z').AddSeconds($Second).ToString('o')
-            Component = $Component; Stage = $Stage; Event = 'Step'; Level = 'Information'; Status = $Status; Message = $Message }
+            Component = $Component; Stage = $Stage; Event = 'Step'; Level = 'Information'; Status = $Status; Message = $Message
+        }
     }
-    $script:plan = @([pscustomobject]@{ Id = 'pas-pvwa'; Type = 'PVWA'; Host = 'pas-pvwa'; Address = '192.0.2.33'; Name = 'PVWA01' })
+    $script:plan = @([pscustomobject]@{
+            Id = 'pas-pvwa'
+            Type = 'PVWA'
+            Host = 'pas-pvwa'
+            Address = '192.0.2.33'
+            Name = 'PVWA01'
+        })
     $script:catalog = @{ PVWA = @('management', 'install') }
 }
 
@@ -19,7 +26,14 @@ Describe 'Install progress history' {
         $later = @(1..300 | ForEach-Object { New-Evt (10 + $_) 'pas-pvwa' 'install' 'Running' "line $_" } | Select-Object -Last 200)
         $all = Merge-PASUIEventHistory -History $history -Events $later
         $all.Count | Should -Be 202
-        $snap = [pscustomobject]@{ RunId = ('a' * 32); Status = 'Running'; CurrentComponent = 'pas-pvwa'; LastStep = 'install'; ErrorEvents = 0; Events = $all }
+        $snap = [pscustomobject]@{
+            RunId = ('a' * 32)
+            Status = 'Running'
+            CurrentComponent = 'pas-pvwa'
+            LastStep = 'install'
+            ErrorEvents = 0
+            Events = $all
+        }
         $html = ConvertTo-PASUIDashboardHtml -Snapshot $snap -PlanItems $script:plan -Catalog $script:catalog
         $html | Should -Match 'pas-chip complete">management<'
         $html | Should -Match '1 / 2 stages'

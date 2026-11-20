@@ -56,8 +56,8 @@ function Get-PASStageCatalog {
                 $order++
                 [pscustomobject]@{
                     Component = $type
-                    Stage     = $stage
-                    Order     = $order
+                    Stage = $stage
+                    Order = $order
                 }
             }
         }

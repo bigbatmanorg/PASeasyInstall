@@ -84,13 +84,13 @@ function Install-PASLab {
         }
         $install = @{
             Configuration = $Configuration
-            Cmdlet        = $PSCmdlet
-            Action        = "Install the CyberArk lab described by $description"
+            Cmdlet = $PSCmdlet
+            Action = "Install the CyberArk lab described by $description"
             CredentialMap = $CredentialMap
-            SecretMap     = $SecretMap
-            LabPassword   = $LabPassword
-            Wait          = $Wait
-            PollSeconds   = $PollSeconds
+            SecretMap = $SecretMap
+            LabPassword = $LabPassword
+            Wait = $Wait
+            PollSeconds = $PollSeconds
         }
         return (Invoke-PASInstallCommand @install)
     }

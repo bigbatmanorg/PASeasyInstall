@@ -6,7 +6,10 @@ Describe 'Linux recipe package installs' {
     It 'never runs apt-get install without --no-upgrade and NEEDRESTART_SUSPEND' {
         $lines = @($script:task -split "`n" | Where-Object { $_ -match 'apt-get\s.*\binstall\b' -and $_ -notmatch '^\s*#' })
         $lines.Count | Should -BeGreaterThan 1
-        foreach ($l in $lines) { $l | Should -Match '--no-upgrade'; $l | Should -Match 'NEEDRESTART_SUSPEND=1' }
+        foreach ($l in $lines) {
+            $l | Should -Match '--no-upgrade'
+            $l | Should -Match 'NEEDRESTART_SUSPEND=1'
+        }
     }
     It 'exempts its attempt units from needrestart before installing anything' {
         $script:task | Should -Match ([regex]::Escape('$nrconf{override_rc}{qr(^paeasy-.*)} = 0;'))
@@ -21,7 +24,10 @@ Describe 'PSMP reinstall into an existing Vault' {
     It 'asks the vendor setup to recreate credential files of PSMP users that already exist' {
         $parms = @($script:task -split "`n" | Where-Object { $_ -match "printf .*AcceptCyberArkEULA=Yes.*> /var/tmp/psmpparms" })
         $parms.Count | Should -Be 2
-        foreach ($p in $parms) { $p | Should -Match 'UpdateCredFile=Yes'; $p | Should -Match 'ADBridgeUpdateCredFile=Yes' }
+        foreach ($p in $parms) {
+            $p | Should -Match 'UpdateCredFile=Yes'
+            $p | Should -Match 'ADBridgeUpdateCredFile=Yes'
+        }
     }
 }
 

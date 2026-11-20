@@ -109,20 +109,20 @@ function Install-PASCPM {
     }
 
     $install = @{
-        Type               = 'CPM'
-        Cmdlet             = $PSCmdlet
-        ComputerName       = $ComputerName
-        VaultAddress       = $VaultAddress
-        MediaPath          = $MediaPath
-        Name               = $Name
-        Credential         = $Credential
+        Type = 'CPM'
+        Cmdlet = $PSCmdlet
+        ComputerName = $ComputerName
+        VaultAddress = $VaultAddress
+        MediaPath = $MediaPath
+        Name = $Name
+        Credential = $Credential
         VaultAdminPassword = $VaultAdminPassword
-        LabPassword        = $LabPassword
-        SecurityProfile    = $SecurityProfile
-        Options            = $componentOptions
-        SecurityOverride   = $securityOverride
-        Wait               = $Wait
-        PlanOnly           = $PlanOnly
+        LabPassword = $LabPassword
+        SecurityProfile = $SecurityProfile
+        Options = $componentOptions
+        SecurityOverride = $securityOverride
+        Wait = $Wait
+        PlanOnly = $PlanOnly
     }
     return (Invoke-PASComponentInstall @install)
 }

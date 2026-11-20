@@ -94,38 +94,38 @@ function Install-PASDomainController {
     # A configuration with one server (dc01) and one component (ad). No Vault is installed: the vault
     # block only carries the standard secret names.
     $configuration = [ordered]@{
-        schemaVersion     = 2
-        name              = $Name.Trim()
-        mediaRoot         = ''
+        schemaVersion = 2
+        name = $Name.Trim()
+        mediaRoot = ''
         controllerAddress = ''
-        security          = @{ profile = $SecurityProfile; overrides = $overrides }
-        vault             = @{
-            address         = ''
-            adminUser       = 'Administrator'
-            secretRef       = 'VaultAdmin'
+        security = @{ profile = $SecurityProfile; overrides = $overrides }
+        vault = @{
+            address = ''
+            adminUser = 'Administrator'
+            secretRef = 'VaultAdmin'
             masterSecretRef = 'VaultMaster'
-            drSecretRef     = 'DRPassword'
-            existing        = $true
+            drSecretRef = 'DRPassword'
+            existing = $true
         }
-        activeDirectory   = @{
-            mode               = 'Create'
-            host               = 'dc01'
-            domain             = $domain
-            join               = @()
-            joinUser           = ($netbios + '\Administrator')
+        activeDirectory = @{
+            mode = 'Create'
+            host = 'dc01'
+            domain = $domain
+            join = @()
+            joinUser = ($netbios + '\Administrator')
             createTestAccounts = $false
         }
-        hosts             = @{
+        hosts = @{
             dc01 = @{
-                address       = $ComputerName.Trim()
-                os            = 'Windows'
-                user          = (Get-PASAccountName -Credential $Credential -Default 'Administrator')
+                address = $ComputerName.Trim()
+                os = 'Windows'
+                user = (Get-PASAccountName -Credential $Credential -Default 'Administrator')
                 credentialRef = 'dc01'
             }
         }
-        components        = @($component)
-        media             = @{}
-        options           = @{}
+        components = @($component)
+        media = @{}
+        options = @{}
     }
 
     $credentialMap = @{}
@@ -138,14 +138,14 @@ function Install-PASDomainController {
     }
     $install = @{
         Configuration = $configuration
-        Cmdlet        = $PSCmdlet
-        Action        = "Create the Active Directory forest $domain (environment '$Name')"
-        Target        = $ComputerName.Trim()
+        Cmdlet = $PSCmdlet
+        Action = "Create the Active Directory forest $domain (environment '$Name')"
+        Target = $ComputerName.Trim()
         CredentialMap = $credentialMap
-        SecretMap     = $secretMap
-        LabPassword   = $LabPassword
-        PlanOnly      = $PlanOnly
-        Wait          = $Wait
+        SecretMap = $secretMap
+        LabPassword = $LabPassword
+        PlanOnly = $PlanOnly
+        Wait = $Wait
     }
     return (Invoke-PASInstallCommand @install)
 }

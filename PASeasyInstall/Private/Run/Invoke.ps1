@@ -212,19 +212,19 @@ function Invoke-PASComponentInstall {
 
     # The component is named after its type: its id (and its server id) is pvwa, cpm, psm or psmp.
     $instance = @{
-        Type     = $Type
-        Name     = $Type
-        Address  = $address
+        Type = $Type
+        Name = $Type
+        Address = $address
         Username = (Get-PASAccountName -Credential $Credential -Default $defaultUser)
     }
     $configuration = New-PASComposedConfiguration @{
-        Environment          = $Name
-        VaultMode            = 'Existing'
+        Environment = $Name
+        VaultMode = 'Existing'
         ExistingVaultAddress = $VaultAddress.Trim()
-        Instances            = @($instance)
-        Media                = @{ $Type = (Select-PASComponentMedia -Type $Type -MediaPath $MediaPath) }
-        SecurityProfile      = $SecurityProfile
-        AcceptEula           = [bool]$AcceptEula
+        Instances = @($instance)
+        Media = @{ $Type = (Select-PASComponentMedia -Type $Type -MediaPath $MediaPath) }
+        SecurityProfile = $SecurityProfile
+        AcceptEula = [bool]$AcceptEula
     }
     $component = $configuration.components[0]
 
@@ -255,14 +255,14 @@ function Invoke-PASComponentInstall {
     }
     $install = @{
         Configuration = $configuration
-        Cmdlet        = $Cmdlet
-        Action        = "Install CyberArk $Type (environment '$Name', Vault $($VaultAddress.Trim()))"
-        Target        = $address
+        Cmdlet = $Cmdlet
+        Action = "Install CyberArk $Type (environment '$Name', Vault $($VaultAddress.Trim()))"
+        Target = $address
         CredentialMap = $credentialMap
-        SecretMap     = $secretMap
-        LabPassword   = $LabPassword
-        PlanOnly      = $PlanOnly
-        Wait          = $Wait
+        SecretMap = $secretMap
+        LabPassword = $LabPassword
+        PlanOnly = $PlanOnly
+        Wait = $Wait
     }
     return (Invoke-PASInstallCommand @install)
 }
@@ -277,11 +277,11 @@ function New-PASPreflightResult {
         [string]$Detail
     )
     return [pscustomobject]@{
-        Server  = $Server
+        Server = $Server
         Address = $Address
-        Check   = $Check
-        Passed  = $Passed
-        Detail  = $Detail
+        Check = $Check
+        Passed = $Passed
+        Detail = $Detail
     }
 }
 

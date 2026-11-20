@@ -59,12 +59,12 @@ function Get-PASRun {
             }
             foreach ($record in $records) {
                 [pscustomobject]@{
-                    RunId       = [string]$record.id
-                    Name        = [string]$record.name
-                    Status      = [string]$record.status
-                    StartedUtc  = [string]$record.startedUtc
+                    RunId = [string]$record.id
+                    Name = [string]$record.name
+                    Status = [string]$record.status
+                    StartedUtc = [string]$record.startedUtc
                     FinishedUtc = [string]$record.finishedUtc
-                    Message     = [string]$record.message
+                    Message = [string]$record.message
                 }
             }
             return
