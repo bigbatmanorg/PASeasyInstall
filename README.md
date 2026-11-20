@@ -1,9 +1,8 @@
 # PASeasyInstall
 
-**Build a complete CyberArk PAM self-hosted lab from one Windows controller.** Point the desktop at your installer
-media, name your servers, choose a password, and click **Install**. You get a Vault (or a replicated Primary + DR
-pair), PVWA, CPM, PSM, PSMP and an optional Active Directory forest. Each component is installed, registered,
-hardened and verified on its own server.
+**Build a CyberArk PAM self-hosted lab from one Windows controller.** PASeasyInstall installs a Vault (or a
+replicated Primary and DR pair), PVWA, CPM, PSM, PSMP and an Active Directory lab forest on servers you provide.
+Each component is installed, registered, hardened and verified on its own server.
 
 📖 **Documentation: <https://bigbatmanorg.github.io/PASeasyInstall/>**
 
@@ -13,28 +12,140 @@ hardened and verified on its own server.
 > responsibility. This is a community project, **not affiliated with, endorsed by or supported by CyberArk**. You
 > supply your own licensed CyberArk installation media and license.
 
+> [!NOTE]
+> **Version 2.0.0 is a rewrite of the command set and the module layout.** It has not yet been tested end to end
+> in a lab. The 1.0 command names are gone; see the
+> [release notes](https://bigbatmanorg.github.io/PASeasyInstall/release-notes/) for the mapping.
+
 ![The Review plan step of the PASeasyInstall desktop](Docs/screenshots/integrated/5-review.png)
 
-## Quick start
+There are two ways to use it. Both run the same code.
 
-**Portable ZIP:** download `PASeasyInstall-<version>-portable.zip` from
-[Releases](https://github.com/bigbatmanorg/PASeasyInstall/releases), unblock it, extract it, and double-click
-`Start-PASeasyInstall.cmd`. Everything it needs, including the NativeHTMLKit UI runtime, is inside.
-
-**PowerShell Gallery:**
+## 1. PowerShell commands
 
 ```powershell
 Install-Module PASeasyInstall -Scope CurrentUser
+```
+
+The module has no dependencies. It needs Windows PowerShell 5.1.
+
+**One Vault:**
+
+```powershell
+Install-PASVault -ComputerName 192.0.2.11 -MediaPath D:\CyberArkMedia -Wait
+```
+
+The command checks the input and asks for confirmation. Then it asks for the Windows account of the server and for
+the two Vault passwords to set. It installs and hardens the Vault and shows the progress. Add `-WhatIf` to see what
+would happen: nothing is asked and nothing is contacted.
+
+**Then a PVWA for that Vault:**
+
+```powershell
+Install-PASPVWA -ComputerName 192.0.2.21 -VaultAddress 192.0.2.11 -MediaPath D:\CyberArkMedia -SecurityProfile Lab -Wait
+```
+
+CPM, PSM, PSMP and a domain controller work the same way: `Install-PASCPM`, `Install-PASPSM`, `Install-PASPSMP`,
+`Install-PASDomainController`. With `-SecurityProfile Lab` you may give one password for everything:
+`-LabPassword (Read-Host -AsSecureString 'Lab password')`.
+
+**A whole lab from one configuration:**
+
+```powershell
+$media = Get-PASMediaSelection -Inventory (Get-PASMediaInventory -Path D:\CyberArkMedia)
+$cfg = New-PASLabConfiguration -Environment MyLab -VaultMode PrimaryDR `
+    -PrimaryAddress 192.0.2.11 -DRAddress 192.0.2.12 -ControllerAddress 192.0.2.10 `
+    -Instances @(@{ Type = 'PVWA'; Name = 'PVWA01'; Address = '192.0.2.21' },
+                 @{ Type = 'CPM';  Name = 'CPM01';  Address = '192.0.2.22' }) `
+    -Media $media -SecurityProfile Lab
+Export-PASLabConfiguration -Configuration $cfg -Path .\MyLab.json
+
+Test-PASLabConfiguration -Path .\MyLab.json -CheckMedia    # is it complete?
+Get-PASLabPlan -Path .\MyLab.json                          # what would be installed, in which order
+Test-PASPreflight -Path .\MyLab.json                       # are the servers reachable and ready?
+Install-PASLab -Path .\MyLab.json -Wait                    # install
+```
+
+The configuration file never contains a password.
+
+## 2. The desktop
+
+```powershell
+Install-Module PASeasyInstall.UI -Scope CurrentUser
 Start-PASeasyInstall
 ```
 
-**From a script:**
+`PASeasyInstall.UI` is a separate module. It is a six-step wizard that only calls the commands above: project and
+media, what to install, servers, credentials, review plan, install. Nothing is sent to a server before you press
+**Install** on the last step. `Start-PASeasyInstall -Config .\MyLab.json` reopens a saved project.
+`Start-PASeasyInstall -Backend Mock` shows the same window with a simulated installation.
+
+**Portable ZIP:** download `PASeasyInstall-<version>-portable.zip` from
+[Releases](https://github.com/bigbatmanorg/PASeasyInstall/releases), unblock it, extract it, and double-click
+`Start-PASeasyInstall.cmd`. Both modules and the NativeHTMLKit UI runtime are inside. Nothing is installed.
+
+Full tour with screenshots: [Desktop UI](https://bigbatmanorg.github.io/PASeasyInstall/gui/).
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `Install-PASVault` | Installs a Primary Vault, or a Primary and DR Vault pair. |
+| `Install-PASPVWA` | Installs PVWA on a Windows server and registers it with an existing Vault. |
+| `Install-PASCPM` | Installs CPM on a Windows server and registers it with an existing Vault. |
+| `Install-PASPSM` | Installs PSM on a Windows server and registers it with an existing Vault. |
+| `Install-PASPSMP` | Installs PSM for SSH (PSMP) on a Linux server and registers it with an existing Vault. |
+| `Install-PASDomainController` | Creates a new Active Directory forest for a lab. |
+| `Install-PASLab` | Installs everything a lab configuration describes. |
+| `New-PASLabConfiguration` | Composes the configuration of a lab. Contacts nothing. |
+| `Test-PASLabConfiguration` | Checks a configuration: structure, topology rules and, with `-CheckMedia`, the installer files. |
+| `Get-PASLabPlan` | Shows what a configuration would install: components, servers, installers, order. |
+| `Export-PASLabConfiguration` | Saves a configuration as a JSON file (never a password). |
+| `Import-PASLabConfiguration` | Reads a configuration from a JSON file. |
+| `Get-PASMediaInventory` | Finds CyberArk installer media in files, folders and ZIP bundles. Read-only. |
+| `Get-PASMediaSelection` | Picks one installer per component from the inventory. |
+| `Get-PASCredentialRequirement` | Lists the server accounts and passwords a configuration needs. |
+| `Get-PASStageCatalog` | Lists the installation stages of a component type, in order. |
+| `Get-PASRun` | Lists the runs of this controller, or shows one run with its components and events. |
+| `Get-PASRunEvent` | Returns the progress events of a run, oldest first. `-Failed` shows only failures. |
+| `Wait-PASRun` | Follows a run until it ends and returns the final run. |
+| `Resume-PASRun` | Continues a run that stopped. `-RetryStep` executes a failed step again. |
+| `Stop-PASRun` | Gives a run up: marks it Abandoned and releases its locks on the servers. |
+| `Test-PASPreflight` | Checks, without changing anything, that the controller and the servers are ready. |
+| `Test-PASHealth` | Checks an installed lab: PVWA login, connected components, DR replication. |
+| `Export-PASDiagnostics` | Writes a sanitized ZIP of one run for support or documentation. |
+| `Get-PASRunLog` | Reads the controller journal of a run, or the tail of a CyberArk log on a lab server. |
+
+Every command has full help: `Get-Help Install-PASVault -Full`. Overview: `Get-Help about_PASeasyInstall`.
+
+## When something fails
+
+An installation is a **run**. It executes in its own controller process and has a run id.
 
 ```powershell
-Invoke-PASeasyInstall -Config C:\Labs\Lab01.json        # a project saved by the desktop
+Get-PASRun                                   # all runs, newest first
+Get-PASRun -RunId <id>                       # one run: status, components, latest events
+Get-PASRunEvent -RunId <id> -Failed          # what failed
+Get-PASRunLog -RunId <id>                    # the controller journal of the run
+Test-PASPreflight -Path .\MyLab.json         # is a server unreachable or not ready?
 ```
 
-Requirements, media and target preparation: [Get started](https://bigbatmanorg.github.io/PASeasyInstall/getting-started/).
+Correct the cause on the server. Then continue the same run:
+
+```powershell
+Resume-PASRun -RunId <id>                          # finished components are checked again, the rest is installed
+Resume-PASRun -RunId <id> -RetryStep cpm01:install # also execute this failed step again
+```
+
+A step that ended Failed or Unknown is never repeated on its own. You name it with `-RetryStep` after you looked
+at the server. If you will not continue the run (for example after you rebuilt the servers), give it up:
+
+```powershell
+Stop-PASRun -RunId <id> -CredentialMap $creds      # marks it Abandoned and releases its server locks
+Export-PASDiagnostics -RunId <id>                  # sanitized ZIP for a bug report
+```
+
+More: [Troubleshooting](https://bigbatmanorg.github.io/PASeasyInstall/troubleshooting/).
 
 ## What it installs
 
@@ -44,34 +155,24 @@ Requirements, media and target preparation: [Get started](https://bigbatmanorg.g
 | PVWA | Prerequisites, installation, TLS (a self-signed certificate in Lab mode), registration, hardening |
 | CPM | Installation, registration (trusting the PVWA certificate it is pinned to in Lab mode), hardening |
 | PSM | Workgroup PSM, with the vendor's reboots handled; no plaintext autologon |
-| PSMP | PSM for SSH on Ubuntu 22.04/24.04 or RHEL/Rocky 8/9 |
-| Active Directory | A new forest with DNS (command line) |
+| PSMP | PSM for SSH on Ubuntu 22.04/24.04 or RHEL-family 8/9 |
+| Active Directory | A new forest with DNS |
 
-You can install up to four instances of each component, put components together on one server, and install one
-server at a time or in parallel. PTA is not part of this release.
-
-## The desktop in six steps
-
-1. **Project & media:** name the lab and drop your media. Installers are recognised even inside the CyberArk bundle ZIP.
-2. **What to install:** Primary, Primary + DR or an existing Vault; how many servers of each component; the order.
-3. **Servers:** the controller address, plus a hostname and address for each server.
-4. **Credentials:** one lab password (Lab mode) or individual passwords. They are never saved.
-5. **Review plan:** every server, installer, dependency and security deviation, before anything happens.
-6. **Install:** live progress per server. Runs survive closing the window and resume safely.
-
-Full tour with screenshots: [Desktop UI](https://bigbatmanorg.github.io/PASeasyInstall/gui/).
+You can install up to four instances of each component and put components together on one server. Components
+are installed one after the other. PTA is not included.
 
 ## How it works
 
-A Windows PowerShell 5.1 controller drives the vendor's own installers on the targets over WinRM HTTPS (Windows) and
-SSH (Linux).
+A Windows PowerShell 5.1 controller drives the vendor's own installers on the targets over WinRM HTTPS (Windows)
+and SSH (Linux).
 
-- Every stage is a recorded, independently verified attempt. Interrupted runs resume from what actually happened
-  on the server, and an installer is never rerun blindly.
+- Every step is a recorded attempt on the server, verified by a separate check. An interrupted run resumes from
+  what actually happened on the server. An installer is never rerun blindly.
 - Passwords live only in memory.
-- The desktop is a native window built with [NativeHTMLKit](https://nativehtmlkit.github.io/). There is no browser,
-  web server or JavaScript.
+- The desktop is a native window built with [NativeHTMLKit](https://nativehtmlkit.github.io/). There is no
+  browser, web server or JavaScript.
 
+The mental model, the files a run leaves behind and the known debt are in [Docs/DESIGN.md](Docs/DESIGN.md).
 More in [Concepts](https://bigbatmanorg.github.io/PASeasyInstall/concepts/).
 
 ## Execution policy
@@ -81,7 +182,6 @@ ZIP, run `Unblock-File` on the ZIP before extracting it. Where `AllSigned` is en
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-Start-PASeasyInstall
 ```
 
 That allows unsigned code for the current PowerShell window only. Details:
@@ -90,22 +190,29 @@ That allows unsigned code for the current PowerShell window only. Details:
 ## Repository layout
 
 ```text
-Modules/PASeasyInstall.Core/          engine: transports, durable runs, journals, recovery, coordination
-Modules/PASeasyInstall.Orchestrator/  media inventory, lab composition, plans, sequential/parallel fleet runs
-Modules/PASeasyInstall.Vault|DR|PVWA|CPM|PSM|PSMP|AD/   component recipes
-Modules/PASeasyInstall.UI/            the desktop (NativeHTMLKit.UI), its backend contract and a Mock backend
-Modules/PASeasyInstall.PTA/           kept for future work; not part of this release
-site-src/, zensical.toml              documentation site (https://bigbatmanorg.github.io/PASeasyInstall/)
-Docs/                                 third-party licenses and README screenshots
-Tests/, Tools/                        Pester tests and build/check tools
+PASeasyInstall/                 the core module (no dependencies)
+  Public/                       one file per exported command (25)
+  Private/Common|Config|Media   helpers, configuration and planning, installer media
+  Private/Engine                transports, step attempts, journals, locks
+  Private/Run                   run controller, events, the Install-* plumbing
+  Private/Diagnostics           health, logs, diagnostics export
+  Recipes/                      scripts that run on the servers: Vault, WindowsComponent, LinuxComponent, ActiveDirectory
+  Controllers/                  entry script of the detached run controller process
+PASeasyInstall.UI/              the desktop module (NativeHTMLKit.UI); calls only the public commands
+Start-PASeasyInstall.ps1        opens the desktop from a source checkout
+Tests/, Tools/                  Pester tests and build/check tools
+Docs/                           DESIGN.md, third-party licenses, README screenshots
+site-src/, zensical.toml        documentation site (https://bigbatmanorg.github.io/PASeasyInstall/)
 ```
 
 ## Development
 
 ```powershell
-.\Tools\Check-Modular.ps1                         # parser, manifests, sample plans; no remote operations
-Invoke-Pester -Path .\Tests                       # Pester 5; some tests are Windows-only
-.\Start-PASeasyInstall.ps1 -Backend Mock          # the desktop against a simulator, no servers needed
+.\Tools\Check-Source.ps1                          # parser, both manifests, export list == Public folder
+.\Tools\Invoke-CITests.ps1                        # Check-Source, then the Pester 5 suite CI runs
+Invoke-Pester -Path .\Tests                       # every test; some are Windows-only
+.\Start-PASeasyInstall.ps1 -Backend Mock          # the desktop with a simulated installation, no servers needed
+.\Tools\Build-PortableRelease.ps1                 # both Gallery packages and the portable ZIP, under .\dist
 ```
 
 Documentation site: `pip install zensical==0.1.1`, then `zensical serve` (preview) or `zensical build`.
