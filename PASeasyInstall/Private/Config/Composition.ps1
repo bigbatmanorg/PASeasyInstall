@@ -123,7 +123,7 @@ function New-PASDeploymentConfiguration {
     $cfg = New-PASDeploymentConfiguration -Environment MyLab -VaultMode PrimaryDR -PrimaryAddress 192.0.2.11 -DRAddress 192.0.2.12 `
              -ControllerAddress 192.0.2.10 -Media $sel -SecurityProfile Lab `
              -Instances @(@{Type='PVWA';Name='PVWA01';Address='192.0.2.21'},@{Type='CPM';Name='CPM01';Address='192.0.2.21'})
-    Save-PASEnvironment -Configuration $cfg -Path .\MyLab.json
+    Export-PASLabConfiguration -Configuration $cfg -Path .\MyLab.json
     #>
     [CmdletBinding()]param([Parameter(Mandatory)][string]$Environment,
         [Parameter(Mandatory)][ValidateSet('Primary','PrimaryDR','Existing')][string]$VaultMode,

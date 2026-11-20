@@ -1,5 +1,5 @@
 # Read-only diagnostics. The authenticated health check holds the Vault lock (Locks.ps1) while its session is open.
-function Get-PASRunLog {
+function Get-PASDeploymentLog {
     [CmdletBinding(DefaultParameterSetName='Run')]
     param([Parameter(ParameterSetName='Run',Mandatory)][string]$RunId,
           [Parameter(ParameterSetName='Remote',Mandatory)][string]$Config,

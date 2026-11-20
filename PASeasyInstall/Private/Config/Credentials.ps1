@@ -1,6 +1,8 @@
 # Which credentials and secrets a configuration needs, and how missing ones are prompted for.
 function Get-PASInstallRequirement {
-    <# What a configuration needs before it can run: one credential per server and the Vault/AD secrets. #>
+    <# What a configuration needs before it can run: one credential per server and the Vault/AD secrets.
+       One object per requirement: Kind (Credential or Secret), Key (the CredentialMap / SecretMap key),
+       HostId, User, Os, Label. Public face: Get-PASCredentialRequirement. #>
     param([Parameter(Mandatory)]$Configuration)
     $c=$Configuration
     $req=New-Object System.Collections.ArrayList
@@ -35,36 +37,81 @@ function Get-PASInstallRequirement {
     return @($req)
 }
 
-function Resolve-PASInstallCredential {
-    param($Configuration,[hashtable]$CredentialMap,[hashtable]$SecretMap,[securestring]$LabPassword)
-    if($LabPassword -and $Configuration.security.profile -ne 'Lab'){throw '-LabPassword (one password for everything) requires a configuration with security.profile = Lab'}
-    $creds=@{};foreach($k in $CredentialMap.Keys){$creds[$k]=$CredentialMap[$k]}
-    $secrets=@{};foreach($k in $SecretMap.Keys){$secrets[$k]=$SecretMap[$k]}
-    foreach($r in @(Get-PASInstallRequirement $Configuration)){
-        if($r.Kind -eq 'Credential'){
-            if($creds.ContainsKey($r.Key) -or ($r.HostId -and $creds.ContainsKey($r.HostId))){continue}
-            if($LabPassword){$cred=[pscredential]::new($r.User,$LabPassword.Copy())}
-            else{
-                $cred=Get-Credential -UserName $r.User -Message ("PASeasyInstall: "+$r.Label)
-                if(-not $cred){throw "Cancelled: no credential for $($r.Label)"}
-            }
-            $creds[$r.Key]=$cred
-            if($r.HostId -and $r.HostId -ne $r.Key){$creds[$r.HostId]=$cred}
-        }else{
-            if($secrets.ContainsKey($r.Key)){continue}
-            $secrets[$r.Key]=if($LabPassword){$LabPassword.Copy()}else{Read-Host -AsSecureString -Prompt ("PASeasyInstall: "+$r.Label)}
-            if($secrets[$r.Key].Length -eq 0){throw "Empty secret: $($r.Label)"}
-        }
+function Assert-PASLabPassword {
+    # -LabPassword means "one password for every server and every secret". Only the Lab profile allows it.
+    param($Configuration, [securestring]$LabPassword)
+    if ($LabPassword -and [string]$Configuration.security.profile -ne 'Lab') {
+        throw '-LabPassword (one password for everything) is only allowed with the Lab security profile. Add -SecurityProfile Lab (or set security.profile to Lab in the configuration), or pass the credentials separately.'
     }
-    # WinRM from a workgroup controller needs the target's own account: 'Administrator' -> '.\Administrator'.
-    foreach($k in @($creds.Keys)){
-        $hid=$null
-        if($Configuration.hosts.Contains($k)){$hid=$k}
-        if($hid -and $Configuration.hosts[$hid].os -eq 'Windows'){
-            $u=[string]$creds[$k].UserName
-            if($u -and $u -notmatch '[\\@]'){$creds[$k]=[pscredential]::new('.\'+$u,$creds[$k].Password)}
-        }
-    }
-    return @{Credentials=$creds;Secrets=$secrets}
 }
 
+function Resolve-PASInstallCredential {
+    # Completes the credentials and secrets a configuration needs (see Get-PASInstallRequirement).
+    # What the caller supplied is kept. What is missing is taken from -LabPassword, or asked for
+    # interactively: Get-Credential for a server account, Read-Host -AsSecureString for a secret.
+    # Returns @{ Credentials = @{ key = PSCredential }; Secrets = @{ key = SecureString } }.
+    #
+    # User names are returned as entered. The '.\Administrator' form WinRM needs for a workgroup server
+    # is applied in one place only: ConvertTo-PASControllerCredentialMap, when a run is started,
+    # resumed or stopped.
+    param(
+        $Configuration,
+        [hashtable]$CredentialMap,
+        [hashtable]$SecretMap,
+        [securestring]$LabPassword
+    )
+    Assert-PASLabPassword $Configuration $LabPassword
+
+    # Work on copies: the caller's hashtables are never changed.
+    $credentials = @{}
+    if ($CredentialMap) {
+        foreach ($key in $CredentialMap.Keys) {
+            $credentials[$key] = $CredentialMap[$key]
+        }
+    }
+    $secrets = @{}
+    if ($SecretMap) {
+        foreach ($key in $SecretMap.Keys) {
+            $secrets[$key] = $SecretMap[$key]
+        }
+    }
+
+    foreach ($requirement in @(Get-PASInstallRequirement $Configuration)) {
+        if ($requirement.Kind -eq 'Credential') {
+            # A server credential may be filed under its credentialRef or under the host id.
+            $known = $credentials.ContainsKey($requirement.Key)
+            if (-not $known -and $requirement.HostId) {
+                $known = $credentials.ContainsKey($requirement.HostId)
+            }
+            if ($known) {
+                continue
+            }
+            if ($LabPassword) {
+                $credential = [pscredential]::new($requirement.User, $LabPassword.Copy())
+            } else {
+                $credential = Get-Credential -UserName $requirement.User -Message ('PASeasyInstall: ' + $requirement.Label)
+                if (-not $credential) {
+                    throw "Cancelled: no credential was given for $($requirement.Label). Run the command again, or pass it with -Credential / -CredentialMap."
+                }
+            }
+            $credentials[$requirement.Key] = $credential
+            if ($requirement.HostId -and $requirement.HostId -ne $requirement.Key) {
+                $credentials[$requirement.HostId] = $credential
+            }
+        } else {
+            if ($secrets.ContainsKey($requirement.Key)) {
+                continue
+            }
+            if ($LabPassword) {
+                $secret = $LabPassword.Copy()
+            } else {
+                $secret = Read-Host -AsSecureString -Prompt ('PASeasyInstall: ' + $requirement.Label)
+            }
+            if (-not $secret -or $secret.Length -eq 0) {
+                throw "Empty secret: $($requirement.Label). Run the command again and enter a value, or pass it with -SecretMap @{ $($requirement.Key) = <SecureString> }."
+            }
+            $secrets[$requirement.Key] = $secret
+        }
+    }
+    return @{ Credentials = $credentials; Secrets = $secrets }
+}

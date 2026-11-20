@@ -163,6 +163,21 @@ function Get-PASTextDigest {param([string]$Text)
     try{$bytes=[Text.Encoding]::UTF8.GetBytes($Text);return [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-','').ToLowerInvariant()}
     finally{$sha.Dispose()}
 }
+function Get-PASComponentStageNames {
+    # The installation stages of one component type, in order. The single source for the workflow
+    # generator below and for Get-PASStageCatalog.
+    #   PVWA, CPM, PSM, PSMP: stage names of the component recipe (Task.ps1 / Task.sh). The step id of a
+    #                         stage is its lower-case name.
+    #   AD:                   the step ids of the fixed Active Directory workflow written below.
+    param([Parameter(Mandatory)][string]$Type)
+    switch ($Type) {
+        'AD'    { return @('ad-prerequisites', 'ad-install', 'ad-reboot', 'ad-verify') }
+        'PVWA'  { return @('Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Register', 'Harden', 'Verify') }
+        'CPM'   { return @('Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Register', 'Harden', 'Verify') }
+        'PSM'   { return @('Extract', 'Prerequisites', 'Install', 'Register', 'Harden', 'PostInstall', 'Verify') }
+        default { return @('Extract', 'Prerequisites', 'Install', 'Register', 'Harden', 'Verify') }
+    }
+}
 function New-PASComponentWorkflow {
     param([hashtable]$Component,[hashtable]$Configuration,[string]$RunDirectory)
     $id=[string]$Component.id; $type=[string]$Component.type
@@ -231,9 +246,7 @@ function New-PASComponentWorkflow {
             $steps+=@{Id='pvwa-trust-certificate';Kind='Transfer';Source=@{ConfigRef=('Values.Components.'+$id+'.PVWATrustCertificateFile')};Destination=('C:\ProgramData\PASeasyInstall\media\'+$id+'\pvwa-trust.cer');TimeoutSeconds=600}
         }
         $steps+=@{Id='preflight';Script=$scriptPath;Inputs=@{Stage='Preflight';Settings=@{ConfigRef=('Values.Components.'+$id)}};Verify=$verifyPath;TimeoutSeconds=600}
-        $stages=@('Extract','Prerequisites','Install','Register','Harden','Verify')
-        if($type -in @('PVWA','CPM')){$stages=@('Extract','Prerequisites','Install','ConfigureTLS','Register','Harden','Verify')}
-        if($type -eq 'PSM'){$stages=@('Extract','Prerequisites','Install','Register','Harden','PostInstall','Verify')}
+        $stages=@(Get-PASComponentStageNames $type)
         foreach($stage in $stages){
             $step=@{Id=$stage.ToLowerInvariant();Script=$scriptPath;Inputs=@{Stage=$stage;Settings=@{ConfigRef=('Values.Components.'+$id)}};Verify=$verifyPath;TimeoutSeconds=3600}
             if($stage -eq 'Verify'){$step.Remove('Script');$step.Kind='Verify'}
