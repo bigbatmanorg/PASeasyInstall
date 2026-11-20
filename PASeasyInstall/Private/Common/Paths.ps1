@@ -5,16 +5,6 @@ function Get-PASDataRoot {
     return (Join-Path $HOME '.local/share/PASeasyInstall')
 }
 
-function Get-PASSourcesStatus {
-    [CmdletBinding()] param()
-    $p = Join-Path $script:PASRoot 'Private/Engine/Engine.ps1'
-    $v = Get-PASRecipePath 'Recipes/Vault/Workflows/VaultPrimaryOnly.psd1'
-    $b = Get-PASRecipePath 'Recipes/Vault/Workflows/VaultDR.psd1'
-    $ok = ((Test-Path -LiteralPath $p -PathType Leaf) -and (Test-Path -LiteralPath $v -PathType Leaf) -and (Test-Path -LiteralPath $b -PathType Leaf))
-    return [pscustomobject]@{ Ready=$ok; PAExec=$p; Primary=$v; DR=$b;
-        Message=$(if($ok){'Bundled installation source files are present; qualification is separate'}else{'Bundled source files are missing; reinstall the PASeasyInstall package'}) }
-}
-
 function Write-PASJsonAtomic {
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)]$Data)
     $dir = Split-Path -Parent $Path

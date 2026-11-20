@@ -164,8 +164,6 @@ function Initialize-PASDetached {
         $scope=[PASeasyInstall.Native.RestorePrivilegeScopeV1]::Enable()
         try{[void][IO.Directory]::CreateDirectory($dir,$acl)}finally{$scope.Dispose()}
         if((Get-Acl -LiteralPath $dir).GetOwner([Security.Principal.SecurityIdentifier]).Value -ne 'S-1-5-32-544'){throw 'New attempt directory does not have stable administrator ownership'}
-        $stagingClaim=[IO.File]::Open((Join-Path $dir 'staging.claimed'),[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-        $stagingClaim.Dispose()
         $aclOutput=& icacls.exe $dir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' 2>&1
         if($LASTEXITCODE -ne 0){throw "Cannot protect attempt directory: $aclOutput"}
         'staged'

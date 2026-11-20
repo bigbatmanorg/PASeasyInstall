@@ -50,7 +50,7 @@ function Wait-PASMilestone {
         if($marker -and $marker.verified -eq $true -and $marker.runId -eq $RunId){return $marker}
         if(-not $announced -and $Context){ Add-PASEvent $Context 'WaitingForMilestone' $TaskId "waiting for milestone '$Milestone'"; $announced=$true }
         # Stop waiting early when every other target of this run has terminated without publishing.
-        $others=@(Get-ChildItem -LiteralPath $runRoot -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne 'milestones' -and $_.Name -ne $Waiter })
+        $others=@(Get-ChildItem -LiteralPath $runRoot -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @('milestones','Payloads') -and $_.Name -ne $Waiter })
         if($others.Count -gt 0){
             $active=$false
             foreach($o in $others){
@@ -447,10 +447,12 @@ function Invoke-PASWorkflow {
                                 if(-not [IO.Path]::IsPathRooted($source)){$source=Get-PASPath $plan.Root $source}
                                 if(-not(Test-Path -LiteralPath $source -PathType Leaf)){throw "Source missing: $source"}
                                 $want=(Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToUpperInvariant()
-                                $frozen=Get-Variable -Name PASeasyFrozenMedia -Scope Script -ErrorAction SilentlyContinue
-                                if($frozen -and $null -ne $frozen.Value){
+                                # Inside a run only approved files are uploaded: the plan's media plus the files
+                                # resolved at run time (Add-PASFrozenMedia). $null outside a run: no restriction.
+                                if($null -ne $script:PASFrozenMedia){
                                     $fullSource=[IO.Path]::GetFullPath($source)
-                                    if(-not $frozen.Value.ContainsKey($fullSource) -or $frozen.Value[$fullSource] -ne $want){throw 'Frozen media changed or source was not approved in the run plan'}
+                                    if(-not $script:PASFrozenMedia.ContainsKey($fullSource)){throw "Upload refused: $fullSource is not part of the approved plan of this run"}
+                                    if($script:PASFrozenMedia[$fullSource] -ne $want){throw "Upload refused: $fullSource changed since the plan was approved (SHA-256 differs)"}
                                 }
                                 $guard=[string](Get-PASValue $step 'BeforeTransfer' '')
                                 if($guard){

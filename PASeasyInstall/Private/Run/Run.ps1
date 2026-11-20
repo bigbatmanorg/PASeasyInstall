@@ -62,11 +62,11 @@ function Test-PASControllerAlive {
     return ([string]$process.CommandLine).Contains([string]$Record.id)
 }
 function Get-PASRunRecord {
-    # The run record (run-v2.json) as stored, except that a run whose controller process is gone is reported
+    # The run record (run.json) as stored, except that a run whose controller process is gone is reported
     # as Interrupted (or LaunchFailed when no controller ever started): a dead controller never looks alive.
     [CmdletBinding()]param([Parameter(Mandatory)][string]$RunId,[string]$DataRoot=(Get-PASDataRoot))
     $dir=Get-PASRunDirectory $RunId $DataRoot
-    $run=Read-PASJson (Join-Path $dir 'run-v2.json')
+    $run=Read-PASJson (Join-Path $dir 'run.json')
     if(-not $run){return $null}
     if ($run.status -notin @('Running','Launching')) { return $run }
     if ($run.controllerPid) {
@@ -97,7 +97,7 @@ function Write-PASRunEvent {
     param([string]$Dir,[string]$Event,[string]$Message,[string]$ComponentId='',[string]$Stage='',
         [ValidateSet('Information','Warning','Error')][string]$Level='Information')
     $line=[ordered]@{timestampUtc=[DateTime]::UtcNow.ToString('o');event=$Event;component=$ComponentId;taskId=$Stage;level=$Level;message=$Message}
-    [IO.File]::AppendAllText((Join-Path $Dir 'events-v2.jsonl'),(($line|ConvertTo-Json -Compress)+"`n"),[Text.UTF8Encoding]::new($false))
+    [IO.File]::AppendAllText((Join-Path $Dir 'events.jsonl'),(($line|ConvertTo-Json -Compress)+"`n"),[Text.UTF8Encoding]::new($false))
 }
 function Assert-PASEnvironmentNotRunning {
     # A new run for an environment name is refused only while another run of that name has a live controller.
@@ -171,10 +171,10 @@ function Start-PASDeployment {
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
     Protect-PASDirectory $dir
     Write-PASJsonAtomic (Join-Path $dir 'config.json') $c
-    Write-PASJsonAtomic (Join-Path $dir 'plan-v2.json') $plan
+    Write-PASJsonAtomic (Join-Path $dir 'plan.json') $plan
     $run=[ordered]@{schemaVersion=2;id=$id;name=$c.name;status='Launching';startedUtc=[DateTime]::UtcNow.ToString('o');
         finishedUtc=$null;controllerPid=$null;currentComponent='';message='Starting deployment controller';configDigest=$plan.ConfigDigest}
-    Write-PASJsonAtomic (Join-Path $dir 'run-v2.json') $run
+    Write-PASJsonAtomic (Join-Path $dir 'run.json') $run
     $envelope=Join-Path $dir ('credentials-'+[guid]::NewGuid().ToString('N')+'.json')
     $consoleChild=($Foreground -and @($c.components|Where-Object {$c.hosts[[string]$_.host].os -eq 'Linux'}).Count -gt 0)
     try {
@@ -195,7 +195,7 @@ function Start-PASDeployment {
         }
     }catch{
         if(Test-Path $envelope){Remove-Item $envelope -Force -ErrorAction SilentlyContinue}
-        $observed=Read-PASJson (Join-Path $dir 'run-v2.json')
+        $observed=Read-PASJson (Join-Path $dir 'run.json')
         if(-not $observed -or $observed.status -eq 'Launching'){
             $why=[string]$_.Exception.Message
             if($_.Exception -is [Security.Cryptography.CryptographicException] -or $why -match 'Access is denied'){
@@ -203,7 +203,7 @@ function Start-PASDeployment {
             }
             $run.status='LaunchFailed';$run.message='The controller could not be started: '+$why
             $run.finishedUtc=[DateTime]::UtcNow.ToString('o')
-            Write-PASJsonAtomic (Join-Path $dir 'run-v2.json') $run
+            Write-PASJsonAtomic (Join-Path $dir 'run.json') $run
         }
         throw
     }
@@ -299,7 +299,7 @@ function Resume-PASDeployment {
 #      AD forest -> domain joins -> Vault (+DR) -> PVWA, CPM, PSM, PSMP (plan order).
 #      Every function below takes the run context ($Run) created by Invoke-PASRunControllerCore:
 #        RunId, DataRoot, Directory, Config (in memory), Credentials, Secrets,
-#        Record (content of run-v2.json) and RecordPath, Target (engine target that is running),
+#        Record (content of run.json) and RecordPath, Target (engine target that is running),
 #        SshReady (Linux hosts already bootstrapped by this process), RetryFailedPreflight,
 #        Retry (@{ engine target = step ids the operator wants executed again }).
 
@@ -576,7 +576,7 @@ function Invoke-PASRunController {
     # Keep the empty lockfile: deleting it can create two independent lock files.
     $lease=Get-PASFileLock (Join-Path $dir 'controller.lock')
     try{
-        $path=Join-Path $dir 'run-v2.json'
+        $path=Join-Path $dir 'run.json'
         $run=Read-PASJson $path
         if(-not $run){throw 'Controller run metadata is missing'}
         $run.controllerPid=$PID
@@ -604,7 +604,7 @@ function Invoke-PASRunControllerCore {
     $dir=Get-PASRunDirectory $RunId $DataRoot
     $config=Read-PASConfiguration -Path (Join-Path $dir 'config.json')
     $plan=Get-PASDeploymentPlan -Configuration $config -ResolveMedia
-    $saved=Read-PASJson (Join-Path $dir 'plan-v2.json')
+    $saved=Read-PASJson (Join-Path $dir 'plan.json')
     # The run executes exactly what was planned. Module files may change between start and resume;
     # the configuration and the installer media may not.
     if (-not $saved) { throw 'The saved plan of this run is missing or unreadable. Refusing execution.' }
@@ -625,7 +625,7 @@ function Invoke-PASRunControllerCore {
     $auth.Credentials=Resolve-PASCredentialMap -Config $config -CredentialMap $auth.Credentials
     $auth.Secrets=Resolve-PASSecretMap -Config $config -SecretMap $auth.Secrets
     $retry=Resolve-PASRetrySteps -RunDirectory $dir -RetryStep $RetryStep
-    $recordPath=Join-Path $dir 'run-v2.json'
+    $recordPath=Join-Path $dir 'run.json'
     $record=Read-PASJson $recordPath
     $record | Add-Member NoteProperty controllerStartedUtc ([Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().ToString('o')) -Force
     $record.controllerPid=$PID;$record.status='Running';$record.message='Executing deployment';$record.finishedUtc=$null
@@ -740,7 +740,7 @@ function Stop-PASDeployment {
     $record = Get-PASRunRecord -RunId $RunId -DataRoot $DataRoot
     if (-not $record) { throw "Run $RunId was not found under $DataRoot" }
     $dir = Get-PASRunDirectory $RunId $DataRoot
-    $recordPath = Join-Path $dir 'run-v2.json'
+    $recordPath = Join-Path $dir 'run.json'
     $previous = [string]$record.status
     $running = ($previous -in @('Launching','Running'))
     if ($running -and -not $Force) {

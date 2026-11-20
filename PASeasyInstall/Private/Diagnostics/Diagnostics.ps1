@@ -9,7 +9,7 @@ function Get-PASRunLog {
           [string]$DataRoot=(Get-PASDataRoot),[ValidateRange(1,10000)][int]$Tail=200)
     if($PSCmdlet.ParameterSetName -eq 'Run'){
         $dir=Get-PASRunDirectory $RunId $DataRoot
-        $file=Join-Path $dir 'events-v2.jsonl'
+        $file=Join-Path $dir 'events.jsonl'
         if(-not(Test-Path $file)){return @()}
         return @(Get-Content -LiteralPath $file -Tail $Tail | ForEach-Object{try{$_ | ConvertFrom-Json}catch{}} | Where-Object {$_})
     }

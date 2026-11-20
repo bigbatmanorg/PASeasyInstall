@@ -4,7 +4,7 @@ function Get-PASModuleRoot {
 }
 
 function Get-PASRecipePath {
-    # Returns the full path of a recipe file given a path like 'Recipes/Vault/Workflows/VaultPrimary.psd1'.
+    # Returns the full path of a recipe file given a path like 'Recipes/Vault/Workflows/VaultPrimaryOnly.psd1'.
     param([Parameter(Mandatory)][string]$RelativePath)
     $relative = $RelativePath.Replace('\', '/').TrimStart('/')
     $root = [IO.Path]::GetFullPath($script:PASRoot).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar

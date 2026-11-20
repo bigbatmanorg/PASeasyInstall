@@ -103,19 +103,3 @@ function Get-PASWorkflowPlan {
         Steps=$steps; Digest=(Get-PASFileSetDigest $digestFiles)
     }
 }
-function Test-PASEnvironment {
-    [CmdletBinding()]
-    param([ValidateSet('Local','WinRM','SSH')][string]$Protocol='Local', [ValidateSet('WindowsPowerShell','PowerShell','Bash')][string]$Runtime='PowerShell',[switch]$Detached)
-    $issues=@()
-    $notes=@()
-    if ($Protocol -eq 'WinRM' -and -not (Test-PASWindows)) { $issues += 'WinRM requires a Windows controller' }
-    if ($Protocol -eq 'SSH' -and -not (Get-Command ssh -ErrorAction SilentlyContinue)) { $issues += 'ssh executable not found' }
-    if ($Protocol -eq 'SSH' -and -not (Get-Command scp -ErrorAction SilentlyContinue)) { $issues += 'scp executable not found' }
-    if ($Protocol -eq 'SSH' -and $Detached -and $Runtime -ne 'Bash') { $issues += 'SSH detached execution requires Bash and root/systemd on the target' }
-    if ($Runtime -eq 'WindowsPowerShell' -and -not (Test-PASWindows) -and $Protocol -eq 'Local') { $issues += 'WindowsPowerShell is not available locally on Linux' }
-    if ($Runtime -eq 'Bash' -and $Protocol -ne 'SSH') { $issues += 'Bash runtime requires SSH' }
-    return [pscustomobject]@{
-        PSVersion=[string]$PSVersionTable.PSVersion; Edition=[string]$PSVersionTable.PSEdition; OS=$(if (Test-PASWindows) { 'Windows' } else { 'NonWindows' })
-        Protocol=$Protocol; Runtime=$Runtime; Detached=[bool]$Detached; Supported=($issues.Count -eq 0); Issues=$issues; Notes=$notes
-    }
-}

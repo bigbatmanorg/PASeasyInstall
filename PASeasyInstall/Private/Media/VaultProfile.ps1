@@ -16,7 +16,7 @@ function New-PASProfile {
 
 function Test-PASProfile {
     [CmdletBinding()]
-    param([Parameter(Mandatory)]$Profile,[switch]$CheckMedia,[switch]$RequireSources,[switch]$ForDeployment)
+    param([Parameter(Mandatory)]$Profile,[switch]$CheckMedia,[switch]$ForDeployment)
     $problems=New-Object System.Collections.Generic.List[string]
     if ($Profile.Mode -notin @('Primary','PrimaryAndDR')) { $problems.Add('Only Primary and PrimaryAndDR are supported') }
     foreach ($field in @('PrimaryIP','ControllerIP')) {
@@ -43,7 +43,6 @@ function Test-PASProfile {
     }
     if ($Profile.DataDrive -notmatch '^[A-Za-z]:$') { $problems.Add('DataDrive must be a Windows drive such as C:') }
     if ($ForDeployment -and $env:OS -ne 'Windows_NT') { $problems.Add('Vault FullInstall needs a Windows PowerShell 5.1 controller; Linux is UI/plan only') }
-    if ($RequireSources -and -not (Get-PASSourcesStatus).Ready) { $problems.Add('Bundled Vault workflows are missing; reinstall the PASeasyInstall package') }
     $media=@()
     if ($CheckMedia) {
         try {

@@ -1,5 +1,5 @@
 # Read-only views of a run: its events and a snapshot (status, components, recent events).
-# The run controller writes <run>\events-v2.jsonl; every engine target writes <run>\<target>\events.jsonl
+# The run controller writes <run>\events.jsonl; every engine target writes <run>\<target>\events.jsonl
 # and keeps its journal in <run>\<target>\state.json. Nothing here contacts a server.
 
 function ConvertTo-PASComponentId {
@@ -16,7 +16,7 @@ function Get-PASDeploymentEvents {
     $dir = Get-PASRunDirectory -RunId $RunId -DataRoot $DataRoot
     if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return @() }
     $sources = @()
-    $controllerEvents = Join-Path $dir 'events-v2.jsonl'
+    $controllerEvents = Join-Path $dir 'events.jsonl'
     if (Test-Path -LiteralPath $controllerEvents -PathType Leaf) { $sources += @{ Path = $controllerEvents; Type = 'Controller' } }
     foreach ($subdir in @(Get-ChildItem -LiteralPath $dir -Directory -ErrorAction Stop)) {
         if ($subdir.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
@@ -67,7 +67,7 @@ function Get-PASRunComponents {
          Failed / Unknown / Blocked   as recorded by the engine (see Get-PASRunFailureStatus)
          Interrupted  the journal says Running but the run has no live controller. #>
     param([string]$RunDirectory,[string]$RunStatus)
-    $plan = Read-PASJson (Join-Path $RunDirectory 'plan-v2.json')
+    $plan = Read-PASJson (Join-Path $RunDirectory 'plan.json')
     if (-not $plan) { return @() }
     $live = ($RunStatus -in @('Launching','Running'))
     $items = @(Get-PASValue $plan 'Items' @())

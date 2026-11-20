@@ -252,7 +252,7 @@ function Export-PASDeploymentData {
     $Path=[IO.Path]::GetFullPath($Path)
     if((Test-Path -LiteralPath $Path) -and -not $Force){throw "File exists: $Path (use -Force)"}
     $runDir=Join-Path (Join-Path $DataRoot 'Runs') $RunId
-    if(-not(Test-Path -LiteralPath (Join-Path $runDir 'run-v2.json') -PathType Leaf)){throw "No run $RunId under $DataRoot"}
+    if(-not(Test-Path -LiteralPath (Join-Path $runDir 'run.json') -PathType Leaf)){throw "No run $RunId under $DataRoot"}
     $sources=@(@{Root=$runDir;Prefix=('runs/'+$RunId)})
     $stage=Join-Path ([IO.Path]::GetTempPath()) ('pas-export-'+[guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $stage|Out-Null

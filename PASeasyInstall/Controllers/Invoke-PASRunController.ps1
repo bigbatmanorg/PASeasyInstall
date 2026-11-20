@@ -20,7 +20,7 @@ try {
     # load), put the real error into the run record. Never write over another live controller: a second
     # launcher that lost the race for the run lock ends here too.
     try {
-        $recordPath = Join-Path (Join-Path (Join-Path $DataRoot 'Runs') $RunId) 'run-v2.json'
+        $recordPath = Join-Path (Join-Path (Join-Path $DataRoot 'Runs') $RunId) 'run.json'
         if (Test-Path -LiteralPath $recordPath -PathType Leaf) {
             $record = [IO.File]::ReadAllText($recordPath) | ConvertFrom-Json
             $owner = 0
