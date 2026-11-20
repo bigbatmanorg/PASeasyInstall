@@ -3,14 +3,17 @@
 # It loads the module and runs the controller inside the module scope (the controller is not exported).
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$RunId,[Parameter(Mandatory)][string]$DataRoot,
-      [Parameter(Mandatory)][string]$Envelope,[switch]$Resume,[switch]$RetryFailedPreflight)
+      [Parameter(Mandatory)][string]$Envelope,[switch]$Resume,[switch]$RetryFailedPreflight,
+      # Step ids the operator wants executed again (Resume-PASDeployment -RetryStep), comma-separated.
+      [string]$RetryStep='')
 $ErrorActionPreference='Stop'
 try {
     $module = Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall.psd1') -Force -PassThru
+    $retrySteps = @($RetryStep -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     & $module {
-        param($id,$root,$credentialEnvelope,$resumeRun,$retryPreflight)
-        Invoke-PASRunController -RunId $id -DataRoot $root -Envelope $credentialEnvelope -Resume:$resumeRun -RetryFailedPreflight:$retryPreflight
-    } $RunId $DataRoot $Envelope ([bool]$Resume) ([bool]$RetryFailedPreflight)
+        param($id,$root,$credentialEnvelope,$resumeRun,$retryPreflight,$steps)
+        Invoke-PASRunController -RunId $id -DataRoot $root -Envelope $credentialEnvelope -Resume:$resumeRun -RetryFailedPreflight:$retryPreflight -RetryStep $steps
+    } $RunId $DataRoot $Envelope ([bool]$Resume) ([bool]$RetryFailedPreflight) (,$retrySteps)
 } catch {
     $message = [string]$_.Exception.Message
     # The controller normally records its own outcome. If it could not (for example the module failed to

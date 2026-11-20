@@ -197,7 +197,12 @@ function Start-PASDeployment {
         if(Test-Path $envelope){Remove-Item $envelope -Force -ErrorAction SilentlyContinue}
         $observed=Read-PASJson (Join-Path $dir 'run-v2.json')
         if(-not $observed -or $observed.status -eq 'Launching'){
-            $run.status='LaunchFailed';$run.message='Controller could not start; no successful launch was observed'
+            $why=[string]$_.Exception.Message
+            if($_.Exception -is [Security.Cryptography.CryptographicException] -or $why -match 'Access is denied'){
+                $why+=' (The credentials are handed to the controller with Windows DPAPI. Start the deployment from a local session on the controller - console or RDP - not from a remote PowerShell session.)'
+            }
+            $run.status='LaunchFailed';$run.message='The controller could not be started: '+$why
+            $run.finishedUtc=[DateTime]::UtcNow.ToString('o')
             Write-PASJsonAtomic (Join-Path $dir 'run-v2.json') $run
         }
         throw
@@ -205,43 +210,87 @@ function Start-PASDeployment {
     if($consoleChild){Wait-PASControllerCompletion -RunId $id -DataRoot $DataRoot -ControllerPid ([int]$spawn.ProcessId) -ControllerStartedAfterUtc $launchAfter}
     return $id
 }
+function Resolve-PASRetrySteps {
+    <# -RetryStep names steps the operator wants executed again after inspecting the server:
+       '<step>' or '<component>:<step>', for example 'install' or 'cpm01:install'.
+       Returns @{ <engine target> = @(<step id>, ...) } for the named steps whose journal says Failed or
+       Unknown. A name that matches no such step is an error, so nothing is ever retried by accident. #>
+    param([string]$RunDirectory,[string[]]$RetryStep = @())
+    $result = @{}
+    $journals = @(Get-ChildItem -LiteralPath $RunDirectory -Directory -ErrorAction SilentlyContinue |
+        ForEach-Object { Join-Path $_.FullName 'state.json' } | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })
+    foreach ($entry in @($RetryStep | Where-Object { $_ })) {
+        if ($entry -notmatch '^(?:(?<component>[A-Za-z0-9_.-]+):)?(?<step>[A-Za-z0-9_.-]+)$') {
+            throw "Invalid -RetryStep '$entry'. Use <step> or <component>:<step>."
+        }
+        $wantedComponent = [string]$Matches['component']
+        $step = [string]$Matches['step']
+        $found = $false
+        foreach ($journal in $journals) {
+            $target = Split-Path -Leaf (Split-Path -Parent $journal)
+            if ($wantedComponent -and $wantedComponent -ne $target -and $wantedComponent -ne (ConvertTo-PASComponentId $target)) { continue }
+            $state = Read-PASJournal $journal
+            $stepState = Get-PASValue (Get-PASValue $state 'steps' $null) $step $null
+            if ($stepState -and [string](Get-PASValue $stepState 'status' '') -in @('Failed','Unknown')) {
+                if (-not $result.ContainsKey($target)) { $result[$target] = @() }
+                if ($result[$target] -notcontains $step) { $result[$target] += $step }
+                $found = $true
+            }
+        }
+        if (-not $found) { throw "-RetryStep '$entry': this run has no step of that name that is Failed or Unknown." }
+    }
+    return $result
+}
 function Resume-PASDeployment {
     <#
     .SYNOPSIS
-    Resumes a failed or interrupted engine run after reconciling what already happened on the targets.
+    Resumes a run that stopped: finished components are revalidated, the remaining ones are installed.
     .DESCRIPTION
-    Uses the run's frozen configuration and plan. Completed attempts are reconciled and never repeated
-    blindly. A run whose outcome is uncertain must be reconciled first. -RetryFailedPreflight runs a failed
-    read-only preflight again, for example after you install a missing OS package on the target.
-    Invoke-PASInstall -Resume prompts for the credentials and calls this command.
+    Uses the run's saved configuration and plan. Remote attempts that were still running are reconciled,
+    never started a second time. A step that ended Failed or Unknown is not repeated on its own: inspect
+    the server, then name the step with -RetryStep to run it again.
+    -RetryFailedPreflight runs a failed read-only Linux preflight again, for example after you installed a
+    missing OS package on the server.
+    .PARAMETER RetryStep
+    Step ids to execute again, as '<step>' or '<component>:<step>' (for example 'install', 'cpm01:register').
+    Only steps whose journal says Failed or Unknown are accepted.
     .EXAMPLE
     Resume-PASDeployment -RunId 688d8e04f1874d41a75cda4441c00553 -CredentialMap $creds -SecretMap $secrets -Confirm:$false
+    .EXAMPLE
+    Resume-PASDeployment -RunId $id -CredentialMap $creds -SecretMap $secrets -RetryStep 'pvwa01:install' -Confirm:$false
     #>
     [CmdletBinding(SupportsShouldProcess=$true)]param([Parameter(Mandatory)][string]$RunId,
         [hashtable]$CredentialMap=@{},[hashtable]$SecretMap=@{},[string]$DataRoot=(Get-PASDataRoot),
-        [switch]$Foreground,[switch]$AllowUnknownRetry,[switch]$RetryFailedPreflight)
+        [string[]]$RetryStep=@(),[switch]$Foreground,[switch]$RetryFailedPreflight)
     $run=Get-PASRunRecord -RunId $RunId -DataRoot $DataRoot
     if(-not $run){throw 'Run not found'}
-    if($run.status -notin @('Failed','Unknown','Interrupted','LaunchFailed')){throw "Cannot resume run status $($run.status)"}
-    if($AllowUnknownRetry){throw 'Blind retry of unknown irreversible attempts is not permitted. Reconcile target first.'}
+    if($run.status -notin @('Failed','Unknown','Interrupted','LaunchFailed','Blocked')){throw "Cannot resume a run whose status is $($run.status)"}
     Assert-PASWindowsController
-    if(-not $PSCmdlet.ShouldProcess($RunId,'Resume deployment')){return $run}
     $dir=Get-PASRunDirectory $RunId $DataRoot
+    # Fail here, in the caller's console, when a name is wrong; the controller resolves the names again.
+    $RetryStep=@($RetryStep | Where-Object { $_ })
+    [void](Resolve-PASRetrySteps -RunDirectory $dir -RetryStep $RetryStep)
+    if(-not $PSCmdlet.ShouldProcess($RunId,'Resume deployment')){return $run}
     $envelope=Join-Path $dir ('credentials-'+[guid]::NewGuid().ToString('N')+'.json')
     $savedConfig=Read-PASConfiguration -Path (Join-Path $dir 'config.json')
     $CredentialMap=ConvertTo-PASControllerCredentialMap $savedConfig $CredentialMap
     $consoleChild=($Foreground -and @($savedConfig.components|Where-Object {$savedConfig.hosts[[string]$_.host].os -eq 'Linux'}).Count -gt 0)
-    if($Foreground -and -not $consoleChild){Invoke-PASRunController -RunId $RunId -DataRoot $DataRoot -InMemoryAuth @{Credentials=$CredentialMap;Secrets=$SecretMap} -Resume -RetryFailedPreflight:$RetryFailedPreflight}
+    if($Foreground -and -not $consoleChild){Invoke-PASRunController -RunId $RunId -DataRoot $DataRoot -InMemoryAuth @{Credentials=$CredentialMap;Secrets=$SecretMap} -Resume -RetryFailedPreflight:$RetryFailedPreflight -RetryStep $RetryStep}
     else{
         Save-PASEnvelope -Path $envelope -Credentials $CredentialMap -Secrets $SecretMap
         $scriptPath=Join-Path $script:PASRoot 'Controllers/Invoke-PASRunController.ps1'
         $exe=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
         $args='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$scriptPath+'" -RunId "'+$RunId+'" -DataRoot "'+$DataRoot+'" -Envelope "'+$envelope+'" -Resume'
         if($RetryFailedPreflight){$args+=' -RetryFailedPreflight'}
+        # Step names were checked above ([A-Za-z0-9_.:-] only); they travel as one comma-separated argument.
+        if($RetryStep.Count){$args+=' -RetryStep "'+($RetryStep -join ',')+'"'}
         $startup=New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ShowWindow=[uint16]0;CreateFlags=[uint32]16}
         $launchAfter=[DateTime]::UtcNow.AddSeconds(-1)
         $spawn=Invoke-CimMethod Win32_Process Create -Arguments @{CommandLine=('"'+$exe+'" '+$args);CurrentDirectory=$script:PASRoot;ProcessStartupInformation=$startup}
-        if($spawn.ReturnValue -ne 0 -or -not $spawn.ProcessId){throw 'Failed to launch resume controller'}
+        if($spawn.ReturnValue -ne 0 -or -not $spawn.ProcessId){
+            if(Test-Path -LiteralPath $envelope){Remove-Item -LiteralPath $envelope -Force -ErrorAction SilentlyContinue}
+            throw "Cannot start the resume controller: Win32_Process.Create=$($spawn.ReturnValue)"
+        }
     }
     if($consoleChild){Wait-PASControllerCompletion -RunId $RunId -DataRoot $DataRoot -ControllerPid ([int]$spawn.ProcessId) -ControllerStartedAfterUtc $launchAfter}
     return $RunId
@@ -251,11 +300,14 @@ function Resume-PASDeployment {
 #      Every function below takes the run context ($Run) created by Invoke-PASRunControllerCore:
 #        RunId, DataRoot, Directory, Config (in memory), Credentials, Secrets,
 #        Record (content of run-v2.json) and RecordPath, Target (engine target that is running),
-#        SshReady (Linux hosts already bootstrapped by this process), RetryFailedPreflight.
+#        SshReady (Linux hosts already bootstrapped by this process), RetryFailedPreflight,
+#        Retry (@{ engine target = step ids the operator wants executed again }).
 
 function Set-PASRunCurrentComponent {
     param([hashtable]$Run,[string]$ComponentId)
     $Run.Record.currentComponent = $ComponentId
+    # No engine target is running until Invoke-PASRunTarget starts one (see Get-PASRunFailureStatus).
+    $Run.Target = ''
     Write-PASJsonAtomic $Run.RecordPath $Run.Record
 }
 function Get-PASComponentRunFiles {
@@ -337,7 +389,11 @@ function Invoke-PASRunTarget {
         WorkflowPath = $WorkflowPath; InventoryPath = $InventoryPath; StateRoot = (Join-Path $Run.DataRoot 'Runs')
         RunId = $Run.RunId; Credentials = $Run.Credentials; Secrets = $Run.Secrets; Resume = $resume
     }
-    if ($resume -and @($Retry).Count) { $arguments.Retry = @($Retry) }
+    # Steps to execute again: named by the operator (-RetryStep) or a failed read-only preflight.
+    $retrySteps = @($Retry)
+    if ($Run.Retry.ContainsKey($Target)) { $retrySteps += @($Run.Retry[$Target]) }
+    $retrySteps = @($retrySteps | Where-Object { $_ } | Select-Object -Unique)
+    if ($resume -and $retrySteps.Count) { $arguments.Retry = $retrySteps }
     # Steps that open a Vault session take the Vault lock of this address (Locks.ps1).
     $vaultAddress = [string](Get-PASValue (Get-PASValue $Run.Config 'vault' $null) 'address' '')
     if ($vaultAddress) { $arguments.VaultAddress = $vaultAddress }
@@ -486,8 +542,26 @@ function Get-PASFailedPreflightRetry {
        $active -isnot [bool] -or $active){throw 'Preflight retry requires the same known-failed attempt with proven worker exit'}
     return @('preflight')
 }
+function Get-PASRunFailureStatus {
+    <# The status of a run that stopped with an error. It comes from what the engine itself recorded, not
+       from words in the message:
+         Blocked  the server is locked by another run (message starts with PAExecLocked:)
+         Unknown  the outcome on the server cannot be established (message starts with Unknown: or
+                  PAExecUnknown:, or the target's journal says so); never repeated automatically
+         Failed   everything else. #>
+    param([string]$Message,[string]$StatePath = '')
+    if ($Message -match '^PAExecLocked:') { return 'Blocked' }
+    if ($Message -match '^(Unknown:|PAExecUnknown:)') { return 'Unknown' }
+    if ($StatePath) {
+        $state = $null
+        try { $state = Read-PASJournal $StatePath } catch { $state = $null }
+        $status = [string](Get-PASValue $state 'status' '')
+        if ($status -in @('Unknown','Blocked')) { return $status }
+    }
+    return 'Failed'
+}
 function Invoke-PASRunController {
-    [CmdletBinding()]param([Parameter(Mandatory)][string]$RunId,[string]$DataRoot=(Get-PASDataRoot),[string]$Envelope,[switch]$Resume,[hashtable]$InMemoryAuth,[switch]$RetryFailedPreflight)
+    [CmdletBinding()]param([Parameter(Mandatory)][string]$RunId,[string]$DataRoot=(Get-PASDataRoot),[string]$Envelope,[switch]$Resume,[hashtable]$InMemoryAuth,[switch]$RetryFailedPreflight,[string[]]$RetryStep=@())
     Assert-PASWindowsController
     $dir=Get-PASRunDirectory $RunId $DataRoot
     # Run lock: one controller process per run. Acquire it before reading/changing the run record. A second
@@ -503,12 +577,13 @@ function Invoke-PASRunController {
         $run.status='Launching';$run.message='Validating deployment controller';$run.finishedUtc=$null
         Write-PASJsonAtomic $path $run
         try{
-            Invoke-PASRunControllerCore -RunId $RunId -DataRoot $DataRoot -Envelope $Envelope -Resume:$Resume -InMemoryAuth $InMemoryAuth -RetryFailedPreflight:$RetryFailedPreflight
+            Invoke-PASRunControllerCore -RunId $RunId -DataRoot $DataRoot -Envelope $Envelope -Resume:$Resume -InMemoryAuth $InMemoryAuth -RetryFailedPreflight:$RetryFailedPreflight -RetryStep $RetryStep
         }catch{
             $failure=$_
             $observed=Read-PASJson $path
             if($observed -and $observed.controllerPid -eq $PID -and $observed.status -eq 'Launching'){
-                $observed.status='LaunchFailed';$observed.message='Controller initialization failed before target dispatch'
+                # Still Launching: nothing was sent to any server. Say why the controller stopped.
+                $observed.status='LaunchFailed';$observed.message='The controller stopped before any server was contacted: '+[string]$failure.Exception.Message
                 $observed.finishedUtc=[DateTime]::UtcNow.ToString('o')
                 Write-PASJsonAtomic $path $observed
             }
@@ -517,7 +592,7 @@ function Invoke-PASRunController {
     }finally{$lease.Dispose()}
 }
 function Invoke-PASRunControllerCore {
-    [CmdletBinding()]param([Parameter(Mandatory)][string]$RunId,[string]$DataRoot=(Get-PASDataRoot),[string]$Envelope,[switch]$Resume,[hashtable]$InMemoryAuth,[switch]$RetryFailedPreflight)
+    [CmdletBinding()]param([Parameter(Mandatory)][string]$RunId,[string]$DataRoot=(Get-PASDataRoot),[string]$Envelope,[switch]$Resume,[hashtable]$InMemoryAuth,[switch]$RetryFailedPreflight,[string[]]$RetryStep=@())
     Assert-PASWindowsController
     $dir=Get-PASRunDirectory $RunId $DataRoot
     $config=Read-PASConfiguration -Path (Join-Path $dir 'config.json')
@@ -542,13 +617,14 @@ function Invoke-PASRunControllerCore {
     # of a Linux server for its one-time SSH key bootstrap, task identities such as PSMDomainInstaller.
     $auth.Credentials=Resolve-PASCredentialMap -Config $config -CredentialMap $auth.Credentials
     $auth.Secrets=Resolve-PASSecretMap -Config $config -SecretMap $auth.Secrets
+    $retry=Resolve-PASRetrySteps -RunDirectory $dir -RetryStep $RetryStep
     $recordPath=Join-Path $dir 'run-v2.json'
     $record=Read-PASJson $recordPath
     $record | Add-Member NoteProperty controllerStartedUtc ([Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().ToString('o')) -Force
     $record.controllerPid=$PID;$record.status='Running';$record.message='Executing deployment';$record.finishedUtc=$null
     Write-PASJsonAtomic $recordPath $record
     $run=@{RunId=$RunId;DataRoot=$DataRoot;Directory=$dir;Config=$config;Credentials=$auth.Credentials;Secrets=$auth.Secrets
-        Record=$record;RecordPath=$recordPath;Target='';SshReady=@{};RetryFailedPreflight=[bool]$RetryFailedPreflight}
+        Record=$record;RecordPath=$recordPath;Target='';SshReady=@{};RetryFailedPreflight=[bool]$RetryFailedPreflight;Retry=$retry}
     try {
         Assert-PASVaultInstallationSecrets -Configuration $config -Secrets $auth.Secrets -ReferencesResolved
         if ($Resume) { Write-PASRunEvent $dir 'RunResumed' 'Resuming the run: finished components are revalidated, then the remaining ones are installed' }
@@ -584,7 +660,9 @@ function Invoke-PASRunControllerCore {
         foreach($cred in @($auth.Credentials.Values)){try{$hide+=,(Get-PASSecretPlaintext $cred.Password)}catch{}}
         $reason=Protect-PASText $reason $hide
         # Unknown means the remote side may still be running; never auto-retry a second installer.
-        $record.status=if($reason -match 'Unknown|uncertain|cannot resume'){ 'Unknown' }else{'Failed'}
+        $statePath=''
+        if($run.Target){$statePath=Join-Path (Join-Path $dir $run.Target) 'state.json'}
+        $record.status=Get-PASRunFailureStatus -Message $reason -StatePath $statePath
         $record.message=$reason
         Write-PASRunEvent $dir 'RunStopped' $reason ([string]$record.currentComponent) '' 'Error'
         throw $reason

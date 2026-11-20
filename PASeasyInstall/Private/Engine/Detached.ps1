@@ -4,6 +4,58 @@ function Get-PASAttemptRoot {
     if ($AttemptId -notmatch '^[a-f0-9]{32}$') { throw 'Invalid attempt ID' }
     return ($stage.TrimEnd('\') + '\attempts\' + $AttemptId)
 }
+function Get-PASAttemptFolder {
+    # Where an attempt keeps its status and its output on the target (Windows or Linux).
+    param([hashtable]$Target,[string]$AttemptId)
+    if ($Target.Protocol -eq 'SSH' -and $Target.Runtime -eq 'Bash') { return (Get-PASLinuxAttemptRoot $AttemptId) }
+    return (Get-PASAttemptRoot $Target $AttemptId)
+}
+function Select-PASLastLines {
+    # Keeps as many whole lines from the end of a text as fit into MaxCharacters. Lines are never cut,
+    # so a secret is never split into a part that redaction no longer recognises.
+    param([string]$Text,[int]$MaxCharacters = 3500)
+    $kept = New-Object System.Collections.ArrayList
+    $length = 0
+    $lines = @(([string]$Text) -split "`r?`n")
+    for ($index = $lines.Count - 1; $index -ge 0; $index--) {
+        $length += $lines[$index].Length + 1
+        if ($length -gt $MaxCharacters) { break }
+        [void]$kept.Insert(0, $lines[$index])
+    }
+    return ($kept.ToArray() -join "`n").Trim()
+}
+function Get-PASDetachedOutputTail {
+    <# The last lines of a finished attempt's output, for the failure report. Read-only and bounded.
+       Windows: attempts\<id>\stdout.log under the stage root (the task's whole output).
+       Linux:   stdout.log.tail and stderr.log.tail under /opt/paeasyinstall/attempts/<id>.
+       Returns '' when nothing can be read: fetching the output must never hide the real failure.
+       The text is NOT redacted here; the caller redacts it before it is stored or shown. #>
+    param([hashtable]$Target,[hashtable]$Credentials,[string]$AttemptId,[int]$Lines = 40)
+    try {
+        if ($Target.Protocol -eq 'SSH' -and $Target.Runtime -eq 'Bash') {
+            $dir = Get-PASLinuxAttemptRoot $AttemptId
+            # The .tail files are at most 256 KiB each (written by the runner).
+            $command = 'for name in stdout stderr; do f=' + $dir + '/$name.log.tail; if [ -s "$f" ]; then echo "--- $name"; tail -n ' + $Lines + ' -- "$f"; fi; done; true'
+            return [string](Invoke-PASLinuxControl $Target ((Get-PASLinuxAttemptGuard $AttemptId -ExistingOnly) + $command))
+        }
+        $file = (Get-PASAttemptRoot $Target $AttemptId) + '\stdout.log'
+        $session = Get-PASConnection $Target $Credentials
+        $text = Invoke-Command -Session $session -ArgumentList $file,$Lines -ErrorAction Stop -ScriptBlock {
+            param($path,$count)
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return '' }
+            if ((Get-Item -LiteralPath $path).Length -gt 64MB) { return '(stdout.log is larger than 64 MB; read it on the server)' }
+            $last = @(Get-Content -LiteralPath $path -Tail $count -ErrorAction Stop)
+            # Whole lines only, at most about 64 KiB over the wire.
+            while ($last.Count -gt 1 -and (($last | Measure-Object -Property Length -Sum).Sum -gt 65536)) { $last = @($last | Select-Object -Skip 1) }
+            if ($last.Count -eq 1 -and $last[0].Length -gt 65536) { return '(the last output line is longer than 64 KiB; read stdout.log on the server)' }
+            $last -join "`n"
+        }
+        return [string]$text
+    } catch {
+        Write-Verbose ('Attempt output could not be read: ' + $_.Exception.Message)
+        return ''
+    }
+}
 function Assert-PASDetachedSupported {
     param([hashtable]$Target)
     if ($Target.Protocol -ne 'WinRM') { throw 'Windows detached executor requires WinRM transport' }

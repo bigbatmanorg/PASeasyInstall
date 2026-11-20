@@ -173,6 +173,19 @@ function Test-PASStepCompleted {
     }
     throw "PAExecUnknown: cannot trust checkpoint without a read-only Verify or Probe"
 }
+function Write-PASAttemptOutput {
+    # A detached step failed. Put the end of its output into the target's event journal (event TaskOutput,
+    # level Error) and return a sentence that says where the full output is on the server.
+    param([hashtable]$Context,[hashtable]$Target,[hashtable]$Credentials,[string]$TaskId,[string]$AttemptId)
+    try { $folder = Get-PASAttemptFolder $Target $AttemptId } catch { return '' }
+    $tail = Get-PASDetachedOutputTail $Target $Credentials $AttemptId
+    if ($tail) {
+        # Redact first, then shorten on line boundaries: a shortened secret would no longer be recognised.
+        $tail = Select-PASLastLines (Protect-PASText $tail $Context.Redactions) 3500
+        if ($tail) { Add-PASEvent $Context 'TaskOutput' $TaskId ("Last output of attempt ${AttemptId}:`n" + $tail) 'Error' }
+    }
+    return ('Full output: ' + $folder + ' on ' + [string](Get-PASValue $Target 'ComputerName' 'the target') + '.')
+}
 function Wait-PASVaultSessionEnd {
     # Called before the Vault lock of a finished step is released: the remote worker that held the Vault
     # session (the step's detached attempt, and the attempt of its detached check if it has one) must have
@@ -337,7 +350,8 @@ function Invoke-PASWorkflow {
                     } elseif($remote.state -eq 'Failed'){
                         $current.status='Failed';$current.message=Protect-PASText ([string](Get-PASValue $remote 'message' '')) $redactions;$current.endedUtc=Get-PASNow;Save-PASState $context
                         Add-PASEvent $context 'TaskFailed' $id "remote attempt failed: $(Get-PASValue $remote 'message' '')" 'Error'
-                        throw "Failed: $id :: $(Get-PASValue $remote 'message' '')"
+                        $where=Write-PASAttemptOutput $context $plan.Target $Credentials $id ([string]$current.attemptId)
+                        throw "Failed: $id :: $(Get-PASValue $remote 'message' '') $where"
                     } else {
                         $current.status='Unknown';$current.message="remote attempt $($remote.state)";Save-PASState $context
                         Add-PASEvent $context 'TaskUnknown' $id "remote attempt $($current.attemptId) is $($remote.state); outcome cannot be established" 'Error'
@@ -347,8 +361,13 @@ function Invoke-PASWorkflow {
                     Add-PASEvent $context 'TaskReconciling' $id 'action acknowledged before interruption; repeating read-only verification'
                     $reconciled=$true
                 } else {
+                    # Not repeated automatically: the step may have changed the server. The operator decides.
                     $prefix='Unknown'; if($status -eq 'Failed'){$prefix='Failed'}
-                    throw "${prefix}: $id :: step was previously $status; inspect the target, then restore or rerun with -Resume -Retry $id"
+                    $evidence=''
+                    if(($mode -eq 'Detached' -or $durableBash) -and [string](Get-PASValue $current 'attemptId' '') -match '^[a-f0-9]{32}$'){
+                        $evidence=' (its output: '+(Get-PASAttemptFolder $plan.Target ([string]$current.attemptId))+' on '+[string](Get-PASValue $plan.Target 'ComputerName' 'the target')+')'
+                    }
+                    throw "${prefix}: $id :: step '$id' ended $status earlier and is not repeated automatically. Inspect the target first$evidence. When it is safe to run the step again: Resume-PASRun -RunId $RunId -RetryStep $id"
                 }
             }
             if($retrying -and $current){
@@ -393,7 +412,10 @@ function Invoke-PASWorkflow {
                                 if($result.state -in @('Missing','NotStarted')){throw "PAExecUnknown: launched attempt disappeared from target ($($result.state)); possible target drift or rollback"}
                                 if($result.state -eq 'Interrupted'){throw "PAExecUnknown: detached attempt interrupted (process ended without final status)"}
                                 $acknowledged=$true
-                                if($result.state -ne 'Succeeded'){throw "Detached script failed: $(Get-PASValue $result 'message' '')"}
+                                if($result.state -ne 'Succeeded'){
+                                    $where=Write-PASAttemptOutput $context $plan.Target $Credentials $id $attempt
+                                    throw "Detached script failed: $(Get-PASValue $result 'message' '') $where"
+                                }
                                 $current.message=Protect-PASText ([string](Get-PASValue $result 'message' '')) $redactions
                                 if($null -ne (Get-PASValue $result 'changed' $null)){$current.changed=[bool](Get-PASValue $result 'changed' $false)}
                                 $d=Get-PASValue $result 'data' $null; if($null -ne $d){$safeData=Select-PASSafeData $d $redactions;$outputs[$id]=$safeData;$current.data=$safeData}
@@ -402,7 +424,7 @@ function Invoke-PASWorkflow {
                                 if($scope -eq 'Controller'){$execTarget=@{Protocol='Local';Runtime='PowerShell'}}
                                 $result=Invoke-PASAdapterScript -Target $execTarget -Credentials $Credentials -ScriptPath $scriptFile -Parameters $inputs -Contract $contract -TimeoutSeconds $timeout -AttemptId $attempt
                                 $acknowledged=$true
-                                if($result.Output){Add-PASEvent $context 'TaskOutput' $id (Limit-PASText ([string]$result.Output) 2000)}
+                                if($result.Output){Add-PASEvent $context 'TaskOutput' $id (Limit-PASText ([string]$result.Output) 2000) $(if($result.Ok){'Information'}else{'Error'})}
                                 if(-not $result.Ok){throw "Task script failed: $($result.Error)"}
                                 $terminal=$result.Terminal
                                 $current.message=Protect-PASText ([string](Get-PASValue $terminal 'Message' '')) $redactions

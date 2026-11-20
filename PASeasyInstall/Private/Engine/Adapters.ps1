@@ -322,22 +322,43 @@ function Invoke-PASRawSSHScript {
     $attempt=if($AttemptId){$AttemptId}else{[guid]::NewGuid().ToString('N')}
     $null=Get-PASLinuxAttemptRoot $attempt
     $timeout=if($TimeoutSeconds -gt 0){$TimeoutSeconds}else{[int](Get-PASValue $Target 'CommandTimeoutSeconds' 600)}
-    [void](Initialize-PASLinuxDetached $Target $ScriptPath $Parameters $attempt $timeout $Contract)
-    $remote=Wait-PASDetached $Target @{} $attempt $timeout
-    if($remote.state -notin @('Succeeded','Failed')){throw (New-PASUnknownError ('Linux check '+$attempt+' is '+$remote.state+'; reconcile the durable attempt before retry'))}
-    $directory=Get-PASLinuxAttemptRoot $attempt
-    $outputText=Invoke-PASLinuxControl $Target ('tail -c 262144 -- '+$directory+'/stdout.log.tail')
-    $marker=Read-PASResultMarker $outputText 'Bash task'
-    $output=Limit-PASText $marker.Other 20000
-    $exitCode=[int](Get-PASValue $remote 'exitCode' 1)
-    if($remote.state -ne 'Succeeded'){
-        return @{Ok=$false;Terminal=$marker.Value;Output=$output;Error=('Bash task '+$attempt+' failed with code '+$exitCode);ExitCode=$exitCode;AttemptId=$attempt}
+    # The attempt's systemd unit and its staged inputs are removed once the attempt has ended, whether the
+    # task passed or failed (a failed read-only check must not leave a unit behind). The attempt folder
+    # with its logs stays as evidence. An attempt that has not ended is left alone for reconciliation.
+    $ended=$false
+    $result=$null
+    try {
+        [void](Initialize-PASLinuxDetached $Target $ScriptPath $Parameters $attempt $timeout $Contract)
+        $remote=Wait-PASDetached $Target @{} $attempt $timeout
+        if($remote.state -notin @('Succeeded','Failed')){throw (New-PASUnknownError ('Linux check '+$attempt+' is '+$remote.state+'; reconcile the durable attempt before retry'))}
+        $ended=$true
+        $directory=Get-PASLinuxAttemptRoot $attempt
+        $outputText=Invoke-PASLinuxControl $Target ('tail -c 262144 -- '+$directory+'/stdout.log.tail')
+        $marker=Read-PASResultMarker $outputText 'Bash task'
+        $output=Limit-PASText $marker.Other 20000
+        $exitCode=[int](Get-PASValue $remote 'exitCode' 1)
+        if($remote.state -ne 'Succeeded'){
+            # stderr usually says why a Bash task failed; add its last lines to the reported output.
+            $errorText=''
+            try{$errorText=[string](Invoke-PASLinuxControl $Target ('tail -n 40 -- '+$directory+'/stderr.log.tail 2>/dev/null || true'))}catch{Write-Verbose 'stderr tail not readable'}
+            if($errorText.Trim()){$output=Limit-PASText (($output+"`n--- stderr`n"+$errorText).Trim()) 20000}
+            $result=@{Ok=$false;Terminal=$marker.Value;Output=$output;Error=('Bash task '+$attempt+' failed with code '+$exitCode+'. Full output: '+$directory+' on '+[string]$Target.ComputerName);ExitCode=$exitCode;AttemptId=$attempt}
+        }elseif(-not $marker.Found -and $Contract -ne 'ExitCode'){
+            $result=@{Ok=$false;Terminal=$null;Output=$output;Error='Bash task must print PAEASY_RESULT:{json} as its structured result';ExitCode=0;AttemptId=$attempt}
+        }else{
+            $result=@{Ok=$true;Terminal=$marker.Value;Output=$output;Error=$null;ExitCode=0;AttemptId=$attempt}
+        }
+    } finally {
+        if($ended){
+            try{Finish-PASLinuxDetached $Target $attempt}
+            catch{
+                # A passed task with unconfirmed cleanup is reported; otherwise the task's own error matters more.
+                if($result -and $result.Ok){throw}
+                Write-Verbose ('Linux attempt cleanup failed: '+$_.Exception.Message)
+            }
+        }
     }
-    if(-not $marker.Found -and $Contract -ne 'ExitCode'){
-        return @{Ok=$false;Terminal=$null;Output=$output;Error='Bash task must print PAEASY_RESULT:{json} as its structured result';ExitCode=0;AttemptId=$attempt}
-    }
-    Finish-PASLinuxDetached $Target $attempt
-    return @{Ok=$true;Terminal=$marker.Value;Output=$output;Error=$null;ExitCode=0;AttemptId=$attempt}
+    return $result
 }
 function Invoke-PASAdapterScript {
     param([hashtable]$Target,[hashtable]$Credentials,[string]$ScriptPath,[hashtable]$Parameters,[string]$Contract='Object',[int]$TimeoutSeconds=0,[string]$ScriptText='',[string]$AttemptId='')
