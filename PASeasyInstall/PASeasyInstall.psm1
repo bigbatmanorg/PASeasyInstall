@@ -39,6 +39,7 @@ $privateFiles = @(
     'Run\Events.ps1'
     'Run\Bootstrap.ps1'
     'Run\Run.ps1'
+    'Run\Invoke.ps1'
     'Diagnostics\Health.ps1'
     'Diagnostics\Diagnostics.ps1'
     'Diagnostics\Export.ps1'
