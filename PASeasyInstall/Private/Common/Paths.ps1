@@ -37,7 +37,7 @@ function Read-PASJson {
     catch { return $null }
 }
 
-function Get-PASProp {
+function Get-PASValue {
     param($Object,[string]$Name,$Default=$null)
     if ($null -eq $Object) { return $Default }
     if ($Object -is [System.Collections.IDictionary]) {

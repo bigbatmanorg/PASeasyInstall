@@ -1,14 +1,14 @@
 # Only these shipped Vault recipes can request these static helpers. This is not
 # a general include mechanism: no task-controlled path is evaluated or executed.
-function Get-PSRecipePayload {
+function Get-PASRecipePayload {
     param([Parameter(Mandatory)][string]$Path)
     $full=[IO.Path]::GetFullPath($Path)
     $text=[IO.File]::ReadAllText($full)
     $files=@($full)
     if($text -notmatch '(?m)^\s*# PAEASY_INCLUDE_'){return [pscustomobject]@{Text=$text;Files=$files}}
-    $root=[IO.Path]::GetFullPath((Join-Path (Get-PASModuleRoot Vault) 'Recipes/Vault'))
+    $root=[IO.Path]::GetFullPath((Join-Path (Get-PASModuleRoot) 'Recipes/Vault'))
     $prefix=$root+[IO.Path]::DirectorySeparatorChar
-    $comparison=if(Test-PSWindows){[StringComparison]::OrdinalIgnoreCase}else{[StringComparison]::Ordinal}
+    $comparison=if(Test-PASWindows){[StringComparison]::OrdinalIgnoreCase}else{[StringComparison]::Ordinal}
     if(-not $full.StartsWith($prefix,$comparison)){throw 'Static Vault helper requested outside the shipped Vault recipes'}
     $relative=$full.Substring($prefix.Length).Replace('\','/')
     $specifications=@{

@@ -1,17 +1,17 @@
-function Get-PSAttemptRoot {
+function Get-PASAttemptRoot {
     param([hashtable]$Target,[string]$AttemptId)
-    $stage=[string](Get-PSObjectValue $Target 'StageRoot' 'C:\ProgramData\PAExec')
+    $stage=[string](Get-PASValue $Target 'StageRoot' 'C:\ProgramData\PAExec')
     if ($AttemptId -notmatch '^[a-f0-9]{32}$') { throw 'Invalid attempt ID' }
     return ($stage.TrimEnd('\') + '\attempts\' + $AttemptId)
 }
-function Assert-PSDetachedSupported {
+function Assert-PASDetachedSupported {
     param([hashtable]$Target)
     if ($Target.Protocol -ne 'WinRM') { throw 'Windows detached executor requires WinRM transport' }
-    if (-not (Test-PSWindows)) { throw 'Windows detached executor requires the native Windows PowerShell controller' }
-    if ([string](Get-PSObjectValue $Target 'Runtime' 'WindowsPowerShell') -notin @('WindowsPowerShell','PowerShell')) { throw 'Windows detached executor requires a PowerShell runtime' }
+    if (-not (Test-PASWindows)) { throw 'Windows detached executor requires the native Windows PowerShell controller' }
+    if ([string](Get-PASValue $Target 'Runtime' 'WindowsPowerShell') -notin @('WindowsPowerShell','PowerShell')) { throw 'Windows detached executor requires a PowerShell runtime' }
 }
 # Task principal credentials are a separate in-memory channel; never serialize them in Inputs.
-function Resolve-PSDetachedPrincipalCredential {
+function Resolve-PASDetachedPrincipalCredential {
     param([hashtable]$Credentials,[string]$Reference='')
     if(-not $Reference){return $null}
     if($Reference -notmatch '^[A-Za-z][A-Za-z0-9_.-]{0,63}$'){throw 'Invalid detached task principal credential reference'}
@@ -22,7 +22,7 @@ function Resolve-PSDetachedPrincipalCredential {
     }
     return $credential
 }
-function New-PSDetachedLaunchArguments {
+function New-PASDetachedLaunchArguments {
     param([string]$Directory,[hashtable]$ExpectedHashes,[ValidateSet('runner.ps1','recovery.ps1')][string]$Entry='runner.ps1')
     if(-not $ExpectedHashes.Count -or -not $ExpectedHashes.ContainsKey($Entry)){throw 'Detached launch lacks reviewed executable hashes'}
     foreach($name in $ExpectedHashes.Keys){
@@ -30,26 +30,26 @@ function New-PSDetachedLaunchArguments {
     }
     # Only public paths/hashes appear in this command. Keep the attempt directory
     # visible for independent PID/command-line reconciliation. No shell is used.
-    $pairs=@(foreach($name in @($ExpectedHashes.Keys|Sort-Object)){(ConvertTo-PSSingleQuoted $name)+'='+(ConvertTo-PSSingleQuoted ([string]$ExpectedHashes[$name]))})
-    $code='$ErrorActionPreference=''Stop'';$directory='+(ConvertTo-PSSingleQuoted $Directory)+';$expected=@{'+($pairs -join ';')+'};'
+    $pairs=@(foreach($name in @($ExpectedHashes.Keys|Sort-Object)){(ConvertTo-PASSingleQuoted $name)+'='+(ConvertTo-PASSingleQuoted ([string]$ExpectedHashes[$name]))})
+    $code='$ErrorActionPreference=''Stop'';$directory='+(ConvertTo-PASSingleQuoted $Directory)+';$expected=@{'+($pairs -join ';')+'};'
     $code+='foreach($name in $expected.Keys){$path=Join-Path $directory $name;if((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ine $expected[$name]){throw ''Detached executable hash changed; reconcile the original attempt''}};'
-    $code+='$global:LASTEXITCODE=0;& (Join-Path $directory '+(ConvertTo-PSSingleQuoted $Entry)+')'
+    $code+='$global:LASTEXITCODE=0;& (Join-Path $directory '+(ConvertTo-PASSingleQuoted $Entry)+')'
     if($Entry -eq 'runner.ps1'){$code+=' -Directory $directory -ExpectedHashes $expected'}
     $code+=';exit $LASTEXITCODE'
     if($code.Contains('"')){throw 'Detached launch path contains an unsupported quote'}
     return ('-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "'+$code+'"')
 }
-function Initialize-PSDetached {
+function Initialize-PASDetached {
     param([hashtable]$Target,[hashtable]$Credentials,[string]$ScriptPath,[hashtable]$Parameters,[string]$AttemptId,[string]$RecoveryScript='',[int]$TimeoutSeconds=3600,[string]$Contract='Object',[string]$TaskPrincipalCredentialRef='')
     if($Target.Protocol -eq 'SSH' -and $Target.Runtime -eq 'Bash'){
         if($RecoveryScript){throw 'Linux RecoveryScript is not supported'}
         if($TaskPrincipalCredentialRef){throw 'Windows task principal cannot be used for Linux attempts'}
-        return Initialize-PSLinuxDetached $Target $ScriptPath $Parameters $AttemptId $TimeoutSeconds $Contract
+        return Initialize-PASLinuxDetached $Target $ScriptPath $Parameters $AttemptId $TimeoutSeconds $Contract
     }
-    $taskCredential=Resolve-PSDetachedPrincipalCredential -Credentials $Credentials -Reference $TaskPrincipalCredentialRef
-    Assert-PSDetachedSupported $Target
-    Initialize-PSWindowsStageRoot $Target $Credentials
-    $session=Get-PSConnection $Target $Credentials
+    $taskCredential=Resolve-PASDetachedPrincipalCredential -Credentials $Credentials -Reference $TaskPrincipalCredentialRef
+    Assert-PASDetachedSupported $Target
+    Initialize-PASWindowsStageRoot $Target $Credentials
+    $session=Get-PASConnection $Target $Credentials
     if($taskCredential){
         # Check the delegated identity BEFORE staging any installer secrets. Nested
         # group delegation needs separate qualification; direct membership is explicit.
@@ -64,9 +64,9 @@ function Initialize-PSDetached {
             if($sid -notin $members){throw 'Domain task principal must be a direct local Administrators member before secret staging'}
         })
     }
-    $directory=Get-PSAttemptRoot $Target $AttemptId
+    $directory=Get-PASAttemptRoot $Target $AttemptId
     $taskName='PAExec-'+$AttemptId
-    $reserved=Select-PSDeclaredInputs $ScriptPath @{PAExecAttemptDirectory=$directory}
+    $reserved=Select-PASDeclaredInputs $ScriptPath @{PAExecAttemptDirectory=$directory}
     if($reserved.ContainsKey('PAExecAttemptDirectory')){
         if($Parameters.ContainsKey('PAExecAttemptDirectory')){throw 'Attempt directory is reserved execution metadata'}
         $Parameters=$Parameters.Clone();$Parameters.PAExecAttemptDirectory=$directory
@@ -122,17 +122,17 @@ function Initialize-PSDetached {
     New-Item -ItemType Directory -Path $tmp -ErrorAction Stop | Out-Null
     try {
         Protect-PASDirectory $tmp
-        [IO.File]::WriteAllText((Join-Path $tmp 'contract.txt'),$Contract,(Get-PSUtf8NoBom))
-        [IO.File]::WriteAllText((Join-Path $tmp 'task.ps1'),(Get-PSRecipePayload $ScriptPath).Text,(Get-PSUtf8NoBom))
+        [IO.File]::WriteAllText((Join-Path $tmp 'contract.txt'),$Contract,(Get-PASUtf8NoBom))
+        [IO.File]::WriteAllText((Join-Path $tmp 'task.ps1'),(Get-PASRecipePayload $ScriptPath).Text,(Get-PASUtf8NoBom))
         $copies=@(
             @{From=(Join-Path $tmp 'task.ps1');To='task.ps1'},
             @{From=(Join-Path $tmp 'contract.txt');To='contract.txt'},
-            @{From=(Join-Path $script:PAExecRoot 'Assets/TaskHost.ps1');To='host.ps1'},
-            @{From=(Join-Path $script:PAExecRoot 'Assets/WindowsDetachedRunner.ps1');To='runner.ps1'}
+            @{From=(Join-Path $script:PASEngineRoot 'Assets/TaskHost.ps1');To='host.ps1'},
+            @{From=(Join-Path $script:PASEngineRoot 'Assets/WindowsDetachedRunner.ps1');To='runner.ps1'}
             @{From=(Join-Path $script:PASRoot 'Recipes/WindowsComponent/Ownership.ps1');To='ownership.ps1'}
         )
         if($RecoveryScript){
-            [IO.File]::WriteAllText((Join-Path $tmp 'recovery.ps1'),(Get-PSRecipePayload $RecoveryScript).Text,(Get-PSUtf8NoBom))
+            [IO.File]::WriteAllText((Join-Path $tmp 'recovery.ps1'),(Get-PASRecipePayload $RecoveryScript).Text,(Get-PASUtf8NoBom))
             $copies+=@{From=(Join-Path $tmp 'recovery.ps1');To='recovery.ps1'}
         }
         $expectedHashes=@{}
@@ -164,7 +164,7 @@ function Initialize-PSDetached {
         }finally{$secureInputs.Dispose();$secureInputs=$null}
         # status.json is written last: its presence means the attempt is completely staged.
         $stagedBootUtc=[string](Invoke-Command -Session $session -ErrorAction Stop -ScriptBlock {(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString('o')})
-        [IO.File]::WriteAllText((Join-Path $tmp 'status.json'),(@{schemaVersion=2;state='Dispatched';attemptId=$AttemptId;stagedBootUtc=$stagedBootUtc}|ConvertTo-Json -Compress),(Get-PSUtf8NoBom))
+        [IO.File]::WriteAllText((Join-Path $tmp 'status.json'),(@{schemaVersion=2;state='Dispatched';attemptId=$AttemptId;stagedBootUtc=$stagedBootUtc}|ConvertTo-Json -Compress),(Get-PASUtf8NoBom))
         Copy-Item -ToSession $session -LiteralPath (Join-Path $tmp 'status.json') -Destination ($directory+'\status.json') -ErrorAction Stop
         [void](Invoke-Command -Session $session -ArgumentList $directory -ErrorAction Stop -ScriptBlock {
             param($dir)
@@ -182,8 +182,8 @@ function Initialize-PSDetached {
             }
         })
     } finally { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
-    $launchArguments=New-PSDetachedLaunchArguments -Directory $directory -ExpectedHashes $expectedHashes
-    $recoveryArguments=if($RecoveryScript){New-PSDetachedLaunchArguments -Directory $directory -ExpectedHashes $expectedHashes -Entry 'recovery.ps1'}else{''}
+    $launchArguments=New-PASDetachedLaunchArguments -Directory $directory -ExpectedHashes $expectedHashes
+    $recoveryArguments=if($RecoveryScript){New-PASDetachedLaunchArguments -Directory $directory -ExpectedHashes $expectedHashes -Entry 'recovery.ps1'}else{''}
     try {
     [void](Invoke-Command -Session $session -ArgumentList $directory,$taskName,$TimeoutSeconds,([bool]$RecoveryScript),$taskCredential,$expectedHashes,$launchArguments,$recoveryArguments -ErrorAction Stop -ScriptBlock {
         param($dir,$name,$timeout,$hasRecovery,$runCredential,$expectedHashes,$launchArguments,$recoveryArguments)
@@ -257,12 +257,12 @@ function Initialize-PSDetached {
     }
     return [pscustomobject]@{ AttemptId=$AttemptId; Directory=$directory; ScheduledTask=$taskName }
 }
-function Get-PSDetachedStatus {
+function Get-PASDetachedStatus {
     param([hashtable]$Target,[hashtable]$Credentials,[string]$AttemptId)
-    if($Target.Protocol -eq 'SSH' -and $Target.Runtime -eq 'Bash'){return Get-PSLinuxDetachedStatus $Target $AttemptId}
-    $dir=Get-PSAttemptRoot $Target $AttemptId
+    if($Target.Protocol -eq 'SSH' -and $Target.Runtime -eq 'Bash'){return Get-PASLinuxDetachedStatus $Target $AttemptId}
+    $dir=Get-PASAttemptRoot $Target $AttemptId
     $task='PAExec-'+$AttemptId
-    $result=Invoke-Command -Session (Get-PSConnection $Target $Credentials) -ArgumentList $dir,$task -ErrorAction Stop -ScriptBlock {
+    $result=Invoke-Command -Session (Get-PASConnection $Target $Credentials) -ArgumentList $dir,$task -ErrorAction Stop -ScriptBlock {
         param($dir,$task)
         $status=Join-Path $dir 'status.json'
         $st=Get-ScheduledTask -TaskName $task -TaskPath '\PAExec\' -ErrorAction SilentlyContinue
@@ -326,21 +326,21 @@ function Get-PSDetachedStatus {
         $data | Add-Member -NotePropertyName workerActive -NotePropertyValue ([bool]$workerActive) -Force
         return ($data | ConvertTo-Json -Compress -Depth 10)
     }
-    return ConvertTo-PSHashtable (ConvertFrom-Json -InputObject ([string]$result))
+    return ConvertTo-PASHashtable (ConvertFrom-Json -InputObject ([string]$result))
 }
-function Wait-PSDetachedSessionQuiescence {
+function Wait-PASDetachedSessionQuiescence {
     param([hashtable]$Target,[hashtable]$Credentials,[string]$AttemptId,[int]$TimeoutSeconds=30)
     $deadline=[DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     do{
-        $remote=Get-PSDetachedStatus $Target $Credentials $AttemptId
+        $remote=Get-PASDetachedStatus $Target $Credentials $AttemptId
         if($remote.state -ne 'Succeeded'){throw 'PAExecUnknown: authenticated attempt no longer has its successful terminal record'}
-        $active=Get-PSObjectValue $remote 'workerActive' $null
+        $active=Get-PASValue $remote 'workerActive' $null
         if($active -is [bool] -and -not $active){return}
         if([DateTime]::UtcNow -ge $deadline){throw 'PAExecUnknown: authenticated worker exit is unconfirmed; retaining the Vault claim'}
         Start-Sleep -Milliseconds 500
     }while($true)
 }
-function Wait-PSDetached {
+function Wait-PASDetached {
     param([hashtable]$Target,[hashtable]$Credentials,[string]$AttemptId,[int]$TimeoutSeconds=3600,[hashtable]$Context=$null,[string]$TaskId='',[switch]$AllowStart)
     $deadline=[DateTime]::UtcNow.AddSeconds($TimeoutSeconds + 120)
     $lastError=''
@@ -349,101 +349,101 @@ function Wait-PSDetached {
     $kicked=$false
     while([DateTime]::UtcNow -lt $deadline) {
         try {
-            $status=Get-PSDetachedStatus $Target $Credentials $AttemptId
+            $status=Get-PASDetachedStatus $Target $Credentials $AttemptId
             $failures=0
-            if($status.state -ne $lastState -and $Context){ Add-PSEvent $Context 'DetachedStatus' $TaskId ("remote attempt $AttemptId is $($status.state)") ; $lastState=$status.state }
+            if($status.state -ne $lastState -and $Context){ Add-PASEvent $Context 'DetachedStatus' $TaskId ("remote attempt $AttemptId is $($status.state)") ; $lastState=$status.state }
             if($status.state -in @('Succeeded','Failed','Interrupted','NotStarted','Missing')){return $status}
-            if($AllowStart -and $status.state -eq 'Dispatched' -and (Get-PSObjectValue $status 'taskState' '') -eq 'Ready' -and -not $kicked){
+            if($AllowStart -and $status.state -eq 'Dispatched' -and (Get-PASValue $status 'taskState' '') -eq 'Ready' -and -not $kicked){
                 # Registered but never launched (controller died before Start-ScheduledTask). The runner
                 # executes only from the Dispatched state, so starting the SAME attempt cannot duplicate it.
                 $kicked=$true
                 $name='PAExec-'+$AttemptId
-                if($Target.Protocol -eq 'SSH' -and $Target.Runtime -eq 'Bash'){Start-PSLinuxDetached $Target $AttemptId}else{
-                [void](Invoke-Command -Session (Get-PSConnection $Target $Credentials) -ArgumentList $name -ErrorAction Stop -ScriptBlock { param($n) Start-ScheduledTask -TaskName $n -TaskPath '\PAExec\' })
+                if($Target.Protocol -eq 'SSH' -and $Target.Runtime -eq 'Bash'){Start-PASLinuxDetached $Target $AttemptId}else{
+                [void](Invoke-Command -Session (Get-PASConnection $Target $Credentials) -ArgumentList $name -ErrorAction Stop -ScriptBlock { param($n) Start-ScheduledTask -TaskName $n -TaskPath '\PAExec\' })
                 }
-                if($Context){ Add-PSEvent $Context 'DetachedStarted' $TaskId "started staged attempt $AttemptId" }
+                if($Context){ Add-PASEvent $Context 'DetachedStarted' $TaskId "started staged attempt $AttemptId" }
             }
         } catch {
             $failures++
             $lastError=$_.Exception.Message
-            if($Context -and ($failures -eq 1 -or $failures % 6 -eq 0)){ Add-PSEvent $Context 'DetachedPollError' $TaskId ("status poll failed ($failures): " + (Limit-PSText $lastError 300)) 'Warning' }
-            Clear-PSConnections
+            if($Context -and ($failures -eq 1 -or $failures % 6 -eq 0)){ Add-PASEvent $Context 'DetachedPollError' $TaskId ("status poll failed ($failures): " + (Limit-PASText $lastError 300)) 'Warning' }
+            Clear-PASConnections
         }
         Start-Sleep -Seconds 10
     }
     throw "PAExecUnknown: Detached task status unconfirmed before timeout: $lastError"
 }
-function Finish-PSDetached {
+function Finish-PASDetached {
     param([hashtable]$Target,[hashtable]$Credentials,[string]$AttemptId)
-    if($Target.Protocol -eq 'SSH' -and $Target.Runtime -eq 'Bash'){Finish-PSLinuxDetached $Target $AttemptId;return}
+    if($Target.Protocol -eq 'SSH' -and $Target.Runtime -eq 'Bash'){Finish-PASLinuxDetached $Target $AttemptId;return}
     $taskName='PAExec-'+$AttemptId
     # Keep status.json/stdout.log as remote attempt evidence. Only the main scheduled task is removed.
-    [void](Invoke-Command -Session (Get-PSConnection $Target $Credentials) -ArgumentList $taskName -ErrorAction Stop -ScriptBlock {
+    [void](Invoke-Command -Session (Get-PASConnection $Target $Credentials) -ArgumentList $taskName -ErrorAction Stop -ScriptBlock {
         param($name)
         Unregister-ScheduledTask -TaskName $name -TaskPath '\PAExec\' -Confirm:$false -ErrorAction SilentlyContinue
     })
 }
-function Get-PSBootIdentifier {
+function Get-PASBootIdentifier {
     param([hashtable]$Target,[hashtable]$Credentials)
     if($Target.Protocol -eq 'SSH' -and $Target.Runtime -eq 'Bash'){
-        $boot=([string](Invoke-PSLinuxControl $Target 'cat /proc/sys/kernel/random/boot_id')).Trim()
+        $boot=([string](Invoke-PASLinuxControl $Target 'cat /proc/sys/kernel/random/boot_id')).Trim()
         if($boot -notmatch '^[a-f0-9-]{36}$'){throw 'Cannot read Linux boot identifier'}
         return $boot
     }
-    $r=Invoke-PSAdapterCommand $Target $Credentials '[pscustomobject]@{Message=''boot'';Boot=(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString(''o'')}' 'Object' 120
-    $boot=[string](Get-PSObjectValue $r.Terminal 'Boot' '')
+    $r=Invoke-PASAdapterCommand $Target $Credentials '[pscustomobject]@{Message=''boot'';Boot=(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString(''o'')}' 'Object' 120
+    $boot=[string](Get-PASValue $r.Terminal 'Boot' '')
     if([string]::IsNullOrWhiteSpace($boot)){throw 'Cannot read boot identifier'}
     return $boot
 }
-function Invoke-PSReboot {
+function Invoke-PASReboot {
     # -BootBefore: identifier recorded before the reboot. -AlreadyRequested: resume mode (wait only, never re-issue).
     param([hashtable]$Target,[hashtable]$Credentials,[int]$TimeoutSeconds=900,[hashtable]$Context=$null,[string]$TaskId='',[string]$BootBefore='',[switch]$AlreadyRequested)
     if($Target.Protocol -eq 'SSH' -and $Target.Runtime -eq 'Bash'){
         $boot=$BootBefore
-        if(-not $boot){if($AlreadyRequested){throw 'Resuming Linux reboot requires recorded boot identifier'};$boot=Get-PSBootIdentifier $Target $Credentials}
+        if(-not $boot){if($AlreadyRequested){throw 'Resuming Linux reboot requires recorded boot identifier'};$boot=Get-PASBootIdentifier $Target $Credentials}
         if(-not $AlreadyRequested){
-            if($Context){Add-PSEvent $Context 'RebootRequested' $TaskId "Linux boot before reboot: $boot"}
+            if($Context){Add-PASEvent $Context 'RebootRequested' $TaskId "Linux boot before reboot: $boot"}
             $unit='paeasy-reboot-'+[guid]::NewGuid().ToString('N')
             # A short root-owned systemd timer survives the SSH observer exiting.
-            try {[void](Invoke-PSLinuxControl $Target ('systemd-run --quiet --unit='+$unit+' --on-active=5s /usr/bin/systemctl reboot'))}catch{Write-Verbose 'Linux reboot dispatch uncertain; observe boot identity without repeating'}
+            try {[void](Invoke-PASLinuxControl $Target ('systemd-run --quiet --unit='+$unit+' --on-active=5s /usr/bin/systemctl reboot'))}catch{Write-Verbose 'Linux reboot dispatch uncertain; observe boot identity without repeating'}
         }
         $deadline=[DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
         while([DateTime]::UtcNow -lt $deadline){
             Start-Sleep -Seconds 10
-            try {$now=Get-PSBootIdentifier $Target $Credentials;if($now -ne $boot){if($Context){Add-PSEvent $Context 'RebootConfirmed' $TaskId "Linux boot after reboot: $now"};return $now}}catch{Write-Verbose 'Waiting for Linux reboot transport'}
+            try {$now=Get-PASBootIdentifier $Target $Credentials;if($now -ne $boot){if($Context){Add-PASEvent $Context 'RebootConfirmed' $TaskId "Linux boot after reboot: $now"};return $now}}catch{Write-Verbose 'Waiting for Linux reboot transport'}
         }
         throw 'PAExecUnknown: Linux reboot not confirmed by changed boot identifier'
     }
     if($Target.Protocol -ne 'WinRM' -and -not ($Target.Protocol -eq 'SSH' -and $Target.Runtime -ne 'Bash')){throw 'Reboot requires a Windows PowerShell target (WinRM or SSH)'}
     $boot=$BootBefore
-    if(-not $boot){ if($AlreadyRequested){throw 'Resuming a reboot requires the recorded boot identifier'}; $boot=Get-PSBootIdentifier $Target $Credentials }
+    if(-not $boot){ if($AlreadyRequested){throw 'Resuming a reboot requires the recorded boot identifier'}; $boot=Get-PASBootIdentifier $Target $Credentials }
     if(-not $AlreadyRequested){
-        if($Context){ Add-PSEvent $Context 'RebootRequested' $TaskId "boot before reboot: $boot" }
-        try { [void](Invoke-PSAdapterCommand $Target $Credentials '& shutdown.exe /r /t 5 /d p:4:1 /c "PAExec workflow reboot"; if($LASTEXITCODE -ne 0){throw "shutdown.exe $LASTEXITCODE"}; [pscustomobject]@{Message=''scheduled''}' 'Object' 60) }
-        catch { if($_.Exception.Message -notmatch '^PAExecUnknown:'){throw}; Clear-PSConnections }
+        if($Context){ Add-PASEvent $Context 'RebootRequested' $TaskId "boot before reboot: $boot" }
+        try { [void](Invoke-PASAdapterCommand $Target $Credentials '& shutdown.exe /r /t 5 /d p:4:1 /c "PAExec workflow reboot"; if($LASTEXITCODE -ne 0){throw "shutdown.exe $LASTEXITCODE"}; [pscustomobject]@{Message=''scheduled''}' 'Object' 60) }
+        catch { if($_.Exception.Message -notmatch '^PAExecUnknown:'){throw}; Clear-PASConnections }
     }
-    Clear-PSConnections
+    Clear-PASConnections
     $deadline=[DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     while([DateTime]::UtcNow -lt $deadline){
         Start-Sleep -Seconds 10
         try {
-            $now=Get-PSBootIdentifier $Target $Credentials
-            if($now -and $now -ne $boot){ if($Context){ Add-PSEvent $Context 'RebootConfirmed' $TaskId "boot after reboot: $now" }; return $now }
-        } catch { Clear-PSConnections }
+            $now=Get-PASBootIdentifier $Target $Credentials
+            if($now -and $now -ne $boot){ if($Context){ Add-PASEvent $Context 'RebootConfirmed' $TaskId "boot after reboot: $now" }; return $now }
+        } catch { Clear-PASConnections }
     }
     throw 'PAExecUnknown: Reboot not confirmed by changed boot identifier'
 }
-function Clear-PSRecoveryTasks {
+function Clear-PASRecoveryTasks {
     param($Plan,[hashtable]$Credentials,[hashtable]$Steps)
     if($Plan.Target.Protocol -ne 'WinRM'){return}
     foreach($step in $Plan.Steps){
-        if((Get-PSObjectValue $step 'Mode' 'Direct') -ne 'Detached' -or -not $step.Contains('RecoveryScript')){continue}
-        $attempt = Get-PSObjectValue $Steps ([string]$step.Id)
+        if((Get-PASValue $step 'Mode' 'Direct') -ne 'Detached' -or -not $step.Contains('RecoveryScript')){continue}
+        $attempt = Get-PASValue $Steps ([string]$step.Id)
         if(-not $attempt){continue}
-        foreach($id in @(@(Get-PSObjectValue $attempt 'attemptId' '') + @(Get-PSObjectValue $attempt 'previousAttempts' @()))){
+        foreach($id in @(@(Get-PASValue $attempt 'attemptId' '') + @(Get-PASValue $attempt 'previousAttempts' @()))){
             if(-not $id){continue}
             $name='PAExec-'+[string]$id+'-Recovery'
-            [void](Invoke-PSAdapterCommand $Plan.Target $Credentials ("Unregister-ScheduledTask -TaskName '$name' -TaskPath '\PAExec\' -Confirm:`$false -ErrorAction SilentlyContinue"))
+            [void](Invoke-PASAdapterCommand $Plan.Target $Credentials ("Unregister-ScheduledTask -TaskName '$name' -TaskPath '\PAExec\' -Confirm:`$false -ErrorAction SilentlyContinue"))
         }
     }
 }

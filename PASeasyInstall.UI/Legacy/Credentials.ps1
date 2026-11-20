@@ -23,9 +23,9 @@ function New-PASeasyUICredentials {
     $c=Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
     $selected=@(@($c.components|ForEach-Object {[string]$_.host})+@($c.activeDirectory.join)|Sort-Object -Unique)
     if(-not $HostOnly -and @($c.components|Where-Object {$_.type -eq 'PTA'}).Count){
-        $assessment=Test-PASeasyConfig -Config $Path
+        $assessment=Test-PASConfiguration -Config $Path
         if(-not $assessment.Valid){throw ($assessment.Issues -join '; ')}
-        $managementHost=& (Get-Module PASeasyInstall.Core) {param($config) Get-PASeasyPTASyslogHost $config} $assessment.Configuration
+        $managementHost=& (Get-Module PASeasyInstall.Core) {param($config) Get-PASPTASyslogHost $config} $assessment.Configuration
         if($managementHost){$selected=@($selected+@($managementHost)|Sort-Object -Unique)}
     }
     $creds=@{};$secrets=@{}
@@ -126,9 +126,9 @@ function Get-PASeasyUIInputRequirements {
     $c=Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
     $selected=@(@($c.components|ForEach-Object {[string]$_.host})+@($c.activeDirectory.join)|Where-Object {$_}|Sort-Object -Unique)
     if(@($c.components|Where-Object {$_.type -eq 'PTA'}).Count){
-        $assessment=Test-PASeasyConfig -Config $Path
+        $assessment=Test-PASConfiguration -Config $Path
         if(-not $assessment.Valid){throw ($assessment.Issues -join '; ')}
-        $managementHost=& (Get-Module PASeasyInstall.Core) {param($config) Get-PASeasyPTASyslogHost $config} $assessment.Configuration
+        $managementHost=& (Get-Module PASeasyInstall.Core) {param($config) Get-PASPTASyslogHost $config} $assessment.Configuration
         if($managementHost){$selected=@($selected+@($managementHost)|Sort-Object -Unique)}
     }
     $windows=@(foreach($id in $selected){

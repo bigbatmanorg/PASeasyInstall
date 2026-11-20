@@ -1,17 +1,17 @@
 # Durable Bash attempts require root SSH and systemd. No runtime bridge or background SSH shell.
-function Get-PSLinuxAttemptRoot {
+function Get-PASLinuxAttemptRoot {
     param([string]$AttemptId)
     if($AttemptId -notmatch '^[a-f0-9]{32}$'){throw 'Invalid Linux attempt ID'}
     return ('/opt/paeasyinstall/attempts/'+$AttemptId)
 }
-function Invoke-PSLinuxControl {
+function Invoke-PASLinuxControl {
     param([hashtable]$Target,[string]$Command)
     $encoded=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Command.Replace("`r`n","`n")))
-    $r=Invoke-PSRawSSH $Target ('printf %s '+$encoded+' | base64 -d | bash')
+    $r=Invoke-PASRawSSH $Target ('printf %s '+$encoded+' | base64 -d | bash')
     if($r.ExitCode -ne 0){throw "PAExecUnknown: Linux attempt control failed ($($r.ExitCode)); inspect target attempt"}
     return $r.Output
 }
-function Get-PSLinuxDirectoryGuard {
+function Get-PASLinuxDirectoryGuard {
     param([string[]]$Paths,[switch]$ExistingOnly)
     if(-not $Paths.Count){throw 'Linux directory guard needs explicit paths'}
     foreach($path in $Paths){if($path -notmatch '^/[A-Za-z0-9_./-]*$' -or $path -match '/\.\.?(/|$)|//'){throw 'Unsafe Linux directory guard path'}}
@@ -19,79 +19,79 @@ function Get-PSLinuxDirectoryGuard {
     if($ExistingOnly){$code+='if [ ! -e "$p" ] && [ ! -L "$p" ]; then continue; fi; '}
     return ($code+'test -d "$p"; test ! -L "$p"; test "$(stat -c %u -- "$p")" = 0; mode=$(stat -c %a -- "$p"); test "$((8#$mode & 022))" = 0; done; ')
 }
-function Get-PSLinuxInfrastructureGuard {
+function Get-PASLinuxInfrastructureGuard {
     # These are OS-owned ancestors, never application directories to adopt/chmod.
-    Get-PSLinuxDirectoryGuard @('/','/opt','/run','/run/systemd','/run/systemd/system','/etc','/etc/systemd','/etc/systemd/system')
+    Get-PASLinuxDirectoryGuard @('/','/opt','/run','/run/systemd','/run/systemd/system','/etc','/etc/systemd','/etc/systemd/system')
 }
-function Get-PSLinuxAttemptGuard {
+function Get-PASLinuxAttemptGuard {
     param([string]$AttemptId,[switch]$ExistingOnly,[switch]$Secrets)
-    $dir=Get-PSLinuxAttemptRoot $AttemptId
+    $dir=Get-PASLinuxAttemptRoot $AttemptId
     $paths=@('/opt/paeasyinstall','/opt/paeasyinstall/attempts',$dir)
     if($Secrets){$paths+=@('/run/paeasyinstall','/run/paeasyinstall/attempts',('/run/paeasyinstall/attempts/'+$AttemptId))}
-    (Get-PSLinuxInfrastructureGuard)+(Get-PSLinuxDirectoryGuard $paths -ExistingOnly:$ExistingOnly)
+    (Get-PASLinuxInfrastructureGuard)+(Get-PASLinuxDirectoryGuard $paths -ExistingOnly:$ExistingOnly)
 }
-function Start-PSLinuxDetached {
+function Start-PASLinuxDetached {
     param([hashtable]$Target,[string]$AttemptId)
-    $dir=Get-PSLinuxAttemptRoot $AttemptId
+    $dir=Get-PASLinuxAttemptRoot $AttemptId
     # Resume may observe a published record before the original caller completed
     # its flush. Every first/same-attempt start requires the barriers again.
-    [void](Invoke-PSLinuxControl $Target ((Get-PSLinuxAttemptGuard $AttemptId)+(Get-PSLinuxDirectoryGuard @('/run/paeasyinstall','/run/paeasyinstall/attempts',('/run/paeasyinstall/attempts/'+$AttemptId)) -ExistingOnly)+'set -eu; command -v sync >/dev/null; sync -f '+$dir+'; sync -f /etc/systemd/system; systemctl daemon-reload; systemctl start --no-block paeasy-'+$AttemptId+'.service'))
+    [void](Invoke-PASLinuxControl $Target ((Get-PASLinuxAttemptGuard $AttemptId)+(Get-PASLinuxDirectoryGuard @('/run/paeasyinstall','/run/paeasyinstall/attempts',('/run/paeasyinstall/attempts/'+$AttemptId)) -ExistingOnly)+'set -eu; command -v sync >/dev/null; sync -f '+$dir+'; sync -f /etc/systemd/system; systemctl daemon-reload; systemctl start --no-block paeasy-'+$AttemptId+'.service'))
 }
-function Initialize-PSLinuxDetached {
+function Initialize-PASLinuxDetached {
     param([hashtable]$Target,[string]$ScriptPath,[hashtable]$Parameters,[string]$AttemptId,[int]$TimeoutSeconds,[string]$Contract)
-    if([string](Get-PSObjectValue $Target 'User' '') -ne 'root'){throw 'Durable Linux attempts currently require explicitly configured root SSH identity'}
+    if([string](Get-PASValue $Target 'User' '') -ne 'root'){throw 'Durable Linux attempts currently require explicitly configured root SSH identity'}
     if($Contract -notin @('Object','ExitCode')){throw 'Unsupported Linux attempt contract'}
     # Windows OpenSSH needs an independent console for redirected stdin. Probe
     # before staging any secret; never fall back to a plaintext local envelope.
     $probeTarget=@{};foreach($key in $Target.Keys){$probeTarget[$key]=$Target[$key]}
     $probeTarget.CommandTimeoutSeconds=10
-    try {$probe=Invoke-PSRawSSH $probeTarget 'received=$(head -c 9); test "$received" = PAEASY_OK' ([Text.Encoding]::UTF8.GetBytes('PAEASY_OK'))}
+    try {$probe=Invoke-PASRawSSH $probeTarget 'received=$(head -c 9); test "$received" = PAEASY_OK' ([Text.Encoding]::UTF8.GetBytes('PAEASY_OK'))}
     catch {throw 'Linux secret streaming unavailable; start the controller in its own Windows console. No secret or target attempt was staged.'}
     if($probe.ExitCode -ne 0){throw 'Linux secret streaming unavailable; start the controller in its own Windows console'}
-    $dir=Get-PSLinuxAttemptRoot $AttemptId
+    $dir=Get-PASLinuxAttemptRoot $AttemptId
     $secretDir='/run/paeasyinstall/attempts/'+$AttemptId
     $prepare='set -eu; test "$(id -u)" = 0; command -v systemctl >/dev/null; command -v jq >/dev/null; command -v sync >/dev/null; sync -f /opt; test -d /run/systemd/system; umask 077; for p in /opt/paeasyinstall /opt/paeasyinstall/attempts; do if [ -e "$p" ] || [ -L "$p" ]; then test ! -L "$p"; test "$(stat -c %u "$p")" = 0; mode=$(stat -c %a "$p"); test "$((8#$mode & 022))" = 0; chmod 700 "$p"; else mkdir -m 700 "$p"; fi; done; mkdir '+$dir
-    [void](Invoke-PSLinuxControl $Target ((Get-PSLinuxAttemptGuard $AttemptId -ExistingOnly -Secrets)+'test ! -e '+$dir+'; test ! -L '+$dir+'; '+$prepare+'; '+(Get-PSLinuxDirectoryGuard @('/opt/paeasyinstall','/opt/paeasyinstall/attempts',$dir))))
+    [void](Invoke-PASLinuxControl $Target ((Get-PASLinuxAttemptGuard $AttemptId -ExistingOnly -Secrets)+'test ! -e '+$dir+'; test ! -L '+$dir+'; '+$prepare+'; '+(Get-PASLinuxDirectoryGuard @('/opt/paeasyinstall','/opt/paeasyinstall/attempts',$dir))))
     $tmp=Join-Path ([IO.Path]::GetTempPath()) ('paeasy-linux-'+$AttemptId)
     New-Item $tmp -ItemType Directory -ErrorAction Stop|Out-Null
     $published=$false
     try {
-        if(Test-PSWindows){Protect-PASDirectory $tmp}else{& chmod 700 $tmp;if($LASTEXITCODE -ne 0){throw 'Cannot protect local Linux staging'}}
+        if(Test-PASWindows){Protect-PASDirectory $tmp}else{& chmod 700 $tmp;if($LASTEXITCODE -ne 0){throw 'Cannot protect local Linux staging'}}
         $inputBytes=[Text.Encoding]::UTF8.GetBytes(($Parameters|ConvertTo-Json -Depth 30 -Compress))
-        [IO.File]::WriteAllText((Join-Path $tmp 'contract.txt'),$Contract,(Get-PSUtf8NoBom))
-        [IO.File]::WriteAllText((Join-Path $tmp 'task.sh'),([IO.File]::ReadAllText($ScriptPath).Replace("`r`n","`n")),(Get-PSUtf8NoBom))
-        $runner=Join-Path $script:PAExecRoot 'Assets/LinuxDetachedRunner.sh'
-        [IO.File]::WriteAllText((Join-Path $tmp 'runner.sh'),([IO.File]::ReadAllText($runner).Replace("`r`n","`n")),(Get-PSUtf8NoBom))
+        [IO.File]::WriteAllText((Join-Path $tmp 'contract.txt'),$Contract,(Get-PASUtf8NoBom))
+        [IO.File]::WriteAllText((Join-Path $tmp 'task.sh'),([IO.File]::ReadAllText($ScriptPath).Replace("`r`n","`n")),(Get-PASUtf8NoBom))
+        $runner=Join-Path $script:PASEngineRoot 'Assets/LinuxDetachedRunner.sh'
+        [IO.File]::WriteAllText((Join-Path $tmp 'runner.sh'),([IO.File]::ReadAllText($runner).Replace("`r`n","`n")),(Get-PASUtf8NoBom))
         $unit="[Unit]`nDescription=PASeasyInstall attempt $AttemptId`n[Service]`nType=oneshot`nRemainAfterExit=yes`nUser=root`nUMask=0077`nWorkingDirectory=$dir`nExecStart=/bin/bash $dir/runner.sh $dir`nExecStopPost=/bin/bash $dir/runner.sh --cleanup $dir`nTimeoutStartSec=$TimeoutSeconds`nRestart=no`nStandardOutput=null`nStandardError=null`n"
-        [IO.File]::WriteAllText((Join-Path $tmp 'unit.service'),$unit,(Get-PSUtf8NoBom))
-        foreach($name in @('contract.txt','task.sh','runner.sh','unit.service')){Copy-PSRawSSH $Target (Join-Path $tmp $name) ($dir+'/'+$name)}
+        [IO.File]::WriteAllText((Join-Path $tmp 'unit.service'),$unit,(Get-PASUtf8NoBom))
+        foreach($name in @('contract.txt','task.sh','runner.sh','unit.service')){Copy-PASRawSSH $Target (Join-Path $tmp $name) ($dir+'/'+$name)}
         $checks=@(foreach($name in @('contract.txt','task.sh','runner.sh','unit.service')){((Get-FileHash (Join-Path $tmp $name) -Algorithm SHA256).Hash.ToLowerInvariant())+'  '+$name}) -join "`n"
         # Arm target-side expiry BEFORE receiving secrets. /run also disappears on power loss.
         $stageSecrets='set -eu; umask 077; for p in /run/paeasyinstall /run/paeasyinstall/attempts; do if [ -e "$p" ] || [ -L "$p" ]; then test ! -L "$p"; test "$(stat -c %u "$p")" = 0; mode=$(stat -c %a "$p"); test "$((8#$mode & 022))" = 0; else mkdir -m 700 "$p"; fi; done; mkdir '+$secretDir+'; systemd-run --quiet --collect --unit=paeasy-stage-expiry-'+$AttemptId+' --on-active=120 /bin/bash '+$dir+'/runner.sh --expire '+$dir
-        [void](Invoke-PSLinuxControl $Target ((Get-PSLinuxAttemptGuard $AttemptId)+$stageSecrets+'; '+(Get-PSLinuxAttemptGuard $AttemptId -Secrets)))
+        [void](Invoke-PASLinuxControl $Target ((Get-PASLinuxAttemptGuard $AttemptId)+$stageSecrets+'; '+(Get-PASLinuxAttemptGuard $AttemptId -Secrets)))
         try {
             $receive='set -eu; umask 077; test -d '+$secretDir+'; test ! -e '+$secretDir+'/inputs.json; set -C; head -c '+$inputBytes.Length+' > '+$secretDir+'/inputs.json; test "$(wc -c < '+$secretDir+'/inputs.json)" = '+$inputBytes.Length+'; jq -e . '+$secretDir+'/inputs.json >/dev/null'
-            $received=Invoke-PSRawSSH $Target ((Get-PSLinuxAttemptGuard $AttemptId -Secrets)+$receive) $inputBytes
+            $received=Invoke-PASRawSSH $Target ((Get-PASLinuxAttemptGuard $AttemptId -Secrets)+$receive) $inputBytes
             if($received.ExitCode -ne 0){throw 'Linux secret envelope streaming failed'}
         } finally {[Array]::Clear($inputBytes,0,$inputBytes.Length)}
         # Verify executable/contract bytes before publishing a completely staged attempt.
         $encoded=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($checks+"`n"))
         $publish='set -eu; umask 077; test -s '+$secretDir+'/inputs.json; cd '+$dir+'; chmod 600 ./*; printf %s '+$encoded+' | base64 -d | sha256sum -c - >/dev/null; test ! -e /etc/systemd/system/paeasy-'+$AttemptId+'.service; install -m 600 unit.service /etc/systemd/system/paeasy-'+$AttemptId+'.service; boot=$(cat /proc/sys/kernel/random/boot_id); jq -nc --arg id '+$AttemptId+' --arg boot "$boot" ''{schemaVersion:2,state:"Dispatched",attemptId:$id,stagedBootId:$boot}'' >status.tmp; mv status.tmp status.json; sync -f '+$dir+'; sync -f /etc/systemd/system'
-        [void](Invoke-PSLinuxControl $Target ((Get-PSLinuxAttemptGuard $AttemptId -Secrets)+$publish))
+        [void](Invoke-PASLinuxControl $Target ((Get-PASLinuxAttemptGuard $AttemptId -Secrets)+$publish))
         $published=$true
-        Start-PSLinuxDetached $Target $AttemptId
+        Start-PASLinuxDetached $Target $AttemptId
         return [pscustomobject]@{AttemptId=$AttemptId;Directory=$dir;ScheduledTask=('paeasy-'+$AttemptId+'.service')}
     } finally {
         if(-not $published){
             # This controller has not called start. Remove only secret staging; retain diagnostics.
-            try {[void](Invoke-PSLinuxControl $Target ((Get-PSLinuxAttemptGuard $AttemptId -ExistingOnly -Secrets)+'if [ ! -d '+$dir+'/claimed ]; then rm -f '+$dir+'/inputs.json /run/paeasyinstall/attempts/'+$AttemptId+'/inputs.json /etc/systemd/system/paeasy-'+$AttemptId+'.service; rm -f '+$dir+'/status.json; fi'))}catch{Write-Verbose 'Linux incomplete staging cleanup needs reconciliation'}
+            try {[void](Invoke-PASLinuxControl $Target ((Get-PASLinuxAttemptGuard $AttemptId -ExistingOnly -Secrets)+'if [ ! -d '+$dir+'/claimed ]; then rm -f '+$dir+'/inputs.json /run/paeasyinstall/attempts/'+$AttemptId+'/inputs.json /etc/systemd/system/paeasy-'+$AttemptId+'.service; rm -f '+$dir+'/status.json; fi'))}catch{Write-Verbose 'Linux incomplete staging cleanup needs reconciliation'}
         }
         Remove-Item $tmp -Force -Recurse -ErrorAction SilentlyContinue
     }
 }
-function Get-PSLinuxDetachedStatus {
+function Get-PASLinuxDetachedStatus {
     param([hashtable]$Target,[string]$AttemptId)
-    $dir=Get-PSLinuxAttemptRoot $AttemptId
+    $dir=Get-PASLinuxAttemptRoot $AttemptId
     $unit='paeasy-'+$AttemptId+'.service'
     $code=@'
 set -eu
@@ -166,27 +166,27 @@ if [ "$boot" = "$(cat /proc/sys/kernel/random/boot_id)" ] && [ -r "/proc/$pid/cm
 if linux_worker_active;then worker_active=true;fi
 jq --argjson active "$worker_active" '.workerActive=$active' "$D/status.json"
 '@
-    $raw=Invoke-PSLinuxControl $Target ((Get-PSLinuxAttemptGuard $AttemptId -ExistingOnly -Secrets)+$code.Replace('__DIR__',$dir).Replace('__UNIT__',$unit))
-    $status=ConvertTo-PSHashtable (ConvertFrom-Json -InputObject $raw)
+    $raw=Invoke-PASLinuxControl $Target ((Get-PASLinuxAttemptGuard $AttemptId -ExistingOnly -Secrets)+$code.Replace('__DIR__',$dir).Replace('__UNIT__',$unit))
+    $status=ConvertTo-PASHashtable (ConvertFrom-Json -InputObject $raw)
     if($status.state -eq 'Succeeded'){
-        $contract=([string](Invoke-PSLinuxControl $Target ('cat -- '+$dir+'/contract.txt'))).Trim()
+        $contract=([string](Invoke-PASLinuxControl $Target ('cat -- '+$dir+'/contract.txt'))).Trim()
         if($contract -notin @('Object','ExitCode')){throw 'PAExecUnknown: Linux terminal contract is missing or invalid'}
-        $tail=Invoke-PSLinuxControl $Target ('tail -c 262144 -- '+$dir+'/stdout.log.tail')
-        $marker=Read-PSResultMarker $tail 'Linux durable attempt'
+        $tail=Invoke-PASLinuxControl $Target ('tail -c 262144 -- '+$dir+'/stdout.log.tail')
+        $marker=Read-PASResultMarker $tail 'Linux durable attempt'
         if(-not $marker.Found -and $contract -eq 'Object'){throw 'PAExecUnknown: successful Linux Object attempt has no terminal result marker; retain the claim and inspect evidence'}
         if($marker.Found){
             $terminal=$marker.Value
             if($terminal.Contains('Data')){$status.data=$terminal.Data}
             if($terminal.Contains('Changed') -and $terminal.Changed -is [bool]){$status.changed=$terminal.Changed}
-            if($terminal.Contains('Message')){$status.message=Limit-PSText ([string]$terminal.Message) 2000}
+            if($terminal.Contains('Message')){$status.message=Limit-PASText ([string]$terminal.Message) 2000}
         }
     }
     return $status
 }
-function Finish-PSLinuxDetached {
+function Finish-PASLinuxDetached {
     param([hashtable]$Target,[string]$AttemptId)
-    $dir=Get-PSLinuxAttemptRoot $AttemptId
-    $status=Get-PSLinuxDetachedStatus $Target $AttemptId
+    $dir=Get-PASLinuxAttemptRoot $AttemptId
+    $status=Get-PASLinuxDetachedStatus $Target $AttemptId
     if($status.state -notin @('Succeeded','Failed')){throw 'Cannot clean an unresolved Linux attempt'}
-    [void](Invoke-PSLinuxControl $Target ((Get-PSLinuxAttemptGuard $AttemptId -ExistingOnly -Secrets)+'rm -f '+$dir+'/inputs.json /run/paeasyinstall/attempts/'+$AttemptId+'/inputs.json /etc/systemd/system/paeasy-'+$AttemptId+'.service; systemctl daemon-reload'))
+    [void](Invoke-PASLinuxControl $Target ((Get-PASLinuxAttemptGuard $AttemptId -ExistingOnly -Secrets)+'rm -f '+$dir+'/inputs.json /run/paeasyinstall/attempts/'+$AttemptId+'/inputs.json /etc/systemd/system/paeasy-'+$AttemptId+'.service; systemctl daemon-reload'))
 }

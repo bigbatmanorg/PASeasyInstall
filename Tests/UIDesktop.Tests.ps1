@@ -64,7 +64,7 @@ Describe 'UI backend contract' {
         }
     }
     It 'defaults the desktop to the real installer' {
-        (Get-Content (Join-Path $repo 'Start-PASeasyInstall.ps1') -Raw) | Should -Match "\`$Backend='Orchestrator'"
+        (Get-Content (Join-Path $repo 'Start-PASInstall.ps1') -Raw) | Should -Match "\`$Backend='Orchestrator'"
         (Get-Content (Join-Path $modules 'PASeasyInstall.UI/App.ps1') -Raw) | Should -Match "\`$Backend='Orchestrator'"
     }
 }
@@ -190,16 +190,16 @@ Describe 'Composed deployment runner' {
             $script:launches=New-Object System.Collections.ArrayList
             $script:polls=@{}
             Mock -ModuleName PASeasyInstall.Orchestrator Start-Sleep {}
-            Mock -ModuleName PASeasyInstall.Orchestrator Test-PASeasyConfig { [pscustomobject]@{Valid=$true;Issues=@();Warnings=@();Configuration=$Configuration} }
+            Mock -ModuleName PASeasyInstall.Orchestrator Test-PASConfiguration { [pscustomobject]@{Valid=$true;Issues=@();Warnings=@();Configuration=$Configuration} }
             Mock -ModuleName PASeasyInstall.Orchestrator Invoke-PASSshBootstrap {}
             Mock -ModuleName PASeasyInstall.Orchestrator Select-PASPsmpMediaForHost {}
             Mock -ModuleName PASeasyInstall.Orchestrator Get-PASFleetPVWACertificate { @{File='pin.cer';SHA256=('A'*64)} }
-            Mock -ModuleName PASeasyInstall.Orchestrator Start-PASeasyDeployment {
+            Mock -ModuleName PASeasyInstall.Orchestrator Start-PASDeployment {
                 $running=@($script:polls.Keys|Where-Object {$script:polls[$_] -lt 2})
                 [void]$script:launches.Add([pscustomobject]@{Unit=[string]$Configuration.components[-1].id;RunningAtLaunch=$running})
                 $id=[guid]::NewGuid().ToString('N'); $script:polls[$id]=0; $id
             }
-            Mock -ModuleName PASeasyInstall.Orchestrator Get-PASeasyRun {
+            Mock -ModuleName PASeasyInstall.Orchestrator Get-PASRunRecord {
                 $script:polls[$RunId]++
                 [pscustomobject]@{status=$(if($script:polls[$RunId] -ge 2){'Succeeded'}else{'Running'});message='synthetic'}
             }
@@ -228,7 +228,7 @@ Describe 'Composed deployment runner' {
             @($snap.Events|Where-Object {$_.Stage -eq 'LocalPreflight' -and $_.Status -eq 'Complete'}).Count | Should -Be 6
         }
         It 'stops starting units after a failure and reports it' {
-            Mock -ModuleName PASeasyInstall.Orchestrator Get-PASeasyRun {
+            Mock -ModuleName PASeasyInstall.Orchestrator Get-PASRunRecord {
                 $script:polls[$RunId]++
                 $first=@($script:polls.Keys)[0]
                 [pscustomobject]@{status=$(if($script:polls[$RunId] -ge 2){'Failed'}else{'Running'});message='synthetic failure'}
@@ -241,9 +241,9 @@ Describe 'Composed deployment runner' {
         }
     }
     It 'maps the Vault engine journal names onto the plan ids' {
-        & $script:m {ConvertTo-PASUIComponentId 'primary_final'} | Should -Be 'vault'
-        & $script:m {ConvertTo-PASUIComponentId 'dr_final'} | Should -Be 'dr'
-        & $script:m {ConvertTo-PASUIComponentId 'pas-cpm'} | Should -Be 'pas-cpm'
+        & $script:m {ConvertTo-PASComponentId 'primary_final'} | Should -Be 'vault'
+        & $script:m {ConvertTo-PASComponentId 'dr_final'} | Should -Be 'dr'
+        & $script:m {ConvertTo-PASComponentId 'pas-cpm'} | Should -Be 'pas-cpm'
     }
 }
 

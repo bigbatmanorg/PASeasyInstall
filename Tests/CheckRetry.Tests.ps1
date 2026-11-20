@@ -12,8 +12,8 @@ Describe 'Check evaluation retry' {
         InModuleScope PASeasyInstall.Core -Parameters @{ Dir = $script:dir } {
             param($Dir)
             $script:PSCheckRetryDelaySeconds = 0; $global:PAeasyCheckCalls = 0
-            Mock Invoke-PSAdapterScript { $global:PAeasyCheckCalls++; if ($global:PAeasyCheckCalls -lt 3) { throw 'PAExecUnknown: SSH observation timed out; target work was not stopped' }; [pscustomobject]@{ Ok = $true; Terminal = [pscustomobject]@{ Passed = $true } } }
-            $r = Get-PSCheck -Plan @{ Root = $Dir; Target = @{ Protocol = 'SSH'; Runtime = 'Bash' } } -Credentials @{} -Script 'verify.ps1' -Inputs @{} -Property 'Passed'
+            Mock Invoke-PASAdapterScript { $global:PAeasyCheckCalls++; if ($global:PAeasyCheckCalls -lt 3) { throw 'PAExecUnknown: SSH observation timed out; target work was not stopped' }; [pscustomobject]@{ Ok = $true; Terminal = [pscustomobject]@{ Passed = $true } } }
+            $r = Get-PASCheck -Plan @{ Root = $Dir; Target = @{ Protocol = 'SSH'; Runtime = 'Bash' } } -Credentials @{} -Script 'verify.ps1' -Inputs @{} -Property 'Passed'
             $r.Passed | Should -BeTrue
             $global:PAeasyCheckCalls | Should -Be 3
         }
@@ -22,8 +22,8 @@ Describe 'Check evaluation retry' {
         InModuleScope PASeasyInstall.Core -Parameters @{ Dir = $script:dir } {
             param($Dir)
             $script:PSCheckRetryDelaySeconds = 0; $global:PAeasyCheckCalls = 0
-            Mock Invoke-PSAdapterScript { $global:PAeasyCheckCalls++; throw 'SSH observation timed out' }
-            { Get-PSCheck -Plan @{ Root = $Dir; Target = @{} } -Credentials @{} -Script 'verify.ps1' -Inputs @{} -Property 'Passed' } | Should -Throw "*could not be evaluated*"
+            Mock Invoke-PASAdapterScript { $global:PAeasyCheckCalls++; throw 'SSH observation timed out' }
+            { Get-PASCheck -Plan @{ Root = $Dir; Target = @{} } -Credentials @{} -Script 'verify.ps1' -Inputs @{} -Property 'Passed' } | Should -Throw "*could not be evaluated*"
             $global:PAeasyCheckCalls | Should -Be $script:PSCheckAttempts
         }
     }
@@ -31,8 +31,8 @@ Describe 'Check evaluation retry' {
         InModuleScope PASeasyInstall.Core -Parameters @{ Dir = $script:dir } {
             param($Dir)
             $script:PSCheckRetryDelaySeconds = 0; $global:PAeasyCheckCalls = 0
-            Mock Invoke-PSAdapterScript { $global:PAeasyCheckCalls++; throw 'Permission denied (publickey)' }
-            { Get-PSCheck -Plan @{ Root = $Dir; Target = @{} } -Credentials @{} -Script 'verify.ps1' -Inputs @{} -Property 'Passed' } | Should -Throw "*could not be evaluated*"
+            Mock Invoke-PASAdapterScript { $global:PAeasyCheckCalls++; throw 'Permission denied (publickey)' }
+            { Get-PASCheck -Plan @{ Root = $Dir; Target = @{} } -Credentials @{} -Script 'verify.ps1' -Inputs @{} -Property 'Passed' } | Should -Throw "*could not be evaluated*"
             $global:PAeasyCheckCalls | Should -Be 1
         }
     }

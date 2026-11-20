@@ -3,10 +3,10 @@ BeforeAll {
 }
 Describe 'Public domain join payload generation' {
     It 'bundles the checkpoint helper and freezes the new forest DNS address' {
-        $c=New-PASeasyConfig -Template ADOnly -Path (Join-Path $TestDrive 'ad.json') -WhatIf
+        $c=New-PASConfigurationTemplate -Template ADOnly -Path (Join-Path $TestDrive 'ad.json') -WhatIf
         $c.hosts.member=@{os='Windows';address='192.0.2.5';user='Administrator'}
         $c.activeDirectory.join=@('member')
-        $result=& (Get-Module PASeasyInstall.Core) {param($c,$r) New-PASeasyDomainJoinWorkflow -Config $c -HostId member -RunDirectory $r} $c (Join-Path $TestDrive 'run')
+        $result=& (Get-Module PASeasyInstall.Core) {param($c,$r) New-PASDomainJoinWorkflow -Config $c -HostId member -RunDirectory $r} $c (Join-Path $TestDrive 'run')
         $inventory=Import-PowerShellDataFile $result.Inventory
         $inventory.Values.Components['join-member'].DnsServers[0] | Should -Be $c.hosts.dc01.address
         foreach($name in @('Join-Task.ps1','Join-Verify.ps1')){
@@ -19,14 +19,14 @@ Describe 'Public domain join payload generation' {
         }
     }
     It 'refuses an existing domain join without explicit DNS before remote mutation' {
-        $c=New-PASeasyConfig -Template ADOnly -Path (Join-Path $TestDrive 'existing.json') -WhatIf
+        $c=New-PASConfigurationTemplate -Template ADOnly -Path (Join-Path $TestDrive 'existing.json') -WhatIf
         $c.activeDirectory.mode='Existing';$c.components=@()
         $c.hosts.member=@{os='Windows';address='192.0.2.6';user='Administrator'}
-        {& (Get-Module PASeasyInstall.Core) {param($c,$r) New-PASeasyDomainJoinWorkflow -Config $c -HostId member -RunDirectory $r} $c (Join-Path $TestDrive 'existing-run')} | Should -Throw '*dnsServers*'
+        {& (Get-Module PASeasyInstall.Core) {param($c,$r) New-PASDomainJoinWorkflow -Config $c -HostId member -RunDirectory $r} $c (Join-Path $TestDrive 'existing-run')} | Should -Throw '*dnsServers*'
     }
     It 'refuses string security flags that would cast false text to true' {
-        $c=New-PASeasyConfig -Template Vault -Path (Join-Path $TestDrive 'bool.json') -WhatIf
+        $c=New-PASConfigurationTemplate -Template Vault -Path (Join-Path $TestDrive 'bool.json') -WhatIf
         $c.security.profile='Lab';$c.security.overrides=@{'Vault.AllowRDP'='false'}
-        (Test-PASeasyConfig -Configuration $c).Issues -join ' ' | Should -Match 'JSON boolean'
+        (Test-PASConfiguration -Configuration $c).Issues -join ' ' | Should -Match 'JSON boolean'
     }
 }

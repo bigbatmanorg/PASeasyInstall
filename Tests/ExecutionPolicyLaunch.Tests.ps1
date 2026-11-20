@@ -35,7 +35,7 @@ Describe 'Execution policy on every toolkit-started PowerShell process' {
         $hashes = @{ 'runner.ps1' = ('A' * 64); 'recovery.ps1' = ('B' * 64) }
         $dir = 'C:\ProgramData\PAExec\attempts\0123456789abcdef0123456789abcdef'
         foreach ($entry in 'runner.ps1','recovery.ps1') {
-            $arguments = & (Get-Module PASeasyInstall.Core) { param($d, $h, $e) New-PSDetachedLaunchArguments -Directory $d -ExpectedHashes $h -Entry $e } $dir $hashes $entry
+            $arguments = & (Get-Module PASeasyInstall.Core) { param($d, $h, $e) New-PASDetachedLaunchArguments -Directory $d -ExpectedHashes $h -Entry $e } $dir $hashes $entry
             $arguments | Should -Match '^-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "'
             $arguments | Should -Match ([regex]::Escape($entry))
         }

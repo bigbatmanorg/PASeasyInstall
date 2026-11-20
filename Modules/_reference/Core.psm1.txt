@@ -25,9 +25,9 @@ foreach($part in @(
     . $file
 }
 Export-ModuleMember -Function @(
-  'Initialize-PASeasyController','New-PASeasyConfig','Test-PASeasyConfig','Get-PASeasyPlan',
-  'Start-PASeasyDeployment','Resume-PASeasyDeployment',
-  'Get-PASeasyRun','Get-PASeasyRuns','Get-PASeasyLog','Get-PASeasyLogSources',
-  'Get-PASeasyComponentStatus','Test-PASeasyDeployment',
+  'Initialize-PASController','New-PASConfigurationTemplate','Test-PASConfiguration','Get-PASDeploymentPlan',
+  'Start-PASDeployment','Resume-PASDeployment',
+  'Get-PASRunRecord','Get-PASRunRecords','Get-PASRunLog','Get-PASLogSource',
+  'Get-PASComponentStatus','Test-PASDeploymentStatus',
   'Get-PASDeploymentEvents','Get-PASDeploymentSnapshot'
 )

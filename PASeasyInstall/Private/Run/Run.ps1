@@ -1,15 +1,15 @@
 # One controller per deployment; step execution is sequential.
-function Assert-PASeasyWindowsController {
+function Assert-PASWindowsController {
     if($env:OS -ne 'Windows_NT' -or $PSVersionTable.PSEdition -ne 'Desktop'){
         throw 'Qualified deployment controller requires Windows PowerShell 5.1 on Windows. Planning and diagnostics are available elsewhere.'
     }
 }
-function Get-PASeasyRunDirectory {
+function Get-PASRunDirectory {
     param([Parameter(Mandatory)][string]$RunId,[string]$DataRoot=(Get-PASDataRoot))
     if($RunId -notmatch '^[0-9a-f]{32}$'){throw 'Invalid RunId'}
     return (Join-Path (Join-Path $DataRoot 'Runs') $RunId)
 }
-function Save-PASeasyEnvelope {
+function Save-PASEnvelope {
     param([string]$Path,[hashtable]$Credentials,[hashtable]$Secrets)
     $null=Assert-PASWindowsIdentity
     $dir=Split-Path $Path -Parent
@@ -31,7 +31,7 @@ function Save-PASeasyEnvelope {
     & icacls.exe $Path '/inheritance:r' '/grant:r' "*${sid}:F" '*S-1-5-18:F' | Out-Null
     if($LASTEXITCODE -ne 0){Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue;throw 'Credential envelope ACL failed'}
 }
-function Read-PASeasyEnvelope {
+function Read-PASEnvelope {
     param([string]$Path)
     $raw=Read-PASJson $Path
     if(-not $raw -or $raw.schemaVersion -ne 2 -or $raw.ownerSid -ne (Assert-PASWindowsIdentity)){throw 'Credential envelope absent or owned by another identity'}
@@ -42,10 +42,10 @@ function Read-PASeasyEnvelope {
     foreach($p in $raw.secrets.PSObject.Properties){$secrets[$p.Name]=$p.Value|ConvertTo-SecureString}
     return @{Credentials=$credentials;Secrets=$secrets}
 }
-function Add-PASeasyPTACertificateSecrets {
+function Add-PASPTACertificateSecrets {
     param([hashtable]$Configuration,[hashtable]$Secrets,[hashtable]$FrozenMedia)
     foreach($component in @($Configuration.components|Where-Object {$_.type -eq 'PTA'})){
-        $path=[string](Get-PASeasyProperty $component.options 'certificatePfxFile' '')
+        $path=[string](Get-PASValue $component.options 'certificatePfxFile' '')
         if(-not $path){continue}
         $path=[IO.Path]::GetFullPath($path)
         if(-not $FrozenMedia.ContainsKey($path)){throw 'PTA PFX was not frozen in the approved plan'}
@@ -70,15 +70,15 @@ function Add-PASeasyPTACertificateSecrets {
         }
     }
 }
-function Get-PASeasyRun {
+function Get-PASRunRecord {
     [CmdletBinding()]param([Parameter(Mandatory)][string]$RunId,[string]$DataRoot=(Get-PASDataRoot))
-    $dir=Get-PASeasyRunDirectory $RunId $DataRoot
+    $dir=Get-PASRunDirectory $RunId $DataRoot
     $run=Read-PASJson (Join-Path $dir 'run-v2.json')
     if(-not $run){return $null}
     if($run.status -in @('Running','Launching') -and $run.controllerPid){
         try {
             $p=Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$run.controllerPid) -ErrorAction Stop
-            $started=[string](Get-PASProp $run 'controllerStartedUtc' '')
+            $started=[string](Get-PASValue $run 'controllerStartedUtc' '')
             $sameProcess=$false
             if($p){
                 if($started){$sameProcess=([Math]::Abs(($p.CreationDate.ToUniversalTime()-[DateTime]::Parse($started).ToUniversalTime()).TotalMilliseconds) -lt 1)}
@@ -91,30 +91,30 @@ function Get-PASeasyRun {
     }
     return $run
 }
-function Get-PASeasyRuns {
+function Get-PASRunRecords {
     [CmdletBinding()]param([string]$DataRoot=(Get-PASDataRoot))
     $dir=Join-Path $DataRoot 'Runs'
     if(-not(Test-Path $dir)){return @()}
-    return @(Get-ChildItem -LiteralPath $dir -Directory | ForEach-Object {Get-PASeasyRun -RunId $_.Name -DataRoot $DataRoot} | Where-Object {$_} | Sort-Object startedUtc -Descending)
+    return @(Get-ChildItem -LiteralPath $dir -Directory | ForEach-Object {Get-PASRunRecord -RunId $_.Name -DataRoot $DataRoot} | Where-Object {$_} | Sort-Object startedUtc -Descending)
 }
-function Write-PASeasyRunEvent {
+function Write-PASRunEvent {
     param([string]$Dir,[string]$Event,[string]$Message,[string]$ComponentId='')
     $line=[ordered]@{timestampUtc=[DateTime]::UtcNow.ToString('o');event=$Event;component=$ComponentId;message=$Message}
     [IO.File]::AppendAllText((Join-Path $Dir 'events-v2.jsonl'),(($line|ConvertTo-Json -Compress)+"`n"),[Text.UTF8Encoding]::new($false))
 }
-function Test-PASeasyActiveEnvironment {
+function Test-PASActiveEnvironment {
     param([string]$Name,[string]$DataRoot,[string]$ExcludeRunId='')
-    $active=@(Get-PASeasyRuns -DataRoot $DataRoot | Where-Object { $_.name -eq $Name -and $_.id -ne $ExcludeRunId -and $_.status -in @('Launching','Running','Unknown','Interrupted') })
+    $active=@(Get-PASRunRecords -DataRoot $DataRoot | Where-Object { $_.name -eq $Name -and $_.id -ne $ExcludeRunId -and $_.status -in @('Launching','Running','Unknown','Interrupted') })
     if($active.Count){throw "Environment '$Name' has unresolved deployment $($active[0].id). Resume or reconcile it before creating another."}
 }
-function Wait-PASeasyControllerCompletion {
+function Wait-PASControllerCompletion {
     param([string]$RunId,[string]$DataRoot,[int]$ControllerPid=0,[datetime]$ControllerStartedAfterUtc=[datetime]::MinValue)
     $bootstrapDeadline=[DateTime]::UtcNow.AddSeconds(60)
     do{
-        $observed=Get-PASeasyRun -RunId $RunId -DataRoot $DataRoot
+        $observed=Get-PASRunRecord -RunId $RunId -DataRoot $DataRoot
         if(-not $observed){throw 'Controller run metadata disappeared'}
         if($ControllerPid){
-            $stamp=[string](Get-PASProp $observed 'controllerStartedUtc' '')
+            $stamp=[string](Get-PASValue $observed 'controllerStartedUtc' '')
             $newOwner=($observed.controllerPid -eq $ControllerPid -and $stamp -and [datetime]::Parse($stamp).ToUniversalTime() -ge $ControllerStartedAfterUtc)
             if(-not $newOwner){
                 if([DateTime]::UtcNow -ge $bootstrapDeadline){throw 'New controller bootstrap was not observed; original run outcome is unchanged'}
@@ -128,20 +128,20 @@ function Wait-PASeasyControllerCompletion {
         Start-Sleep -Seconds 1
     }while($true)
 }
-function Assert-PASeasyVaultInstallationSecrets {
+function Assert-PASVaultInstallationSecrets {
     param([hashtable]$Configuration,[hashtable]$Secrets,[switch]$ReferencesResolved)
     # Only native Vault installation uses the qualified PACLI v15 text grammar.
     # Existing-Vault REST credentials and the Master recovery password are separate contracts.
     $vaults=@($Configuration.components | Where-Object {$_.type -eq 'Vault'})
     if(-not $vaults.Count){return}
-    if(-not $ReferencesResolved){$Secrets=Resolve-PASeasySecretMap -Config $Configuration -SecretMap $Secrets}
+    if(-not $ReferencesResolved){$Secrets=Resolve-PASSecretMap -Config $Configuration -SecretMap $Secrets}
     $required=@('VaultAdmin','VaultMaster')
     if(@($Configuration.components | Where-Object {$_.type -eq 'DRVault'}).Count){$required+='DRPassword'}
     foreach($name in $required){
         if(-not $Secrets.ContainsKey($name) -or $Secrets[$name] -isnot [Security.SecureString] -or $Secrets[$name].Length -eq 0){throw ($name+' SecureString is required before Vault installation')}
         $plain=$null
         try {
-            $plain=Get-PSSecretPlaintext $Secrets[$name]
+            $plain=Get-PASSecretPlaintext $Secrets[$name]
             if($name -eq 'VaultMaster'){
                 if($plain -match '[^\x20-\x21\x23-\x7e]'){throw 'VaultMaster requires printable ASCII without double quotes for the supplied unescaped installer response format; no target changes were dispatched'}
                 continue
@@ -150,20 +150,20 @@ function Assert-PASeasyVaultInstallationSecrets {
         }finally{$plain=$null}
     }
 }
-function Start-PASeasyDeployment {
+function Start-PASDeployment {
     [CmdletBinding(SupportsShouldProcess=$true)]
     param([string]$Config,$Configuration,[hashtable]$CredentialMap=@{},[hashtable]$SecretMap=@{},
         [string]$DataRoot=(Get-PASDataRoot),[switch]$Foreground,[switch]$PlanOnly)
-    $assessment=Test-PASeasyConfig -Config $Config -Configuration $Configuration -CheckMedia
+    $assessment=Test-PASConfiguration -Config $Config -Configuration $Configuration -CheckMedia
     if(-not $assessment.Valid){throw ($assessment.Issues -join '; ')}
     $c=$assessment.Configuration
-    $plan=Get-PASeasyPlan -Configuration $c -ResolveMedia
+    $plan=Get-PASDeploymentPlan -Configuration $c -ResolveMedia
     if($PlanOnly){return $plan}
-    Assert-PASeasyWindowsController
+    Assert-PASWindowsController
     if(-not $PSCmdlet.ShouldProcess([string]$c.name,'Start CyberArk deployment')){return $plan}
-    Assert-PASeasyVaultInstallationSecrets -Configuration $c -Secrets $SecretMap
-    Test-PASeasyActiveEnvironment -Name ([string]$c.name) -DataRoot $DataRoot
-    $id=[guid]::NewGuid().ToString('N');$dir=Get-PASeasyRunDirectory $id $DataRoot
+    Assert-PASVaultInstallationSecrets -Configuration $c -Secrets $SecretMap
+    Test-PASActiveEnvironment -Name ([string]$c.name) -DataRoot $DataRoot
+    $id=[guid]::NewGuid().ToString('N');$dir=Get-PASRunDirectory $id $DataRoot
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
     Protect-PASDirectory $dir
     Write-PASJsonAtomic (Join-Path $dir 'config.json') $c
@@ -175,10 +175,10 @@ function Start-PASeasyDeployment {
     $consoleChild=($Foreground -and @($c.components|Where-Object {$c.hosts[[string]$_.host].os -eq 'Linux'}).Count -gt 0)
     try {
         if($Foreground -and -not $consoleChild){
-            Invoke-PASeasyInternalController -RunId $id -DataRoot $DataRoot -InMemoryAuth @{Credentials=$CredentialMap;Secrets=$SecretMap}
+            Invoke-PASRunController -RunId $id -DataRoot $DataRoot -InMemoryAuth @{Credentials=$CredentialMap;Secrets=$SecretMap}
         }else{
-            Save-PASeasyEnvelope -Path $envelope -Credentials $CredentialMap -Secrets $SecretMap
-            $scriptPath=Join-Path $script:PASRoot 'Controllers/Invoke-V2Controller.ps1'
+            Save-PASEnvelope -Path $envelope -Credentials $CredentialMap -Secrets $SecretMap
+            $scriptPath=Join-Path $script:PASRoot 'Controllers/Invoke-PASRunController.ps1'
             $exe=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
             $args='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$scriptPath+'" -RunId "'+$id+'" -DataRoot "'+$DataRoot+'" -Envelope "'+$envelope+'"'
             # Win32 OpenSSH requires a real console even with redirected stdin.
@@ -198,10 +198,10 @@ function Start-PASeasyDeployment {
         }
         throw
     }
-    if($consoleChild){Wait-PASeasyControllerCompletion -RunId $id -DataRoot $DataRoot -ControllerPid ([int]$spawn.ProcessId) -ControllerStartedAfterUtc $launchAfter}
+    if($consoleChild){Wait-PASControllerCompletion -RunId $id -DataRoot $DataRoot -ControllerPid ([int]$spawn.ProcessId) -ControllerStartedAfterUtc $launchAfter}
     return $id
 }
-function Resume-PASeasyDeployment {
+function Resume-PASDeployment {
     <#
     .SYNOPSIS
     Resumes a failed or interrupted engine run after reconciling what already happened on the targets.
@@ -209,27 +209,27 @@ function Resume-PASeasyDeployment {
     Uses the run's frozen configuration and plan. Completed attempts are reconciled and never repeated
     blindly. A run whose outcome is uncertain must be reconciled first. -RetryFailedPreflight runs a failed
     read-only preflight again, for example after you install a missing OS package on the target.
-    Invoke-PASeasyInstall -Resume prompts for the credentials and calls this command.
+    Invoke-PASInstall -Resume prompts for the credentials and calls this command.
     .EXAMPLE
-    Resume-PASeasyDeployment -RunId 688d8e04f1874d41a75cda4441c00553 -CredentialMap $creds -SecretMap $secrets -Confirm:$false
+    Resume-PASDeployment -RunId 688d8e04f1874d41a75cda4441c00553 -CredentialMap $creds -SecretMap $secrets -Confirm:$false
     #>
     [CmdletBinding(SupportsShouldProcess=$true)]param([Parameter(Mandatory)][string]$RunId,
         [hashtable]$CredentialMap=@{},[hashtable]$SecretMap=@{},[string]$DataRoot=(Get-PASDataRoot),
         [switch]$Foreground,[switch]$AllowUnknownRetry,[switch]$RetryFailedPreflight)
-    $run=Get-PASeasyRun -RunId $RunId -DataRoot $DataRoot
+    $run=Get-PASRunRecord -RunId $RunId -DataRoot $DataRoot
     if(-not $run){throw 'Run not found'}
     if($run.status -notin @('Failed','Unknown','Interrupted','LaunchFailed')){throw "Cannot resume run status $($run.status)"}
     if($AllowUnknownRetry){throw 'Blind retry of unknown irreversible attempts is not permitted. Reconcile target first.'}
-    Assert-PASeasyWindowsController
+    Assert-PASWindowsController
     if(-not $PSCmdlet.ShouldProcess($RunId,'Resume deployment')){return $run}
-    $dir=Get-PASeasyRunDirectory $RunId $DataRoot
+    $dir=Get-PASRunDirectory $RunId $DataRoot
     $envelope=Join-Path $dir ('credentials-'+[guid]::NewGuid().ToString('N')+'.json')
-    $savedConfig=Read-PASeasyConfig -Path (Join-Path $dir 'config.json')
+    $savedConfig=Read-PASConfiguration -Path (Join-Path $dir 'config.json')
     $consoleChild=($Foreground -and @($savedConfig.components|Where-Object {$savedConfig.hosts[[string]$_.host].os -eq 'Linux'}).Count -gt 0)
-    if($Foreground -and -not $consoleChild){Invoke-PASeasyInternalController -RunId $RunId -DataRoot $DataRoot -InMemoryAuth @{Credentials=$CredentialMap;Secrets=$SecretMap} -Resume -RetryFailedPreflight:$RetryFailedPreflight}
+    if($Foreground -and -not $consoleChild){Invoke-PASRunController -RunId $RunId -DataRoot $DataRoot -InMemoryAuth @{Credentials=$CredentialMap;Secrets=$SecretMap} -Resume -RetryFailedPreflight:$RetryFailedPreflight}
     else{
-        Save-PASeasyEnvelope -Path $envelope -Credentials $CredentialMap -Secrets $SecretMap
-        $scriptPath=Join-Path $script:PASRoot 'Controllers/Invoke-V2Controller.ps1'
+        Save-PASEnvelope -Path $envelope -Credentials $CredentialMap -Secrets $SecretMap
+        $scriptPath=Join-Path $script:PASRoot 'Controllers/Invoke-PASRunController.ps1'
         $exe=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
         $args='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$scriptPath+'" -RunId "'+$RunId+'" -DataRoot "'+$DataRoot+'" -Envelope "'+$envelope+'" -Resume'
         if($RetryFailedPreflight){$args+=' -RetryFailedPreflight'}
@@ -238,10 +238,10 @@ function Resume-PASeasyDeployment {
         $spawn=Invoke-CimMethod Win32_Process Create -Arguments @{CommandLine=('"'+$exe+'" '+$args);CurrentDirectory=$script:PASRoot;ProcessStartupInformation=$startup}
         if($spawn.ReturnValue -ne 0 -or -not $spawn.ProcessId){throw 'Failed to launch resume controller'}
     }
-    if($consoleChild){Wait-PASeasyControllerCompletion -RunId $RunId -DataRoot $DataRoot -ControllerPid ([int]$spawn.ProcessId) -ControllerStartedAfterUtc $launchAfter}
+    if($consoleChild){Wait-PASControllerCompletion -RunId $RunId -DataRoot $DataRoot -ControllerPid ([int]$spawn.ProcessId) -ControllerStartedAfterUtc $launchAfter}
     return $RunId
 }
-function Invoke-PASeasyVaultSequence {
+function Invoke-PASVaultSequence {
     param([hashtable]$Config,[string]$RunId,[string]$DataRoot,[hashtable]$Credentials,[hashtable]$Secrets,[switch]$Resume,$BorrowedVaultLease)
     $parts=@($Config.components | Where-Object { $_.type -in @('Vault','DRVault') })
     if(-not $parts.Count){return}
@@ -255,7 +255,7 @@ function Invoke-PASeasyVaultSequence {
         -ControllerIP ([string]$Config.controllerAddress) -PrimaryUser ([string]$winHost.user) `
         -DRUser $(if($drHost){[string]$drHost.user}else{'Administrator'}) -MediaPath ([string]$Config.mediaRoot) -MediaOverrides $Config.media
     $profile=Resolve-PASMediaProfile -Profile $profile
-    $inventoryPath=Join-Path (Get-PASeasyRunDirectory $RunId $DataRoot) 'vault-inventory.psd1'
+    $inventoryPath=Join-Path (Get-PASRunDirectory $RunId $DataRoot) 'vault-inventory.psd1'
     if(-not(Test-Path $inventoryPath)){
         Export-PASInventory -Profile $profile -Path $inventoryPath | Out-Null
         $inv=Import-PowerShellDataFile -Path $inventoryPath
@@ -289,65 +289,65 @@ function Invoke-PASeasyVaultSequence {
         $inv.Targets['dr_final']=$inv.Targets.dr.Clone()
         [IO.File]::WriteAllText($inventoryPath,(ConvertTo-PASLiteral $inv),[Text.UTF8Encoding]::new($false))
     }
-    $workflowDir=Join-Path (Get-PASModuleRoot Vault) 'Recipes/Vault/Workflows'
+    $workflowDir=Join-Path (Get-PASModuleRoot) 'Recipes/Vault/Workflows'
     $names=if($dr.Count){@('VaultPrimary-Phase1.psd1','VaultDR-Phase1.psd1','VaultPrimary-Phase2.psd1','VaultDR-Phase2.psd1')}else{@('VaultPrimaryOnly.psd1')}
     foreach($name in $names){
         $wf=Join-Path $workflowDir $name
-        $plan=Get-PAExecPlan -WorkflowPath $wf -InventoryPath $inventoryPath
+        $plan=Get-PASWorkflowPlan -WorkflowPath $wf -InventoryPath $inventoryPath
         $statePath=Join-Path (Join-Path (Join-Path $DataRoot 'Runs') $RunId) (Join-Path $plan.TargetName 'state.json')
         $isResume=Test-Path -LiteralPath $statePath -PathType Leaf
-        Invoke-PAExecRun -WorkflowPath $wf -InventoryPath $inventoryPath -StateRoot (Join-Path $DataRoot 'Runs') `
+        Invoke-PASWorkflow -WorkflowPath $wf -InventoryPath $inventoryPath -StateRoot (Join-Path $DataRoot 'Runs') `
             -RunId $RunId -Credentials $Credentials -Secrets $Secrets -Resume:$isResume -BorrowedVaultLease $BorrowedVaultLease | Out-Null
     }
 }
-function Invoke-PASeasyDomainJoins {
+function Invoke-PASDomainJoins {
     param([hashtable]$Config,[string]$RunId,[string]$DataRoot,[hashtable]$Credentials,[hashtable]$Secrets)
     if($Config.activeDirectory.mode -eq 'None'){return}
-    $dir=Get-PASeasyRunDirectory $RunId $DataRoot
+    $dir=Get-PASRunDirectory $RunId $DataRoot
     foreach($hostId in @($Config.activeDirectory.join)){
         $id='join-'+[string]$hostId
         $wfpath=Join-Path (Join-Path (Join-Path (Join-Path $dir 'Payloads') $id) 'Workflows') ($id+'.psd1')
         $invpath=Join-Path $dir ($id+'-inventory.psd1')
         if(-not(Test-Path $wfpath) -or -not(Test-Path $invpath)){
-            $j=New-PASeasyDomainJoinWorkflow -Config $Config -HostId ([string]$hostId) -RunDirectory $dir
+            $j=New-PASDomainJoinWorkflow -Config $Config -HostId ([string]$hostId) -RunDirectory $dir
             $wfpath=$j.Workflow;$invpath=$j.Inventory
         }
         if(-not $Credentials.ContainsKey([string]$hostId)){throw "Missing host PSCredential for domain join host $hostId"}
         if(-not $Secrets.ContainsKey('DomainJoinPassword')){throw 'DomainJoinPassword SecureString is required for domain joins'}
         $state=Join-Path (Join-Path $dir $id) 'state.json'
-        Write-PASeasyRunEvent $dir 'DomainJoin' "Joining $hostId to $($Config.activeDirectory.domain)" $id
-        Invoke-PAExecRun -WorkflowPath $wfpath -InventoryPath $invpath -StateRoot (Join-Path $DataRoot 'Runs') -RunId $RunId -Credentials $Credentials -Secrets $Secrets -Resume:(Test-Path $state) | Out-Null
+        Write-PASRunEvent $dir 'DomainJoin' "Joining $hostId to $($Config.activeDirectory.domain)" $id
+        Invoke-PASWorkflow -WorkflowPath $wfpath -InventoryPath $invpath -StateRoot (Join-Path $DataRoot 'Runs') -RunId $RunId -Credentials $Credentials -Secrets $Secrets -Resume:(Test-Path $state) | Out-Null
     }
 }
-function Get-PASeasyFailedPreflightRetry {
+function Get-PASFailedPreflightRetry {
     param([string]$WorkflowPath,[string]$InventoryPath,[string]$StatePath,[hashtable]$Credentials=@{})
-    $state=Read-PSJson $StatePath
+    $state=Read-PASJournal $StatePath
     if(-not $state){throw 'Preflight retry requires an existing component journal'}
-    $step=Get-PSObjectValue (Get-PSObjectValue $state 'steps' @{}) 'preflight' $null
-    if(-not $step -or (Get-PSObjectValue $step 'status' '') -notin @('Failed','Unknown','Dispatched','Running')){return @()}
-    $plan=Get-PAExecPlan -WorkflowPath $WorkflowPath -InventoryPath $InventoryPath
+    $step=Get-PASValue (Get-PASValue $state 'steps' @{}) 'preflight' $null
+    if(-not $step -or (Get-PASValue $step 'status' '') -notin @('Failed','Unknown','Dispatched','Running')){return @()}
+    $plan=Get-PASWorkflowPlan -WorkflowPath $WorkflowPath -InventoryPath $InventoryPath
     if($state.digest -ne $plan.Digest){throw 'Preflight retry refuses changed workflow, scripts or inventory'}
     $definition=@($plan.Steps|Where-Object {$_.Id -eq 'preflight'})
     if($plan.Target.Protocol -ne 'SSH' -or $plan.Runtime -ne 'Bash' -or $definition.Count -ne 1 -or
-       (Get-PSObjectValue $definition[0].Inputs 'Stage' '') -cne 'Preflight'){
+       (Get-PASValue $definition[0].Inputs 'Stage' '') -cne 'Preflight'){
         throw 'Explicit preflight retry currently supports only the fixed Linux preflight stage'
     }
-    $attempt=[string](Get-PSObjectValue $step 'attemptId' '')
+    $attempt=[string](Get-PASValue $step 'attemptId' '')
     if($attempt -notmatch '^[a-f0-9]{32}$'){throw 'Preflight retry requires the original durable attempt'}
-    $remote=Get-PSDetachedStatus $plan.Target $Credentials $attempt
-    $active=Get-PSObjectValue $remote 'workerActive' $null
-    if((Get-PSObjectValue $remote 'state' '') -cne 'Failed' -or (Get-PSObjectValue $remote 'attemptId' '') -cne $attempt -or
+    $remote=Get-PASDetachedStatus $plan.Target $Credentials $attempt
+    $active=Get-PASValue $remote 'workerActive' $null
+    if((Get-PASValue $remote 'state' '') -cne 'Failed' -or (Get-PASValue $remote 'attemptId' '') -cne $attempt -or
        $active -isnot [bool] -or $active){throw 'Preflight retry requires the same known-failed attempt with proven worker exit'}
     return @('preflight')
 }
-function Invoke-PASeasyInternalController {
+function Invoke-PASRunController {
     [CmdletBinding()]param([Parameter(Mandatory)][string]$RunId,[string]$DataRoot=(Get-PASDataRoot),[string]$Envelope,[switch]$Resume,[hashtable]$InMemoryAuth,[switch]$RetryFailedPreflight)
-    Assert-PASeasyWindowsController
-    $dir=Get-PASeasyRunDirectory $RunId $DataRoot
+    Assert-PASWindowsController
+    $dir=Get-PASRunDirectory $RunId $DataRoot
     # Acquire before reading/changing controller metadata. A second Resume may
     # race the first caller, but it must never overwrite that owner's status.
     # Keep the empty lockfile: deleting it can create two independent lock inodes.
-    $lease=Get-PSFileLock (Join-Path $dir 'controller.lock')
+    $lease=Get-PASFileLock (Join-Path $dir 'controller.lock')
     try{
         $path=Join-Path $dir 'run-v2.json'
         $run=Read-PASJson $path
@@ -357,7 +357,7 @@ function Invoke-PASeasyInternalController {
         $run.status='Launching';$run.message='Validating deployment controller';$run.finishedUtc=$null
         Write-PASJsonAtomic $path $run
         try{
-            Invoke-PASeasyInternalControllerCore -RunId $RunId -DataRoot $DataRoot -Envelope $Envelope -Resume:$Resume -InMemoryAuth $InMemoryAuth -RetryFailedPreflight:$RetryFailedPreflight
+            Invoke-PASRunControllerCore -RunId $RunId -DataRoot $DataRoot -Envelope $Envelope -Resume:$Resume -InMemoryAuth $InMemoryAuth -RetryFailedPreflight:$RetryFailedPreflight
         }catch{
             $failure=$_
             $observed=Read-PASJson $path
@@ -370,22 +370,22 @@ function Invoke-PASeasyInternalController {
         }
     }finally{$lease.Dispose()}
 }
-function Invoke-PASeasyInternalControllerCore {
+function Invoke-PASRunControllerCore {
     [CmdletBinding()]param([Parameter(Mandatory)][string]$RunId,[string]$DataRoot=(Get-PASDataRoot),[string]$Envelope,[switch]$Resume,[hashtable]$InMemoryAuth,[switch]$RetryFailedPreflight)
-    Assert-PASeasyWindowsController
-    $dir=Get-PASeasyRunDirectory $RunId $DataRoot
-    $config=Read-PASeasyConfig -Path (Join-Path $dir 'config.json')
-    $plan=Get-PASeasyPlan -Configuration $config -ResolveMedia
+    Assert-PASWindowsController
+    $dir=Get-PASRunDirectory $RunId $DataRoot
+    $config=Read-PASConfiguration -Path (Join-Path $dir 'config.json')
+    $plan=Get-PASDeploymentPlan -Configuration $config -ResolveMedia
     $saved=Read-PASJson (Join-Path $dir 'plan-v2.json')
     if(-not $saved -or $saved.ConfigDigest -ne $plan.ConfigDigest -or -not $saved.PSObject.Properties['SourceDigest'] -or $saved.SourceDigest -ne $plan.SourceDigest -or -not $saved.PSObject.Properties['MediaDigest'] -or $saved.MediaDigest -ne $plan.MediaDigest){throw 'Plan/configuration drift. Refusing execution.'}
     $script:PASeasyFrozenMedia=@{}
     foreach($asset in @($plan.Media)){$script:PASeasyFrozenMedia[[string]$asset.Path]=[string]$asset.SHA256}
     if($InMemoryAuth){$auth=$InMemoryAuth}else{
-        $auth=Read-PASeasyEnvelope $Envelope
+        $auth=Read-PASEnvelope $Envelope
         Remove-Item -LiteralPath $Envelope -Force -ErrorAction Stop
     }
-    $auth.Credentials=Resolve-PASeasyCredentialMap -Config $config -CredentialMap $auth.Credentials
-    $auth.Secrets=Resolve-PASeasySecretMap -Config $config -SecretMap $auth.Secrets
+    $auth.Credentials=Resolve-PASCredentialMap -Config $config -CredentialMap $auth.Credentials
+    $auth.Secrets=Resolve-PASSecretMap -Config $config -SecretMap $auth.Secrets
     $run=Read-PASJson (Join-Path $dir 'run-v2.json')
     $run | Add-Member NoteProperty controllerStartedUtc ([Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().ToString('o')) -Force
     $run.controllerPid=$PID;$run.status='Running';$run.message='Executing deployment';$run.finishedUtc=$null
@@ -393,17 +393,17 @@ function Invoke-PASeasyInternalControllerCore {
     $lock=$null; $vaultSequenceGates=@(); $hostGates=New-Object System.Collections.ArrayList
     try {
         # One writer per environment/host. Vault admission is limited to authenticated operations.
-        $lock=Enter-PASeasyGate -Name ('environment-'+[string]$config.name) -DataRoot $DataRoot -RunId $RunId -TimeoutSeconds 1
-        Assert-PASeasyVaultInstallationSecrets -Configuration $config -Secrets $auth.Secrets -ReferencesResolved
-        $ptaManagement=Get-PASeasyPTASyslogHost $config
+        $lock=Enter-PASGate -Name ('environment-'+[string]$config.name) -DataRoot $DataRoot -RunId $RunId -TimeoutSeconds 1
+        Assert-PASVaultInstallationSecrets -Configuration $config -Secrets $auth.Secrets -ReferencesResolved
+        $ptaManagement=Get-PASPTASyslogHost $config
         if($ptaManagement -and (-not $auth.Credentials.ContainsKey($ptaManagement) -or $auth.Credentials[$ptaManagement] -isnot [pscredential])){throw "PTA syslog requires primary Windows credentials for '$ptaManagement' before installation"}
-        Add-PASeasyPTACertificateSecrets -Configuration $config -Secrets $auth.Secrets -FrozenMedia $script:PASeasyFrozenMedia
+        Add-PASPTACertificateSecrets -Configuration $config -Secrets $auth.Secrets -FrozenMedia $script:PASeasyFrozenMedia
         # Include the existing primary changed by PTA syslog. Its outer claim is
         # retained on failure and completed on successful Resume with all hosts.
-        $allHosts=@(Get-PASeasyDeploymentHostIds $config)
+        $allHosts=@(Get-PASDeploymentHostIds $config)
         $endpointOwners=@{}
         $addresses=@(foreach($hostId in $allHosts){
-            foreach($endpoint in @(Get-PASeasyResourceIdentity ([string]$config.hosts[$hostId].address))){
+            foreach($endpoint in @(Get-PASResourceIdentity ([string]$config.hosts[$hostId].address))){
                 if($endpointOwners.ContainsKey($endpoint) -and $endpointOwners[$endpoint] -ne $hostId){throw 'Host DNS aliases resolve to the same endpoint; configure co-location with one host record'}
                 $endpointOwners[$endpoint]=$hostId
                 $endpoint
@@ -411,7 +411,7 @@ function Invoke-PASeasyInternalControllerCore {
         })
         $addresses=@($addresses | Sort-Object -Unique)
         foreach($address in $addresses){
-            [void]$hostGates.Add((Enter-PASeasyGate -Name ('host-'+$address) -DataRoot $DataRoot -RunId $RunId -TimeoutSeconds 30))
+            [void]$hostGates.Add((Enter-PASGate -Name ('host-'+$address) -DataRoot $DataRoot -RunId $RunId -TimeoutSeconds 30))
         }
         $records=@($plan.Items)
         # Domain promotion runs before joins and all PAM component installations.
@@ -425,71 +425,71 @@ function Invoke-PASeasyInternalControllerCore {
             $domainRef=$adId+'-domain'
             if(-not $auth.Credentials.ContainsKey($domainRef)){
                 $netbios=([string]$config.activeDirectory.domain).Split('.')[0].ToUpperInvariant()
-                $adOptions=Get-PASeasyProperty $adComponent 'options' $null
-                $adNetbios=[string](Get-PASeasyProperty $adOptions 'domainNetbios' '')
+                $adOptions=Get-PASValue $adComponent 'options' $null
+                $adNetbios=[string](Get-PASValue $adOptions 'domainNetbios' '')
                 if($adNetbios){$netbios=$adNetbios}
                 $user=([string]$auth.Credentials[$adId].UserName).Split([char]92)[-1].Split('@')[0]
                 $auth.Credentials[$domainRef]=[pscredential]::new(($netbios+'\'+$user),$auth.Credentials[$adId].Password)
             }
             $adInventory=Join-Path $dir 'component-inventory.psd1'
             if(-not(Test-Path $adInventory)){
-                $inv=New-PASeasyRuntimeInventory -Config $config -RunDirectory $dir -CredentialMap $auth.Credentials
+                $inv=New-PASRuntimeInventory -Config $config -RunDirectory $dir -CredentialMap $auth.Credentials
                 [IO.File]::WriteAllText($adInventory,(ConvertTo-PASLiteral $inv),[Text.UTF8Encoding]::new($false))
             }
             $adWorkflow=Join-Path (Join-Path (Join-Path (Join-Path $dir 'Payloads') $adId) 'Workflows') ($adId+'.psd1')
-            if(-not(Test-Path $adWorkflow)){$adWorkflow=New-PASeasyComponentWorkflow -Component $adComponent -Configuration $config -RunDirectory $dir}
+            if(-not(Test-Path $adWorkflow)){$adWorkflow=New-PASComponentWorkflow -Component $adComponent -Configuration $config -RunDirectory $dir}
             $state=Join-Path (Join-Path $dir $adId) 'state.json'
-            Write-PASeasyRunEvent $dir 'ADForest' 'Creating/verifying Active Directory forest' $adId
-            Invoke-PAExecRun -WorkflowPath $adWorkflow -InventoryPath $adInventory -StateRoot (Join-Path $DataRoot 'Runs') -RunId $RunId -Credentials $auth.Credentials -Secrets $auth.Secrets -Resume:(Test-Path $state) | Out-Null
+            Write-PASRunEvent $dir 'ADForest' 'Creating/verifying Active Directory forest' $adId
+            Invoke-PASWorkflow -WorkflowPath $adWorkflow -InventoryPath $adInventory -StateRoot (Join-Path $DataRoot 'Runs') -RunId $RunId -Credentials $auth.Credentials -Secrets $auth.Secrets -Resume:(Test-Path $state) | Out-Null
         }
-        Invoke-PASeasyDomainJoins -Config $config -RunId $RunId -DataRoot $DataRoot -Credentials $auth.Credentials -Secrets $auth.Secrets
+        Invoke-PASDomainJoins -Config $config -RunId $RunId -DataRoot $DataRoot -Credentials $auth.Credentials -Secrets $auth.Secrets
         if(@($config.components|Where-Object{$_.type -eq 'Vault'}).Count){
-            Write-PASeasyRunEvent $dir 'VaultSequence' 'Starting primary/DR installation'
+            Write-PASRunEvent $dir 'VaultSequence' 'Starting primary/DR installation'
             # This coordinated sequence includes PACLI, DR registration and replication.
-            $vaultSequenceGates=@(Enter-PASeasyVaultOperation -Address ([string]$config.vault.address) -DataRoot $DataRoot -RunId $RunId)
-            $borrowed=New-PASeasyBorrowedVaultLease -Address ([string]$config.vault.address) -RunId $RunId -DataRoot $DataRoot -Gates $vaultSequenceGates
-            Invoke-PASeasyVaultSequence -Config $config -RunId $RunId -DataRoot $DataRoot -Credentials $auth.Credentials -Secrets $auth.Secrets -Resume:$Resume -BorrowedVaultLease $borrowed
-            Exit-PASeasyVaultOperation -Gates $vaultSequenceGates -Succeeded $true
+            $vaultSequenceGates=@(Enter-PASVaultOperation -Address ([string]$config.vault.address) -DataRoot $DataRoot -RunId $RunId)
+            $borrowed=New-PASBorrowedVaultLease -Address ([string]$config.vault.address) -RunId $RunId -DataRoot $DataRoot -Gates $vaultSequenceGates
+            Invoke-PASVaultSequence -Config $config -RunId $RunId -DataRoot $DataRoot -Credentials $auth.Credentials -Secrets $auth.Secrets -Resume:$Resume -BorrowedVaultLease $borrowed
+            Exit-PASVaultOperation -Gates $vaultSequenceGates -Succeeded $true
             $vaultSequenceGates=@()
         }
         foreach($item in @($records|Where-Object{$_.Type -notin @('Vault','DRVault','AD')})){
             $component=@($config.components|Where-Object{$_.id -eq $item.Id})[0]
             $run.currentComponent=[string]$item.Id;Write-PASJsonAtomic (Join-Path $dir 'run-v2.json') $run
-            Write-PASeasyRunEvent $dir 'ComponentStarted' "Starting $($item.Type)" $item.Id
+            Write-PASRunEvent $dir 'ComponentStarted' "Starting $($item.Type)" $item.Id
             $inventoryPath=Join-Path $dir 'component-inventory.psd1'
             if(-not(Test-Path $inventoryPath)){
-                $inv=New-PASeasyRuntimeInventory -Config $config -RunDirectory $dir -CredentialMap $auth.Credentials
+                $inv=New-PASRuntimeInventory -Config $config -RunDirectory $dir -CredentialMap $auth.Credentials
                 [IO.File]::WriteAllText($inventoryPath,(ConvertTo-PASLiteral $inv),[Text.UTF8Encoding]::new($false))
             }
             $wf=Join-Path (Join-Path (Join-Path (Join-Path $dir 'Payloads') $item.Id) 'Workflows') ($item.Id+'.psd1')
-            if(-not(Test-Path $wf)){$wf=New-PASeasyComponentWorkflow -Component $component -Configuration $config -RunDirectory $dir}
+            if(-not(Test-Path $wf)){$wf=New-PASComponentWorkflow -Component $component -Configuration $config -RunDirectory $dir}
             $credRef=[string]$component.id;$hostId=[string]$component.host
             if(-not $auth.Credentials.ContainsKey($credRef) -and $auth.Credentials.ContainsKey($hostId)){$auth.Credentials[$credRef]=$auth.Credentials[$hostId]}
             $st=Join-Path (Join-Path $dir $item.Id) 'state.json'
             $existing=Test-Path $st
             $retry=@()
-            if($RetryFailedPreflight -and $existing){$retry=@(Get-PASeasyFailedPreflightRetry -WorkflowPath $wf -InventoryPath $inventoryPath -StatePath $st -Credentials $auth.Credentials)}
-            Invoke-PAExecRun -WorkflowPath $wf -InventoryPath $inventoryPath -StateRoot (Join-Path $DataRoot 'Runs') `
+            if($RetryFailedPreflight -and $existing){$retry=@(Get-PASFailedPreflightRetry -WorkflowPath $wf -InventoryPath $inventoryPath -StatePath $st -Credentials $auth.Credentials)}
+            Invoke-PASWorkflow -WorkflowPath $wf -InventoryPath $inventoryPath -StateRoot (Join-Path $DataRoot 'Runs') `
                 -RunId $RunId -Credentials $auth.Credentials -Secrets $auth.Secrets -Resume:$existing `
                 -VaultSessionAddress ([string]$config.vault.address) -CoordinationDataRoot $DataRoot -Retry $retry | Out-Null
             if($item.Type -eq 'PTA'){Invoke-PASeasyPTAVaultSyslog -Config $config -Component $component -ComponentInventory (Import-PowerShellDataFile -Path $inventoryPath) -RunId $RunId -DataRoot $DataRoot -Credentials $auth.Credentials -Secrets $auth.Secrets}
-            Write-PASeasyRunEvent $dir 'ComponentCompleted' "Verified $($item.Type)" $item.Id
+            Write-PASRunEvent $dir 'ComponentCompleted' "Verified $($item.Type)" $item.Id
         }
         $run.status='Succeeded';$run.message='All selected component workflows completed';$run.currentComponent=''
-        Write-PASeasyRunEvent $dir 'RunCompleted' $run.message
+        Write-PASRunEvent $dir 'RunCompleted' $run.message
     }catch{
         $reason=[string]$_.Exception.Message
         $hide=@()
-        foreach($sec in @($auth.Secrets.Values)){try{$hide+=,(Get-PSSecretPlaintext $sec)}catch{}}
-        foreach($cred in @($auth.Credentials.Values)){try{$hide+=,(Get-PSSecretPlaintext $cred.Password)}catch{}}
-        $reason=Protect-PSText $reason $hide
+        foreach($sec in @($auth.Secrets.Values)){try{$hide+=,(Get-PASSecretPlaintext $sec)}catch{}}
+        foreach($cred in @($auth.Credentials.Values)){try{$hide+=,(Get-PASSecretPlaintext $cred.Password)}catch{}}
+        $reason=Protect-PASText $reason $hide
         # Unknown means the remote side may still be running; never auto-retry a second installer.
         $run.status=if($reason -match 'Unknown|uncertain|cannot resume'){ 'Unknown' }else{'Failed'}
         $run.message=$reason
-        Write-PASeasyRunEvent $dir 'RunStopped' $reason
+        Write-PASRunEvent $dir 'RunStopped' $reason
         throw $reason
     }finally{
-        if(@($vaultSequenceGates).Count){Exit-PASeasyVaultOperation -Gates $vaultSequenceGates -Succeeded $false}
+        if(@($vaultSequenceGates).Count){Exit-PASVaultOperation -Gates $vaultSequenceGates -Succeeded $false}
         foreach($hg in @($hostGates)){try{if($run.status -eq 'Succeeded'){$hg.Complete()};$hg.Dispose()}catch{}}
         $run.finishedUtc=[DateTime]::UtcNow.ToString('o')
         Write-PASJsonAtomic (Join-Path $dir 'run-v2.json') $run

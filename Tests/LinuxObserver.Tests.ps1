@@ -6,7 +6,7 @@ Describe 'Linux terminal evidence reconstruction' {
         BeforeEach {
             $script:ObserverFixtureContract='Object'
             $script:ObserverFixtureTail='PAEASY_RESULT:{"Changed":false,"Message":"fixture","Data":{"Hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","TrustBundleSHA256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}'
-            Mock Invoke-PSLinuxControl {
+            Mock Invoke-PASLinuxControl {
                 param($Target,$Command)
                 if($Command -like 'cat -- */contract.txt'){return $script:ObserverFixtureContract}
                 if($Command -like 'tail -c *stdout.log.tail'){return $script:ObserverFixtureTail}
@@ -14,27 +14,27 @@ Describe 'Linux terminal evidence reconstruction' {
             }
         }
         It 'recovers approved Data and Changed from the durable Object marker' {
-            $r=Get-PSLinuxDetachedStatus @{} ('a'*32)
+            $r=Get-PASLinuxDetachedStatus @{} ('a'*32)
             $r.data.Hash | Should -Be ('a'*64)
             $r.data.TrustBundleSHA256 | Should -Be ('b'*64)
             $r.changed | Should -BeFalse
         }
         It 'refuses successful Object status with an empty or missing marker' {
             $script:ObserverFixtureTail='ordinary output only'
-            {Get-PSLinuxDetachedStatus @{} ('a'*32)} | Should -Throw '*PAExecUnknown*no terminal result marker*'
+            {Get-PASLinuxDetachedStatus @{} ('a'*32)} | Should -Throw '*PAExecUnknown*no terminal result marker*'
         }
         It 'refuses malformed Object marker JSON' {
             $script:ObserverFixtureTail='PAEASY_RESULT:{bad'
-            {Get-PSLinuxDetachedStatus @{} ('a'*32)} | Should -Throw '*malformed*'
+            {Get-PASLinuxDetachedStatus @{} ('a'*32)} | Should -Throw '*malformed*'
         }
         It 'refuses unknown durable contract instead of assuming ExitCode' {
             $script:ObserverFixtureContract=''
-            {Get-PSLinuxDetachedStatus @{} ('a'*32)} | Should -Throw '*terminal contract*'
+            {Get-PASLinuxDetachedStatus @{} ('a'*32)} | Should -Throw '*terminal contract*'
         }
         It 'allows a real ExitCode contract to omit a result object' {
             $script:ObserverFixtureContract='ExitCode'
             $script:ObserverFixtureTail='ordinary output only'
-            (Get-PSLinuxDetachedStatus @{} ('a'*32)).state | Should -Be Succeeded
+            (Get-PASLinuxDetachedStatus @{} ('a'*32)).state | Should -Be Succeeded
         }
     }
 }

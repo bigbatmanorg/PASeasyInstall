@@ -67,10 +67,10 @@ function Test-PASEnvironment {
     Test-PASEnvironment -Config .\MyLab.json -CheckMedia | Format-List Valid,Issues,Warnings
     #>
     [CmdletBinding()]param([string]$Config,$Configuration,[switch]$CheckMedia)
-    $valid=Test-PASeasyConfig -Config $Config -Configuration $Configuration -CheckMedia:$CheckMedia
+    $valid=Test-PASConfiguration -Config $Config -Configuration $Configuration -CheckMedia:$CheckMedia
     if($valid.Configuration){
         Assert-PASDeploymentTopology $valid.Configuration
-        $rules=Test-PASOrchestratorRules $valid.Configuration
+        $rules=Test-PASCompositionRules $valid.Configuration
         if($rules.Issues.Count -or $rules.Warnings.Count){
             $issues=@($valid.Issues)+@($rules.Issues);$warnings=@($valid.Warnings)+@($rules.Warnings)
             $valid=[pscustomobject]@{Valid=($issues.Count -eq 0);Issues=@($issues);Warnings=@($warnings);Configuration=$valid.Configuration}
@@ -92,7 +92,7 @@ function Get-PASEnvironmentPlan {
     [CmdletBinding()]param([string]$Config,$Configuration,[switch]$ResolveMedia)
     $valid=Test-PASEnvironment -Config $Config -Configuration $Configuration
     if(-not $valid.Valid){throw ('Configuration incomplete: '+($valid.Issues -join '; '))}
-    return (Add-PASPlanDetail -Plan (Get-PASeasyPlan -Configuration $valid.Configuration -ResolveMedia:$ResolveMedia) -Configuration $valid.Configuration)
+    return (Add-PASPlanDetail -Plan (Get-PASDeploymentPlan -Configuration $valid.Configuration -ResolveMedia:$ResolveMedia) -Configuration $valid.Configuration)
 }
 function Save-PASEnvironment {
     <#
@@ -125,7 +125,7 @@ function Start-PASEnvironment {
     .SYNOPSIS
     Starts the detached installer for a configuration with credentials you supply; returns the deployment id.
     .DESCRIPTION
-    Lower-level building block of Invoke-PASeasyInstall, which also prompts for missing credentials.
+    Lower-level building block of Invoke-PASInstall, which also prompts for missing credentials.
     CredentialMap: @{ <server id> = PSCredential }. SecretMap: @{ VaultAdmin / VaultMaster / DRPassword /
     ADSafeMode / DomainJoinPassword = SecureString }. Validates media first. -PlanOnly returns the plan instead.
     The installation continues if this console closes. Follow it with Get-PASEnvironmentSnapshot.
@@ -144,13 +144,13 @@ function Start-PASEnvironment {
             return (Start-PASFleet -Configuration $valid.Configuration -CredentialMap $CredentialMap -SecretMap $SecretMap)
         }
         $creds=ConvertTo-PASControllerCredentialMap $valid.Configuration $CredentialMap
-        return (Start-PASeasyDeployment -Configuration $valid.Configuration -CredentialMap $creds -SecretMap $SecretMap -Confirm:$false)
+        return (Start-PASDeployment -Configuration $valid.Configuration -CredentialMap $creds -SecretMap $SecretMap -Confirm:$false)
     }
 }
 function Get-PASEnvironmentSnapshot {
     <#
     .SYNOPSIS
-    Shows the status and progress events of a deployment (desktop, Invoke-PASeasyInstall or Start-PASEnvironment).
+    Shows the status and progress events of a deployment (desktop, Invoke-PASInstall or Start-PASEnvironment).
     .DESCRIPTION
     Returns RunId, Status, CurrentComponent, LastStep, ErrorEvents and Events. Each event has TimestampUtc,
     Component (plan item id), Stage, Event, Level, Status (Running, Complete, Failed, Warning or Info) and Message.
@@ -163,8 +163,8 @@ function Get-PASEnvironmentSnapshot {
     [CmdletBinding()]param([Parameter(Mandatory)][string]$RunId,[int]$Tail=150)
     if(Test-PASFleetId $RunId){return (Get-PASFleetSnapshot -FleetId $RunId -Tail $Tail)}
     $snap=Get-PASDeploymentSnapshot -RunId $RunId -Tail $Tail
-    foreach($e in @($snap.Events)){$e.Component=ConvertTo-PASUIComponentId $e.Component}
-    if($snap.CurrentComponent){$snap.CurrentComponent=ConvertTo-PASUIComponentId $snap.CurrentComponent}
+    foreach($e in @($snap.Events)){$e.Component=ConvertTo-PASComponentId $e.Component}
+    if($snap.CurrentComponent){$snap.CurrentComponent=ConvertTo-PASComponentId $snap.CurrentComponent}
     return $snap
 }
 function Get-PASEnvironmentEvents {

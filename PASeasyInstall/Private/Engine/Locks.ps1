@@ -1,9 +1,9 @@
 # Controller-wide coordination is deliberately independent of a user's DataRoot.
-function Get-PASeasyCoordinationRoot {
+function Get-PASCoordinationRoot {
     if($env:OS -ne 'Windows_NT'){throw 'Deployment coordination requires a Windows controller'}
     Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'PASeasyInstall-Coordination'
 }
-function New-PASeasyCoordinationAcl {
+function New-PASCoordinationAcl {
     $acl=[Security.AccessControl.DirectorySecurity]::new()
     $acl.SetAccessRuleProtection($true,$false)
     foreach($sid in @('S-1-5-18','S-1-5-32-544')){
@@ -16,33 +16,33 @@ function New-PASeasyCoordinationAcl {
     $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-3-0'),'FullControl','ObjectInherit','InheritOnly','Allow'))
     return $acl
 }
-function Initialize-PASeasyController {
+function Initialize-PASController {
     [CmdletBinding()]param()
     $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
-    if(-not([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Run Initialize-PASeasyController once from an elevated Windows PowerShell session'}
-    $root=Get-PASeasyCoordinationRoot
+    if(-not([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Run Initialize-PASController once from an elevated Windows PowerShell session'}
+    $root=Get-PASCoordinationRoot
     if(Test-Path -LiteralPath $root){
         $item=Get-Item -LiteralPath $root -Force
         if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Coordination root is a reparse point'}
         if((Get-Acl $root).GetOwner([Security.Principal.SecurityIdentifier]).Value -notin @('S-1-5-18','S-1-5-32-544',$identity.User.Value)){throw 'Coordination root has an untrusted owner'}
     }else{[void][IO.Directory]::CreateDirectory($root)}
-    $acl=New-PASeasyCoordinationAcl
+    $acl=New-PASCoordinationAcl
     $acl.SetOwner([Security.Principal.SecurityIdentifier]::new('S-1-5-32-544'))
     ([IO.DirectoryInfo]::new($root)).SetAccessControl($acl)
     [pscustomobject]@{CoordinationRoot=$root;Initialized=$true}
 }
-function Assert-PASeasyCoordinationRoot {
-    $root=Get-PASeasyCoordinationRoot
-    if(-not(Test-Path -LiteralPath $root)){$null=Initialize-PASeasyController}
+function Assert-PASCoordinationRoot {
+    $root=Get-PASCoordinationRoot
+    if(-not(Test-Path -LiteralPath $root)){$null=Initialize-PASController}
     $item=Get-Item -LiteralPath $root -Force
     if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Coordination root is a reparse point'}
     $acl=Get-Acl -LiteralPath $root
     if($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -notin @('S-1-5-18','S-1-5-32-544')){throw 'Coordination root has an untrusted owner'}
     $section=[Security.AccessControl.AccessControlSections]::Access
-    if(($acl.GetSecurityDescriptorSddlForm($section) -replace '^D:PAI','D:P') -ne (New-PASeasyCoordinationAcl).GetSecurityDescriptorSddlForm($section)){throw 'Coordination ACL differs from the initialized controller policy'}
+    if(($acl.GetSecurityDescriptorSddlForm($section) -replace '^D:PAI','D:P') -ne (New-PASCoordinationAcl).GetSecurityDescriptorSddlForm($section)){throw 'Coordination ACL differs from the initialized controller policy'}
     return $root
 }
-function Get-PASeasyResourceIdentity {
+function Get-PASResourceIdentity {
     param([string]$Address)
     $ip=$null
     if([Net.IPAddress]::TryParse($Address,[ref]$ip)){if($ip.IsIPv4MappedToIPv6){$ip=$ip.MapToIPv4()};return $ip.ToString().ToLowerInvariant()}
@@ -51,13 +51,13 @@ function Get-PASeasyResourceIdentity {
     # Lock each resolved address at the caller; do not hash an entire DNS answer set.
     return $addresses
 }
-function Enter-PASeasyVaultOperation {
+function Enter-PASVaultOperation {
     param([Parameter(Mandatory)][string]$Address,[Parameter(Mandatory)][string]$DataRoot,
         [Parameter(Mandatory)][string]$RunId,[int]$TimeoutSeconds=180)
     $gates=New-Object System.Collections.ArrayList
     try{
-        foreach($identity in @(Get-PASeasyResourceIdentity $Address|Sort-Object -Unique)){
-            [void]$gates.Add((Enter-PASeasyGate -Name ('vault-'+$identity) -DataRoot $DataRoot -RunId $RunId -TimeoutSeconds $TimeoutSeconds))
+        foreach($identity in @(Get-PASResourceIdentity $Address|Sort-Object -Unique)){
+            [void]$gates.Add((Enter-PASGate -Name ('vault-'+$identity) -DataRoot $DataRoot -RunId $RunId -TimeoutSeconds $TimeoutSeconds))
         }
         if(-not $gates.Count){throw 'Vault operation has no resolved resource identity'}
         return $gates.ToArray()
@@ -71,7 +71,7 @@ function Enter-PASeasyVaultOperation {
         throw $admissionFailure
     }
 }
-function Exit-PASeasyVaultOperation {
+function Exit-PASVaultOperation {
     param([object[]]$Gates,[bool]$Succeeded=$false)
     $failure=$null
     foreach($gate in @($Gates)){
@@ -80,17 +80,17 @@ function Exit-PASeasyVaultOperation {
     }
     if($failure){throw $failure}
 }
-function New-PASeasyBorrowedVaultLease {
+function New-PASBorrowedVaultLease {
     param([string]$Address,[string]$RunId,[string]$DataRoot,[object[]]$Gates)
     $lease=[pscustomobject]@{PSTypeName='PASeasyInstall.BorrowedVaultLease';Address=$Address;RunId=$RunId;DataRoot=[IO.Path]::GetFullPath($DataRoot).TrimEnd('\');OwnerPID=$PID;OwnerThread=[Threading.Thread]::CurrentThread.ManagedThreadId;Gates=@($Gates)}
-    Assert-PASeasyBorrowedVaultLease $lease $RunId
+    Assert-PASBorrowedVaultLease $lease $RunId
     return $lease
 }
-function Assert-PASeasyBorrowedVaultLease {
+function Assert-PASBorrowedVaultLease {
     param($Lease,[string]$RunId)
     if(-not $Lease -or $Lease.PSObject.TypeNames -notcontains 'PASeasyInstall.BorrowedVaultLease' -or $Lease.OwnerPID -ne $PID -or $Lease.OwnerThread -ne [Threading.Thread]::CurrentThread.ManagedThreadId -or $Lease.RunId -cne $RunId){throw 'PAExecUnknown: borrowed Vault lease does not belong to this controller/run/thread'}
-    $root=Assert-PASeasyCoordinationRoot
-    $expected=@(foreach($identity in @(Get-PASeasyResourceIdentity $Lease.Address)){
+    $root=Assert-PASCoordinationRoot
+    $expected=@(foreach($identity in @(Get-PASResourceIdentity $Lease.Address)){
         $sha=[Security.Cryptography.SHA256]::Create()
         try{$key=[BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes(('vault-'+$identity).ToLowerInvariant()))).Replace('-','')}finally{$sha.Dispose()}
         Join-Path $root ($key+'.json')
@@ -104,10 +104,10 @@ function Assert-PASeasyBorrowedVaultLease {
         if(-not $claim -or $claim.RunId -cne $RunId -or $claim.StateRoot -ine $Lease.DataRoot){throw 'PAExecUnknown: borrowed Vault lease claim changed'}
     }
 }
-function Enter-PASeasyGate {
+function Enter-PASGate {
     param([Parameter(Mandatory)][string]$Name,[Parameter(Mandatory)][string]$DataRoot,
           [Parameter(Mandatory)][string]$RunId,[int]$TimeoutSeconds=30)
-    $root=Assert-PASeasyCoordinationRoot
+    $root=Assert-PASCoordinationRoot
     $sha=[Security.Cryptography.SHA256]::Create()
     try{$key=([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Name.ToLowerInvariant())))).Replace('-','')}finally{$sha.Dispose()}
     $security=[Security.AccessControl.MutexSecurity]::new()

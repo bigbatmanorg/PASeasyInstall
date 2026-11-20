@@ -13,26 +13,26 @@ param(
     [switch]$DeleteInputs,
     [switch]$RequireProtectedInputs
 )
-function ConvertTo-PAExecHostValue {
+function ConvertTo-PASHostValue {
     param($Value,[int]$Depth=0)
     if ($null -eq $Value) { return $null }
     if ($Depth -gt 20) { return [string]$Value }
     if ($Value -is [string] -or $Value -is [ValueType]) { return $Value }
     if ($Value -is [System.Collections.IDictionary]) {
-        $h=@{}; foreach ($k in @($Value.Keys)) { $h[[string]$k] = ConvertTo-PAExecHostValue $Value[$k] ($Depth+1) }
+        $h=@{}; foreach ($k in @($Value.Keys)) { $h[[string]$k] = ConvertTo-PASHostValue $Value[$k] ($Depth+1) }
         return ,$h
     }
     if ($Value -is [System.Array] -or $Value -is [System.Collections.IList]) {
-        $a=@(); foreach ($v in $Value) { $a += ,(ConvertTo-PAExecHostValue $v ($Depth+1)) }
+        $a=@(); foreach ($v in $Value) { $a += ,(ConvertTo-PASHostValue $v ($Depth+1)) }
         return ,$a
     }
     if ($Value -is [psobject] -and $Value.PSObject.BaseObject -is [System.Management.Automation.PSCustomObject]) {
-        $h=@{}; foreach ($p in $Value.PSObject.Properties) { $h[$p.Name] = ConvertTo-PAExecHostValue $p.Value ($Depth+1) }
+        $h=@{}; foreach ($p in $Value.PSObject.Properties) { $h[$p.Name] = ConvertTo-PASHostValue $p.Value ($Depth+1) }
         return ,$h
     }
     return [string]$Value
 }
-function Test-PAExecHostResult {
+function Test-PASHostResult {
     param($Item)
     if ($null -eq $Item) { return $false }
     if ($Item -is [System.Management.Automation.ErrorRecord] -or $Item -is [System.Management.Automation.WarningRecord] -or
@@ -45,7 +45,7 @@ function Test-PAExecHostResult {
     return ($null -ne $Item.PSObject.Properties['Changed'] -or $null -ne $Item.PSObject.Properties['Message'] -or
             $null -ne $Item.PSObject.Properties['Passed'] -or $null -ne $Item.PSObject.Properties['Satisfied'])
 }
-function Format-PAExecHostRecord {
+function Format-PASHostRecord {
     param($Item)
     if ($Item -is [System.Management.Automation.ErrorRecord]) { return 'ERROR: ' + [string]$Item }
     if ($Item -is [System.Management.Automation.WarningRecord]) { return 'WARNING: ' + $Item.Message }
@@ -53,7 +53,7 @@ function Format-PAExecHostRecord {
     if ($Item -is [System.Management.Automation.DebugRecord]) { return 'DEBUG: ' + $Item.Message }
     return [string]$Item
 }
-function Invoke-PAExecHostTask {
+function Invoke-PASHostTask {
     param([string]$Code,[hashtable]$Parameters,[string]$Contract,[int]$MaxOutput)
     $file = Join-Path ([IO.Path]::GetTempPath()) ('paeasy-task-' + [guid]::NewGuid().ToString('N') + '.ps1')
     $builder = New-Object System.Text.StringBuilder
@@ -68,14 +68,14 @@ function Invoke-PAExecHostTask {
         $candidate = $null
         & $file @Parameters 2>&1 3>&1 4>&1 5>&1 6>&1 | ForEach-Object {
             $item = $_
-            if (Test-PAExecHostResult $item) {
-                if ($null -ne $candidate) { $line = Format-PAExecHostRecord $candidate } else { $line = $null }
+            if (Test-PASHostResult $item) {
+                if ($null -ne $candidate) { $line = Format-PASHostRecord $candidate } else { $line = $null }
                 $candidate = $item
             } else {
-                $line = Format-PAExecHostRecord $item
+                $line = Format-PASHostRecord $item
                 if ($null -ne $candidate -and -not ($item -is [System.Management.Automation.ErrorRecord] -or $item -is [System.Management.Automation.WarningRecord] -or $item -is [System.Management.Automation.VerboseRecord] -or $item -is [System.Management.Automation.DebugRecord] -or $item -is [System.Management.Automation.InformationRecord])) {
                     # A later ordinary output object means the structured object was not final.
-                    $line = (Format-PAExecHostRecord $candidate) + "`n" + $line
+                    $line = (Format-PASHostRecord $candidate) + "`n" + $line
                     $candidate = $null
                 }
             }
@@ -91,13 +91,13 @@ function Invoke-PAExecHostTask {
         if($Contract -notin @('Object','ExitCode','Check')){throw 'Unsupported task output contract'}
         if($exitCode -ne 0){return @{Ok=$false;Terminal=$null;Output=$output;Error="Task exited with code $exitCode";ExitCode=$exitCode}}
         if ($Contract -eq 'ExitCode') {
-            if ($exitCode -ne 0) { return @{ Ok=$false; Terminal=(ConvertTo-PAExecHostValue $terminal); Output=$output; Error="Task exited with code $exitCode"; ExitCode=$exitCode } }
+            if ($exitCode -ne 0) { return @{ Ok=$false; Terminal=(ConvertTo-PASHostValue $terminal); Output=$output; Error="Task exited with code $exitCode"; ExitCode=$exitCode } }
         } elseif ($null -eq $terminal) {
             $why = 'Task contract missing: final output object must be a structured task/check result'
             if ($exitCode -ne 0) { $why += " (task exited with code $exitCode)" }
             return @{ Ok=$false; Terminal=$null; Output=$output; Error=$why; ExitCode=$exitCode }
         }
-        $value=ConvertTo-PAExecHostValue $terminal
+        $value=ConvertTo-PASHostValue $terminal
         $result=@{Ok=$true;Terminal=$value;Output=$output;Error=$null;ExitCode=$exitCode}
         if($Contract -eq 'Check'){
             if($value -isnot [Collections.IDictionary] -or -not $value.Contains('Passed') -or $value.Passed -isnot [bool]){throw 'Check contract requires a boolean Passed'}
@@ -135,7 +135,7 @@ if ($Directory) {
                 $entropy=[Text.Encoding]::UTF8.GetBytes((Split-Path $Directory -Leaf))
                 $bytes=[Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes($protectedFile),$entropy,[Security.Cryptography.DataProtectionScope]::LocalMachine)
                 $raw=[Text.Encoding]::UTF8.GetString($bytes)
-                $Parameters=ConvertTo-PAExecHostValue (ConvertFrom-Json -InputObject $raw)
+                $Parameters=ConvertTo-PASHostValue (ConvertFrom-Json -InputObject $raw)
             }finally{
                 if($bytes){[Array]::Clear($bytes,0,$bytes.Length)}
                 $raw=$null
@@ -148,45 +148,45 @@ if ($Directory) {
         elseif (Test-Path -LiteralPath $inputFile) {
             $raw = [IO.File]::ReadAllText($inputFile)
             if ($DeleteInputs) { Remove-Item -LiteralPath $inputFile -Force -ErrorAction SilentlyContinue }
-            if ($raw.Trim()) { $Parameters = ConvertTo-PAExecHostValue (ConvertFrom-Json -InputObject $raw) }
+            if ($raw.Trim()) { $Parameters = ConvertTo-PASHostValue (ConvertFrom-Json -InputObject $raw) }
             if ($null -eq $Parameters) { $Parameters = @{} }
         }
         $contractFile = Join-Path $Directory 'contract.txt'
         if (Test-Path -LiteralPath $contractFile) { $Contract = ([IO.File]::ReadAllText($contractFile)).Trim() }
-        $result = Invoke-PAExecHostTask $Code $Parameters $Contract $MaxOutput
+        $result = Invoke-PASHostTask $Code $Parameters $Contract $MaxOutput
     } catch {
         $result = @{ Ok=$false; Terminal=$null; Output=''; Error=([string]$_.Exception.Message); ExitCode=0 }
     }
 } else {
-    $result = Invoke-PAExecHostTask $Code $Parameters $Contract $MaxOutput
+    $result = Invoke-PASHostTask $Code $Parameters $Contract $MaxOutput
 }
 # Sanitize before the detached runner writes stdout/status on the target, not only
 # after retrieval by the controller. Only secret-bearing inputs contribute markers.
-function Get-PAExecHostSecretMarkers {
+function Get-PASHostSecretMarkers {
     param($Value,[string]$Name='')
     if($Value -is [System.Collections.IDictionary]){
-        foreach($key in $Value.Keys){Get-PAExecHostSecretMarkers $Value[$key] ([string]$key)}
+        foreach($key in $Value.Keys){Get-PASHostSecretMarkers $Value[$key] ([string]$key)}
     }elseif($Name -match '(?i)password|secret|token|credential'){
         if($Value -is [pscredential]){$Value.GetNetworkCredential().Password}
         elseif($Value -is [Security.SecureString]){([Net.NetworkCredential]::new('',$Value)).Password}
         elseif($Value -is [string] -and $Value){$Value}
     }
 }
-function Protect-PAExecHostValue {
+function Protect-PASHostValue {
     param($Value,[string[]]$Markers)
     if($Value -is [string]){
         foreach($marker in $Markers){if($marker){$Value=$Value.Replace($marker,'[REDACTED]')}}
         return $Value
     }
     if($Value -is [System.Collections.IDictionary]){
-        $clean=@{};foreach($key in $Value.Keys){$safeKey=Protect-PAExecHostValue ([string]$key) $Markers;$clean[$safeKey]=Protect-PAExecHostValue $Value[$key] $Markers};return ,$clean
+        $clean=@{};foreach($key in $Value.Keys){$safeKey=Protect-PASHostValue ([string]$key) $Markers;$clean[$safeKey]=Protect-PASHostValue $Value[$key] $Markers};return ,$clean
     }
-    if($Value -is [array]){return ,@(foreach($item in $Value){Protect-PAExecHostValue $item $Markers})}
+    if($Value -is [array]){return ,@(foreach($item in $Value){Protect-PASHostValue $item $Markers})}
     return $Value
 }
-$result=ConvertTo-PAExecHostValue $result
-$markers=@(Get-PAExecHostSecretMarkers $Parameters)
-$result=Protect-PAExecHostValue $result $markers
+$result=ConvertTo-PASHostValue $result
+$markers=@(Get-PASHostSecretMarkers $Parameters)
+$result=Protect-PASHostValue $result $markers
 if($result.Terminal -is [System.Collections.IDictionary] -and $result.Terminal.Contains('Data') -and $null -ne $result.Terminal.Data){
     $data=$result.Terminal.Data
     $allowed=@('Pacli','SafeName','Cycle','Metadata','RebootRequired','Computer','OS','Build','Hash','TrustBundleSHA256','Version','File')

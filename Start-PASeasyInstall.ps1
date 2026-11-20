@@ -7,11 +7,11 @@ By default it drives the real installer (the Orchestrator in this folder's Modul
 to any server until Install on step 6. -Backend Mock runs the same window against a dummy backend that
 simulates plans and installations and never contacts a server (UI development, demos).
 .EXAMPLE
-.\Start-PASeasyInstall.ps1
+.\Start-PASInstall.ps1
 .EXAMPLE
-.\Start-PASeasyInstall.ps1 -Advanced
+.\Start-PASInstall.ps1 -Advanced
 .EXAMPLE
-.\Start-PASeasyInstall.ps1 -Backend Mock
+.\Start-PASInstall.ps1 -Backend Mock
 #>
 [CmdletBinding()]param([string]$Config='',[switch]$Advanced,
     [ValidateSet('Mock','Orchestrator')][string]$Backend='Orchestrator',[string]$ModulesRoot='',

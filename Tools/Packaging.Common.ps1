@@ -35,7 +35,7 @@ function Get-PASeasyPackageSourceDigest {
 param($root)
 $ErrorActionPreference='Stop'
 $module=Import-Module (Join-Path $root 'PASeasyInstall.psd1') -Force -PassThru
-try{& $module {Get-PASeasySourceDigest}}finally{Remove-Module $module.Name -Force}
+try{& $module {Get-PASSourceDigest}}finally{Remove-Module $module.Name -Force}
 '@).AddArgument($ModuleRoot)
         $result=@($powershell.Invoke())
         if($powershell.HadErrors -or $result.Count -ne 1 -or [string]$result[0] -notmatch '^[a-fA-F0-9]{64}$'){throw 'Frozen module source digest could not be established'}

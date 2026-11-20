@@ -1,11 +1,11 @@
 <#
 .SYNOPSIS
-Builds the portable PASeasyInstall ZIP: unzip, run Start-PASeasyInstall.cmd, build a lab. No installation needed.
+Builds the portable PASeasyInstall ZIP: unzip, run Start-PASInstall.cmd, build a lab. No installation needed.
 .DESCRIPTION
 Builds the Gallery stage with Tools\Build-GalleryPackage.ps1, then lays out:
   PASeasyInstall-<version>-portable\
-    Start-PASeasyInstall.cmd / .ps1     desktop wizard
-    Invoke-PASeasyInstall.cmd / .ps1    command line install from a saved project
+    Start-PASInstall.cmd / .ps1     desktop wizard
+    Invoke-PASInstall.cmd / .ps1    command line install from a saved project
     PASeasyInstall-Shell.cmd / .ps1     PowerShell window with every PASeasyInstall command loaded
     README-PORTABLE.txt, LICENSE.txt, THIRD_PARTY_*.txt
     Modules\PASeasyInstall\<version>\   the module
@@ -75,19 +75,19 @@ Import-Module $PASManifest.FullName -Force -ErrorAction Stop
 $startPs1=@"
 <#
 PASeasyInstall portable: opens the desktop wizard. Builds CyberArk PAM labs; production use is at your own risk.
-Usage: Start-PASeasyInstall.cmd [-Advanced] [-Theme v1|v2] [-Backend Mock] [-Config <project.json>]
+Usage: Start-PASInstall.cmd [-Advanced] [-Theme v1|v2] [-Backend Mock] [-Config <project.json>]
 #>
 [CmdletBinding()]param([string]`$Config='',[switch]`$Advanced,[ValidateSet('v1','v2')][string]`$Theme='v2',[ValidateSet('Orchestrator','Mock')][string]`$Backend='Orchestrator')
 $common
-Start-PASeasyInstall @PSBoundParameters
+Start-PASInstall @PSBoundParameters
 "@
 $invokePs1=@"
 <#
 PASeasyInstall portable: installs, plans or resumes a lab from a saved project, from the command line.
 Usage:
-  Invoke-PASeasyInstall.cmd -Config <project.json> -PlanOnly
-  Invoke-PASeasyInstall.cmd -Config <project.json> [-Wait] [-PromptLabPassword]
-  Invoke-PASeasyInstall.cmd -Resume <runId> [-RetryFailedPreflight] [-Wait]
+  Invoke-PASInstall.cmd -Config <project.json> -PlanOnly
+  Invoke-PASInstall.cmd -Config <project.json> [-Wait] [-PromptLabPassword]
+  Invoke-PASInstall.cmd -Resume <runId> [-RetryFailedPreflight] [-Wait]
 #>
 [CmdletBinding(DefaultParameterSetName='Config')]
 param([Parameter(Mandatory,ParameterSetName='Config',Position=0)][string]`$Config,
@@ -99,7 +99,7 @@ $common
 `$p=@{}+`$PSBoundParameters
 [void]`$p.Remove('PromptLabPassword')
 if(`$PromptLabPassword){`$p.LabPassword=Read-Host -AsSecureString -Prompt 'Lab password (used for every server and secret)'}
-`$result=Invoke-PASeasyInstall @p
+`$result=Invoke-PASInstall @p
 if(`$PlanOnly){`$result|Format-List Name,ExecutionMode,Warnings;`$result.Items|Format-Table Id,Type,Address,Os,DependsOn -AutoSize}else{`$result}
 "@
 $shellPs1=@"
@@ -107,15 +107,15 @@ $shellPs1=@"
 $common
 Write-Host ('PASeasyInstall '+(Get-Module PASeasyInstall).Version+' loaded. Commands: Get-Command -Module PASeasyInstall   Help: Get-Help about_PASeasyInstall')
 "@
-[IO.File]::WriteAllText((Join-Path $root 'Start-PASeasyInstall.ps1'),$startPs1,$utf8Bom)
-[IO.File]::WriteAllText((Join-Path $root 'Invoke-PASeasyInstall.ps1'),$invokePs1,$utf8Bom)
+[IO.File]::WriteAllText((Join-Path $root 'Start-PASInstall.ps1'),$startPs1,$utf8Bom)
+[IO.File]::WriteAllText((Join-Path $root 'Invoke-PASInstall.ps1'),$invokePs1,$utf8Bom)
 [IO.File]::WriteAllText((Join-Path $root 'PASeasyInstall-Shell.ps1'),$shellPs1,$utf8Bom)
 $ps='"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"'
 $cmdStart="@echo off`r`nrem PASeasyInstall portable desktop. Builds CyberArk PAM labs; production use is at your own risk.`r`nsetlocal`r`n$ps -NoProfile -ExecutionPolicy Bypass -File `"%~dp0Start-PASeasyInstall.ps1`" %*`r`nif errorlevel 1 (`r`n  echo.`r`n  echo PASeasyInstall exited with error %errorlevel%.`r`n  pause`r`n)`r`nendlocal`r`n"
-$cmdInvoke="@echo off`r`nrem PASeasyInstall portable command line. Example: Invoke-PASeasyInstall.cmd -Config MyLab.json -PlanOnly`r`nsetlocal`r`n$ps -NoProfile -ExecutionPolicy Bypass -File `"%~dp0Invoke-PASeasyInstall.ps1`" %*`r`nset rc=%errorlevel%`r`nendlocal & exit /b %rc%`r`n"
+$cmdInvoke="@echo off`r`nrem PASeasyInstall portable command line. Example: Invoke-PASInstall.cmd -Config MyLab.json -PlanOnly`r`nsetlocal`r`n$ps -NoProfile -ExecutionPolicy Bypass -File `"%~dp0Invoke-PASeasyInstall.ps1`" %*`r`nset rc=%errorlevel%`r`nendlocal & exit /b %rc%`r`n"
 $cmdShell="@echo off`r`nrem PASeasyInstall portable: PowerShell window with all commands loaded.`r`n$ps -NoExit -NoProfile -ExecutionPolicy Bypass -File `"%~dp0PASeasyInstall-Shell.ps1`"`r`n"
-[IO.File]::WriteAllText((Join-Path $root 'Start-PASeasyInstall.cmd'),$cmdStart,$ascii)
-[IO.File]::WriteAllText((Join-Path $root 'Invoke-PASeasyInstall.cmd'),$cmdInvoke,$ascii)
+[IO.File]::WriteAllText((Join-Path $root 'Start-PASInstall.cmd'),$cmdStart,$ascii)
+[IO.File]::WriteAllText((Join-Path $root 'Invoke-PASInstall.cmd'),$cmdInvoke,$ascii)
 [IO.File]::WriteAllText((Join-Path $root 'PASeasyInstall-Shell.cmd'),$cmdShell,$ascii)
 $uiVersion=(Get-ChildItem -LiteralPath (Join-Path $modules 'NativeHTMLKit.UI') -Directory|Select-Object -First 1).Name
 $hkVersion=(Get-ChildItem -LiteralPath (Join-Path $modules 'NativeHTMLKit') -Directory|Select-Object -First 1).Name
@@ -132,12 +132,12 @@ Start
 1. Before extracting, right-click the ZIP > Properties > Unblock (or: Unblock-File <zip>). This avoids
    Windows security prompts for the extracted launchers.
 2. Extract anywhere, for example C:\PASeasyInstall or a USB drive.
-3. Double-click Start-PASeasyInstall.cmd. The six-step wizard opens. Nothing is sent to a server until you
+3. Double-click Start-PASInstall.cmd. The six-step wizard opens. Nothing is sent to a server until you
    press Install on the last step.
 
-   Start-PASeasyInstall.cmd -Backend Mock      the same window with simulated installs (demo)
-   Invoke-PASeasyInstall.cmd -Config MyLab.json -PlanOnly
-   Invoke-PASeasyInstall.cmd -Config MyLab.json -Wait
+   Start-PASInstall.cmd -Backend Mock      the same window with simulated installs (demo)
+   Invoke-PASInstall.cmd -Config MyLab.json -PlanOnly
+   Invoke-PASInstall.cmd -Config MyLab.json -Wait
    PASeasyInstall-Shell.cmd                    PowerShell window with every command loaded
 
 Requirements

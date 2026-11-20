@@ -16,26 +16,26 @@ Describe 'Read-only verification recovery (control-plane fixtures)' {
             [IO.File]::WriteAllText($inv,(ConvertTo-PASLiteral @{SchemaVersion=1;Targets=@{fixture=@{Protocol='Local';Runtime='PowerShell'}};Values=@{}}))
         } $wf $inv
         $global:PAeasyReadOnlyFixturePass=$false
-        Mock Invoke-PSRemoteLock -ModuleName PASeasyInstall.Core {$false}
-        Mock Clear-PSConnections -ModuleName PASeasyInstall.Core {}
-        Mock Clear-PSRecoveryTasks -ModuleName PASeasyInstall.Core {}
-        Mock Invoke-PSAdapterScript -ModuleName PASeasyInstall.Core {@{Ok=$true;Terminal=@{Changed=$true;Message='Synthetic install completed';Data=@{}};Output=''}}
-        Mock Get-PSCheck -ModuleName PASeasyInstall.Core {
+        Mock Invoke-PASRemoteLock -ModuleName PASeasyInstall.Core {$false}
+        Mock Clear-PASConnections -ModuleName PASeasyInstall.Core {}
+        Mock Clear-PASRecoveryTasks -ModuleName PASeasyInstall.Core {}
+        Mock Invoke-PASAdapterScript -ModuleName PASeasyInstall.Core {@{Ok=$true;Terminal=@{Changed=$true;Message='Synthetic install completed';Data=@{}};Output=''}}
+        Mock Get-PASCheck -ModuleName PASeasyInstall.Core {
             [pscustomobject]@{Passed=($Inputs.Stage -eq 'Install' -or $global:PAeasyReadOnlyFixturePass);Message='Synthetic independent check';Evidence=@()}
         }
     }
     It 'repeats a failed final check on ordinary resume without replaying the completed install' {
-        {& (Get-Module PASeasyInstall.Core) {param($w,$i,$s) Invoke-PAExecRun $w $i -StateRoot $s -RunId verify001 -Quiet} $wf $inv $state}|Should -Throw '*Verification failed*'
+        {& (Get-Module PASeasyInstall.Core) {param($w,$i,$s) Invoke-PASWorkflow $w $i -StateRoot $s -RunId verify001 -Quiet} $wf $inv $state}|Should -Throw '*Verification failed*'
         $before=Get-Content (Join-Path $state 'verify001/fixture/state.json') -Raw|ConvertFrom-Json
         $before.steps.install.status|Should -BeExactly Succeeded
         $before.steps.verify.status|Should -BeExactly Failed
         $global:PAeasyReadOnlyFixturePass=$true
-        $result=& (Get-Module PASeasyInstall.Core) {param($w,$i,$s) Invoke-PAExecRun $w $i -StateRoot $s -RunId verify001 -Resume -Quiet} $wf $inv $state
+        $result=& (Get-Module PASeasyInstall.Core) {param($w,$i,$s) Invoke-PASWorkflow $w $i -StateRoot $s -RunId verify001 -Resume -Quiet} $wf $inv $state
         $result.Status|Should -BeExactly Succeeded
         $after=Get-Content (Join-Path $state 'verify001/fixture/state.json') -Raw|ConvertFrom-Json
         $after.steps.install.attemptId|Should -BeExactly $before.steps.install.attemptId
-        Should -Invoke Invoke-PSAdapterScript -ModuleName PASeasyInstall.Core -Times 1 -ParameterFilter {$Parameters.Stage -eq 'Install'}
-        Should -Invoke Invoke-PSAdapterScript -ModuleName PASeasyInstall.Core -Times 0 -ParameterFilter {$Parameters.Stage -eq 'Verify'}
+        Should -Invoke Invoke-PASAdapterScript -ModuleName PASeasyInstall.Core -Times 1 -ParameterFilter {$Parameters.Stage -eq 'Install'}
+        Should -Invoke Invoke-PASAdapterScript -ModuleName PASeasyInstall.Core -Times 0 -ParameterFilter {$Parameters.Stage -eq 'Verify'}
     }
     It 'rejects an action script or Detached mode disguised as a read-only Verify step' {
         & (Get-Module PASeasyInstall.Core) {
@@ -43,18 +43,18 @@ Describe 'Read-only verification recovery (control-plane fixtures)' {
             $data=Import-PowerShellDataFile $path;$data.Steps[1].Script='task.ps1'
             [IO.File]::WriteAllText($path,(ConvertTo-PASLiteral $data))
         } $wf
-        {& (Get-Module PASeasyInstall.Core) {param($w,$i) Get-PAExecPlan $w $i} $wf $inv}|Should -Throw '*Read-only Verify*'
+        {& (Get-Module PASeasyInstall.Core) {param($w,$i) Get-PASWorkflowPlan $w $i} $wf $inv}|Should -Throw '*Read-only Verify*'
         & (Get-Module PASeasyInstall.Core) {
             param($path)
             $data=Import-PowerShellDataFile $path;$data.Steps[1].Remove('Script');$data.Steps[1].Mode='Detached'
             [IO.File]::WriteAllText($path,(ConvertTo-PASLiteral $data))
         } $wf
-        {& (Get-Module PASeasyInstall.Core) {param($w,$i) Get-PAExecPlan $w $i} $wf $inv}|Should -Throw '*Read-only Verify*'
+        {& (Get-Module PASeasyInstall.Core) {param($w,$i) Get-PASWorkflowPlan $w $i} $wf $inv}|Should -Throw '*Read-only Verify*'
     }
     It 'generates final component checks without an installer action body' {
-        $config=New-PASeasyConfig -Template ExistingVault -Path (Join-Path $base 'config.json') -WhatIf
+        $config=New-PASConfigurationTemplate -Template ExistingVault -Path (Join-Path $base 'config.json') -WhatIf
         $config.components[0].media='synthetic.zip'
-        $path=& (Get-Module PASeasyInstall.Core) {param($p,$c,$d) New-PASeasyComponentWorkflow $p $c $d} $config.components[0] $config $base
+        $path=& (Get-Module PASeasyInstall.Core) {param($p,$c,$d) New-PASComponentWorkflow $p $c $d} $config.components[0] $config $base
         $step=@((Import-PowerShellDataFile $path).Steps|Where-Object Id -eq verify)[0]
         $step.Kind|Should -BeExactly Verify;$step.ContainsKey('Script')|Should -BeFalse
         $step.Verify|Should -BeExactly Verify.ps1

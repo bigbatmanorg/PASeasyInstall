@@ -4,7 +4,7 @@ BeforeAll {
 }
 Describe 'Component HTTPS planning and frozen public trust' {
     BeforeEach {
-        $config=New-PASeasyConfig -Template FullLab -Path (Join-Path $TestDrive 'sample.json') -WhatIf
+        $config=New-PASConfigurationTemplate -Template FullLab -Path (Join-Path $TestDrive 'sample.json') -WhatIf
         $config.components=@($config.components|Where-Object {$_.type -in @('PVWA','CPM')})
         $config.vault.existing=$true
         $media=Join-Path $TestDrive 'media.zip';[IO.File]::WriteAllText($media,'synthetic media')
@@ -16,7 +16,7 @@ Describe 'Component HTTPS planning and frozen public trust' {
     }
     It 'places recoverable TLS after MSI and before authentication and includes both reviewed helpers' {
         foreach($part in $config.components){
-            $path=& (Get-Module PASeasyInstall.Core) {param($p,$c,$d) New-PASeasyComponentWorkflow $p $c $d} $part $config $TestDrive
+            $path=& (Get-Module PASeasyInstall.Core) {param($p,$c,$d) New-PASComponentWorkflow $p $c $d} $part $config $TestDrive
             $workflow=Import-PowerShellDataFile $path
             $ids=@($workflow.Steps|ForEach-Object {$_.Id})
             [array]::IndexOf($ids,'install')|Should -BeLessThan ([array]::IndexOf($ids,'configuretls'))
@@ -34,22 +34,22 @@ Describe 'Component HTTPS planning and frozen public trust' {
         }
     }
     It 'freezes the public certificate and refuses changed input against its declared pin' {
-        $plan=Get-PASeasyPlan -Configuration $config -ResolveMedia
+        $plan=Get-PASDeploymentPlan -Configuration $config -ResolveMedia
         @($plan.Media|Where-Object Path -eq $trust).Count|Should -Be 1
         [IO.File]::WriteAllText($trust,'changed bytes')
-        {Get-PASeasyPlan -Configuration $config -ResolveMedia}|Should -Throw '*configured SHA256*'
+        {Get-PASDeploymentPlan -Configuration $config -ResolveMedia}|Should -Throw '*configured SHA256*'
     }
     It 'admits pinned leaf trust only through an audited Lab Boolean override' {
         $config.security.overrides=@{'CPM.AllowPinnedLeafTrust'=$true}
-        (Test-PASeasyConfig -Configuration $config).Valid|Should -BeFalse
+        (Test-PASConfiguration -Configuration $config).Valid|Should -BeFalse
         $config.security.profile='Lab'
-        $validated=Test-PASeasyConfig -Configuration $config
+        $validated=Test-PASConfiguration -Configuration $config
         $validated.Valid|Should -BeTrue
         ($validated.Warnings -join ';')|Should -Match 'CPM.AllowPinnedLeafTrust'
-        $inventory=& (Get-Module PASeasyInstall.Core) {param($c) New-PASeasyRuntimeInventory -Config $c -RunDirectory '' -SkipMediaHash} $config
+        $inventory=& (Get-Module PASeasyInstall.Core) {param($c) New-PASRuntimeInventory -Config $c -RunDirectory '' -SkipMediaHash} $config
         $inventory.Values.Components.cpm.AllowPinnedLeafTrust|Should -BeTrue
         $inventory.Values.Components.cpm.PVWATrustCertificateSHA256|Should -BeExactly $cpm.options.pvwaTrustCertificateSHA256
         $config.security.overrides['CPM.AllowPinnedLeafTrust']='true'
-        (Test-PASeasyConfig -Configuration $config).Valid|Should -BeFalse
+        (Test-PASConfiguration -Configuration $config).Valid|Should -BeFalse
     }
 }

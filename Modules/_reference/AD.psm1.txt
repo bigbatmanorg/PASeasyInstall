@@ -9,11 +9,11 @@ Import-Module $core -ErrorAction Stop
 function New-PASADConfiguration {
     [CmdletBinding()]param([Parameter(Mandatory)][string]$TargetAddress,[Parameter(Mandatory)][string]$Domain,
         [string]$Environment='MyPAM',[string]$Username='Administrator')
-    $c=New-PASeasyConfig -Template ADOnly -Path 'template.json' -WhatIf -Force
+    $c=New-PASConfigurationTemplate -Template ADOnly -Path 'template.json' -WhatIf -Force
     $c.name=$Environment.Trim();$c.hosts=@{dc01=@{address=$TargetAddress.Trim();os='Windows';user=$Username.Trim();credentialRef='dc01'}}
     $c.activeDirectory.domain=$Domain.Trim();$c.activeDirectory.host='dc01';$c.activeDirectory.join=@()
     $c.components=@(@{id='ad';type='AD';host='dc01';variant='NewForest'})
-    $validation=Test-PASeasyConfig -Configuration $c
+    $validation=Test-PASConfiguration -Configuration $c
     if(-not $validation.Valid){throw ('Invalid AD configuration: '+($validation.Issues -join '; '))}
     return $validation.Configuration
 }
@@ -21,13 +21,13 @@ function Invoke-PASAD {
     [CmdletBinding(SupportsShouldProcess=$true)]param([string]$Config,$Configuration,
         [ValidateSet('All','LocalPreflight')][string]$Stage='All',
         [hashtable]$CredentialMap=@{},[hashtable]$SecretMap=@{},[switch]$PlanOnly)
-    $valid=Test-PASeasyConfig -Config $Config -Configuration $Configuration -CheckMedia:($Stage -eq 'LocalPreflight')
+    $valid=Test-PASConfiguration -Config $Config -Configuration $Configuration -CheckMedia:($Stage -eq 'LocalPreflight')
     if(-not $valid.Valid){throw ($valid.Issues -join '; ')}
     if(@($valid.Configuration.components).Count -ne 1 -or $valid.Configuration.components[0].type -ne 'AD'){throw 'Invoke-PASAD requires AD-only configuration'}
     if($Stage -eq 'LocalPreflight'){return $valid}
-    if($PlanOnly){return (Get-PASeasyPlan -Configuration $valid.Configuration)}
+    if($PlanOnly){return (Get-PASDeploymentPlan -Configuration $valid.Configuration)}
     if($PSCmdlet.ShouldProcess($valid.Configuration.name,'Create AD forest')){
-        return (Start-PASeasyDeployment -Configuration $valid.Configuration -CredentialMap $CredentialMap -SecretMap $SecretMap -Confirm:$false)
+        return (Start-PASDeployment -Configuration $valid.Configuration -CredentialMap $CredentialMap -SecretMap $SecretMap -Confirm:$false)
     }
 }
 function Get-PASADStages {

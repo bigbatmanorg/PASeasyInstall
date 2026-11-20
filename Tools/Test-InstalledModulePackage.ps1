@@ -8,7 +8,7 @@ It checks:
   - NativeHTMLKit.UI (a required dependency) loads with it;
   - exactly the public commands are exported, and nothing PTA-related;
   - every public command has a synopsis and at least one example;
-  - optionally, Invoke-PASeasyInstall -PlanOnly on a sample configuration (contacts no server).
+  - optionally, Invoke-PASInstall -PlanOnly on a sample configuration (contacts no server).
 It writes a JSON proof to -OutputPath and throws on the first failed check.
 .EXAMPLE
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tools\Test-InstalledModulePackage.ps1 -ExpectedVersion 1.0.0-rc1 -OutputPath C:\Temp\probe.json
@@ -19,9 +19,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tools\Test-InstalledMo
 param([Parameter(Mandatory)][string]$ExpectedVersion,[Parameter(Mandatory)][string]$OutputPath,[string]$SampleConfig='')
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version 2.0
-$expected=@('Start-PASeasyInstall','Invoke-PASeasyInstall','New-PASDeploymentConfiguration','Get-PASMediaInventory',
+$expected=@('Start-PASInstall','Invoke-PASInstall','New-PASDeploymentConfiguration','Get-PASMediaInventory',
     'Get-PASMediaSelection','Test-PASEnvironment','Get-PASEnvironmentPlan','Save-PASEnvironment','Start-PASEnvironment',
-    'Get-PASEnvironmentSnapshot','Get-PASEnvironmentEvents','Get-PASStageCatalog','Resume-PASeasyDeployment',
+    'Get-PASEnvironmentSnapshot','Get-PASEnvironmentEvents','Get-PASStageCatalog','Resume-PASDeployment',
     'Test-PASEnvironmentHealth','Export-PASRunData')
 $proof=[ordered]@{schemaVersion=2;checkedUtc=[DateTime]::UtcNow.ToString('o');powershell=$PSVersionTable.PSVersion.ToString();
     edition=$PSVersionTable.PSEdition;expectedVersion=$ExpectedVersion;checks=[ordered]@{};passed=$false}
@@ -60,7 +60,7 @@ try{
     if(@(Get-PASStageCatalog -Component Vault).Count -lt 5){throw 'Stage catalog for Vault is unexpectedly small'}
     Pass 'stageCatalog' $true
     if($SampleConfig){
-        $plan=Invoke-PASeasyInstall -Config $SampleConfig -PlanOnly 3>$null
+        $plan=Invoke-PASInstall -Config $SampleConfig -PlanOnly 3>$null
         if(-not @($plan.Items).Count){throw 'PlanOnly returned no items'}
         Pass 'planOnly' (@($plan.Items)|ForEach-Object {"$($_.Id) $($_.Type) $($_.Address)"})
     }

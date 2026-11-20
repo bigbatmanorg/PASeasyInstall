@@ -2,8 +2,8 @@ BeforeAll {
     $root=Split-Path -Parent $PSScriptRoot
     Import-Module (Join-Path $root 'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1') -Force
     . (Join-Path $root 'Modules/PASeasyInstall.Core/Recipes/WindowsComponent/Ownership.ps1')
-    $prepare=& (Get-Module PASeasyInstall.Core) {Get-PSWindowsStagePreparation}
-    $prepareFile=& (Get-Module PASeasyInstall.Core) {Get-PSWindowsFilePreparation}
+    $prepare=& (Get-Module PASeasyInstall.Core) {Get-PASWindowsStagePreparation}
+    $prepareFile=& (Get-Module PASeasyInstall.Core) {Get-PASWindowsFilePreparation}
 }
 Describe 'Stable upload preparation and validation' {
     It 'prepares a protected file and validates it without truncating content or changing privilege state' {

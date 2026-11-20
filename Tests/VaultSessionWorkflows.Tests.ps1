@@ -9,14 +9,14 @@ Describe 'Vault installation credential admission' {
         }
         It 'accepts qualified native installation text' {
             $secrets.VaultMaster=ConvertTo-SecureString 'Master-ASCII' -AsPlainText -Force
-            {Assert-PASeasyVaultInstallationSecrets $config $secrets}|Should -Not -Throw
+            {Assert-PASVaultInstallationSecrets $config $secrets}|Should -Not -Throw
         }
         It 'refuses unsupported admin or DR text without echoing its value' {
             foreach($name in @('VaultAdmin','DRPassword')){
                 $saved=$secrets[$name]
                 foreach($bad in @('synthetic-"-marker','synthetic-非ASCII',"synthetic`nmarker")){
                     $secrets[$name]=ConvertTo-SecureString $bad -AsPlainText -Force
-                    $errorText='';try{Assert-PASeasyVaultInstallationSecrets $config $secrets}catch{$errorText=$_.Exception.Message}
+                    $errorText='';try{Assert-PASVaultInstallationSecrets $config $secrets}catch{$errorText=$_.Exception.Message}
                     $errorText|Should -Match 'requires printable ASCII'
                     $errorText|Should -Not -Match 'synthetic'
                 }
@@ -26,47 +26,47 @@ Describe 'Vault installation credential admission' {
         It 'requires typed nonempty SecureStrings' {
             foreach($value in @($null,'synthetic-string',[Security.SecureString]::new())){
                 $secrets.VaultAdmin=$value
-                {Assert-PASeasyVaultInstallationSecrets $config $secrets}|Should -Throw '*SecureString is required*'
+                {Assert-PASVaultInstallationSecrets $config $secrets}|Should -Throw '*SecureString is required*'
             }
         }
         It 'rejects missing, plaintext, empty or unrepresentable Master before a mixed AD and Vault deployment' {
             $config.components+=@{type='AD'}
             foreach($value in @($null,'synthetic-master',[Security.SecureString]::new(),(ConvertTo-SecureString "synthetic`nmaster" -AsPlainText -Force),(ConvertTo-SecureString 'synthetic-非ASCII' -AsPlainText -Force),(ConvertTo-SecureString 'synthetic-"-master' -AsPlainText -Force))){
                 $secrets.VaultMaster=$value
-                {Assert-PASeasyVaultInstallationSecrets $config $secrets}|Should -Throw '*VaultMaster*'
+                {Assert-PASVaultInstallationSecrets $config $secrets}|Should -Throw '*VaultMaster*'
             }
         }
         It 'rejects bad Master at the public Start boundary before environment admission or controller dispatch' {
             $config.components+=@{type='AD'};$config.name='synthetic-early-admission'
             $secrets.Remove('VaultMaster')
-            Mock Test-PASeasyConfig {return @{Valid=$true;Configuration=@{name='synthetic-early-admission';components=@(@{type='AD'},@{type='Vault'})}}}
-            Mock Get-PASeasyPlan {return @{Items=@()}}
-            Mock Assert-PASeasyWindowsController {}
-            Mock Test-PASeasyActiveEnvironment {throw 'Unexpected environment admission'}
-            Mock Invoke-PASeasyInternalController {throw 'Unexpected target dispatch'}
-            {Start-PASeasyDeployment -Configuration $config -SecretMap $secrets -Foreground}|Should -Throw '*VaultMaster*'
-            Should -Invoke Test-PASeasyActiveEnvironment -Times 0 -Exactly
-            Should -Invoke Invoke-PASeasyInternalController -Times 0 -Exactly
+            Mock Test-PASConfiguration {return @{Valid=$true;Configuration=@{name='synthetic-early-admission';components=@(@{type='AD'},@{type='Vault'})}}}
+            Mock Get-PASDeploymentPlan {return @{Items=@()}}
+            Mock Assert-PASWindowsController {}
+            Mock Test-PASActiveEnvironment {throw 'Unexpected environment admission'}
+            Mock Invoke-PASRunController {throw 'Unexpected target dispatch'}
+            {Start-PASDeployment -Configuration $config -SecretMap $secrets -Foreground}|Should -Throw '*VaultMaster*'
+            Should -Invoke Test-PASActiveEnvironment -Times 0 -Exactly
+            Should -Invoke Invoke-PASRunController -Times 0 -Exactly
         }
         It 'returns the WhatIf plan without credentials or environment/controller dispatch' {
-            Mock Test-PASeasyConfig {return @{Valid=$true;Configuration=@{name='synthetic-whatif';components=@(@{type='Vault'})}}}
-            Mock Get-PASeasyPlan {return @{Items=@(@{Type='Vault'})}}
-            Mock Assert-PASeasyWindowsController {}
-            Mock Assert-PASeasyVaultInstallationSecrets {throw 'Unexpected credential admission'}
-            Mock Test-PASeasyActiveEnvironment {throw 'Unexpected environment admission'}
-            Mock Invoke-PASeasyInternalController {throw 'Unexpected target dispatch'}
-            $plan=Start-PASeasyDeployment -Configuration $config -WhatIf
+            Mock Test-PASConfiguration {return @{Valid=$true;Configuration=@{name='synthetic-whatif';components=@(@{type='Vault'})}}}
+            Mock Get-PASDeploymentPlan {return @{Items=@(@{Type='Vault'})}}
+            Mock Assert-PASWindowsController {}
+            Mock Assert-PASVaultInstallationSecrets {throw 'Unexpected credential admission'}
+            Mock Test-PASActiveEnvironment {throw 'Unexpected environment admission'}
+            Mock Invoke-PASRunController {throw 'Unexpected target dispatch'}
+            $plan=Start-PASDeployment -Configuration $config -WhatIf
             $plan.Items.Count|Should -Be 1
-            Should -Invoke Assert-PASeasyVaultInstallationSecrets -Times 0 -Exactly
-            Should -Invoke Test-PASeasyActiveEnvironment -Times 0 -Exactly
-            Should -Invoke Invoke-PASeasyInternalController -Times 0 -Exactly
+            Should -Invoke Assert-PASVaultInstallationSecrets -Times 0 -Exactly
+            Should -Invoke Test-PASActiveEnvironment -Times 0 -Exactly
+            Should -Invoke Invoke-PASRunController -Times 0 -Exactly
         }
         It 'leaves existing-Vault component credentials to their own REST contract' {
-            {Assert-PASeasyVaultInstallationSecrets @{components=@(@{type='PVWA'})} @{}}|Should -Not -Throw
+            {Assert-PASVaultInstallationSecrets @{components=@(@{type='PVWA'})} @{}}|Should -Not -Throw
         }
         It 'does not require DR credentials for a standalone Primary' {
             $secrets.Remove('DRPassword')
-            {Assert-PASeasyVaultInstallationSecrets @{components=@(@{type='Vault'})} $secrets}|Should -Not -Throw
+            {Assert-PASVaultInstallationSecrets @{components=@(@{type='Vault'})} $secrets}|Should -Not -Throw
         }
     }
 }

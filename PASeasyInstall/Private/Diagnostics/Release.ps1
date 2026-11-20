@@ -158,8 +158,8 @@ function Test-PASEnvironmentHealth {
     $previousProtocol=[Net.ServicePointManager]::SecurityProtocol
     $token=$null
     try{
-        $identities=@(& $core {param($a) Get-PASeasyResourceIdentity -Address $a} ([string]$c.vault.address)|Sort-Object -Unique)
-        foreach($identity in $identities){[void]$gates.Add((& $core {param($n,$d,$r) Enter-PASeasyGate -Name $n -DataRoot $d -RunId $r -TimeoutSeconds 60} ('vault-'+$identity) $dataRoot $healthRun))}
+        $identities=@(& $core {param($a) Get-PASResourceIdentity -Address $a} ([string]$c.vault.address)|Sort-Object -Unique)
+        foreach($identity in $identities){[void]$gates.Add((& $core {param($n,$d,$r) Enter-PASGate -Name $n -DataRoot $d -RunId $r -TimeoutSeconds 60} ('vault-'+$identity) $dataRoot $healthRun))}
         if(@($gates|Where-Object {$_.PreexistingClaim}).Count){throw 'An unreconciled Vault session claim exists on this controller (a failed deployment or health check). Reconcile it before opening a new session.'}
         [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
         if($pin){
@@ -240,7 +240,7 @@ function Export-PASRunData {
     .SYNOPSIS
     Writes a sanitized ZIP of one deployment (configuration, plan, status and event journals) for support or documentation.
     .DESCRIPTION
-    Accepts the id returned by Invoke-PASeasyInstall, Start-PASEnvironment or the desktop. That is either a single
+    Accepts the id returned by Invoke-PASInstall, Start-PASEnvironment or the desktop. That is either a single
     engine run or a composed deployment, whose unit runs are included. Credential envelopes, lock files and
     generated payload scripts are never included. Every file is scanned for private keys, credential
     ciphers and password fields; a file with a hit is left out and listed in the result.
@@ -255,7 +255,7 @@ function Export-PASRunData {
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{32}$')][string]$RunId,[string]$Path='',[switch]$Force,[string]$DataRoot='')
-    if(-not $DataRoot){$DataRoot=Get-PASOrchestratorDataRoot}
+    if(-not $DataRoot){$DataRoot=Get-PASDataRoot}
     if(-not $Path){$Path=Join-Path (Get-Location).ProviderPath ("PASeasyInstall-run-$RunId.zip")}
     $Path=[IO.Path]::GetFullPath($Path)
     if((Test-Path -LiteralPath $Path) -and -not $Force){throw "File exists: $Path (use -Force)"}
@@ -314,7 +314,7 @@ function Close-PASDeployment {
     A Linux server also keeps its own lock (~/.paeasyinstall/locks) until it is reset or the lock is removed.
     PASeasyInstall builds labs. Production use is at your own risk.
     .PARAMETER RunId
-    The deployment id returned by Start-PASEnvironment / Invoke-PASeasyInstall, or one engine run id.
+    The deployment id returned by Start-PASEnvironment / Invoke-PASInstall, or one engine run id.
     .PARAMETER Reason
     Why the record is closed (kept in the run journal).
     .PARAMETER Force
@@ -331,7 +331,7 @@ function Close-PASDeployment {
     $runIds=@($RunId); $fleetPath=$null; $fleet=$null
     if($isFleet){
         $fleetPath=Join-Path (Get-PASFleetDirectory $RunId $dataRoot) 'fleet.json'
-        $fleet=ConvertTo-PASOrchestratorHashtable (Read-PASFleetJson $fleetPath)
+        $fleet=ConvertTo-PASOrderedHashtable (Read-PASFleetJson $fleetPath)
         if($fleet.controllerPid -and [string]$fleet.status -in @('Launching','Running') -and (Get-Process -Id ([int]$fleet.controllerPid) -ErrorAction SilentlyContinue)){
             throw "Deployment $RunId is still running (controller process $($fleet.controllerPid)). Wait for it or stop it first."
         }
@@ -339,21 +339,21 @@ function Close-PASDeployment {
     }
     $runs=@()
     foreach($id in $runIds){
-        $run=& $core {param($i,$d) Get-PASeasyRun -RunId $i -DataRoot $d} $id $dataRoot
+        $run=& $core {param($i,$d) Get-PASRunRecord -RunId $i -DataRoot $d} $id $dataRoot
         if(-not $run){continue}
         if([string]$run.status -in @('Launching','Running')){throw "Run $id is still running. Wait for it or stop its controller first."}
         $runs+=,$run
     }
-    $root=& $core {Get-PASeasyCoordinationRoot}
+    $root=& $core {Get-PASCoordinationRoot}
     $claims=@(Get-ChildItem -LiteralPath $root -Force -Filter '*.json' -ErrorAction SilentlyContinue|Where-Object {
         $c=$null; try{$c=Get-Content -LiteralPath $_.FullName -Raw|ConvertFrom-Json}catch{}; $c -and [string]$c.RunId -in $runIds })
     $toAbandon=@($runs|Where-Object {[string]$_.status -in @('Unknown','Interrupted','LaunchFailed','Failed')})
     $what="$(@($toAbandon).Count) run(s) marked Abandoned, $($claims.Count) controller claim(s) released; servers are not changed"
     if(-not ($Force -or $PSCmdlet.ShouldProcess($RunId,$what))){return}
     foreach($run in $toAbandon){
-        $dir=& $core {param($i,$d) Get-PASeasyRunDirectory $i $d} ([string]$run.id) $dataRoot
+        $dir=& $core {param($i,$d) Get-PASRunDirectory $i $d} ([string]$run.id) $dataRoot
         $path=Join-Path $dir 'run-v2.json'
-        $h=ConvertTo-PASOrchestratorHashtable (Get-Content -LiteralPath $path -Raw|ConvertFrom-Json)
+        $h=ConvertTo-PASOrderedHashtable (Get-Content -LiteralPath $path -Raw|ConvertFrom-Json)
         $previous=[string]$h.status
         $h.status='Abandoned';$h.message="Abandoned by operator (was $previous): $Reason";$h.finishedUtc=[DateTime]::UtcNow.ToString('o')
         & $core {param($p,$d) Write-PASJsonAtomic -Path $p -Data $d} $path $h

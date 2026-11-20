@@ -12,13 +12,13 @@
 # PVWA server over the authenticated management channel. Linux servers get the controller's key on
 # first use (password bootstrap) before their unit starts.
 
-function Get-PASFleetRoot {param([string]$DataRoot=(Get-PASOrchestratorDataRoot)) return (Join-Path $DataRoot 'fleets')}
+function Get-PASFleetRoot {param([string]$DataRoot=(Get-PASDataRoot)) return (Join-Path $DataRoot 'fleets')}
 function Get-PASFleetDirectory {
-    param([Parameter(Mandatory)][string]$FleetId,[string]$DataRoot=(Get-PASOrchestratorDataRoot))
+    param([Parameter(Mandatory)][string]$FleetId,[string]$DataRoot=(Get-PASDataRoot))
     if($FleetId -notmatch '^[a-f0-9]{32}$'){throw 'Invalid deployment id'}
     return (Join-Path (Get-PASFleetRoot $DataRoot) $FleetId)
 }
-function Test-PASFleetId {param([string]$RunId,[string]$DataRoot=(Get-PASOrchestratorDataRoot))
+function Test-PASFleetId {param([string]$RunId,[string]$DataRoot=(Get-PASDataRoot))
     if($RunId -notmatch '^[a-f0-9]{32}$'){return $false}
     return (Test-Path -LiteralPath (Join-Path (Get-PASFleetDirectory $RunId $DataRoot) 'fleet.json') -PathType Leaf)
 }
@@ -37,16 +37,7 @@ function Write-PASFleetEvent {
     $line=[ordered]@{timestampUtc=[DateTime]::UtcNow.ToString('o');event=$Event;component=$Component;taskId=$Stage;level=$Level;message=$Message}
     [IO.File]::AppendAllText((Join-Path $Dir 'events.jsonl'),(($line|ConvertTo-Json -Compress)+"`n"),(New-Object Text.UTF8Encoding($false)))
 }
-function Copy-PASConfiguration {param($Configuration) return (ConvertTo-PASOrchestratorHashtable (($Configuration|ConvertTo-Json -Depth 60)|ConvertFrom-Json))}
-function ConvertTo-PASOrchestratorHashtable {
-    param($Value)
-    if($null -eq $Value){return $null}
-    if($Value -is [string] -or $Value -is [ValueType]){return $Value}
-    if($Value -is [System.Collections.IDictionary]){$h=[ordered]@{};foreach($k in $Value.Keys){$h[[string]$k]=ConvertTo-PASOrchestratorHashtable $Value[$k]};return $h}
-    if($Value -is [pscustomobject]){$h=[ordered]@{};foreach($p in $Value.PSObject.Properties){$h[$p.Name]=ConvertTo-PASOrchestratorHashtable $p.Value};return $h}
-    if($Value -is [System.Collections.IEnumerable]){return ,@(foreach($i in $Value){ConvertTo-PASOrchestratorHashtable $i})}
-    return $Value
-}
+function Copy-PASConfiguration {param($Configuration) return (ConvertTo-PASOrderedHashtable (($Configuration|ConvertTo-Json -Depth 60)|ConvertFrom-Json))}
 
 function Get-PASFleetUnits {
     <# Ordered units with dependencies. Plan order: Vault/DR, PVWA, CPM, PSM, PSMP. Non-PVWA components wait for the first PVWA. #>
@@ -143,7 +134,7 @@ function Read-PASFleetEnvelope {
 }
 
 function Start-PASFleet {
-    param([Parameter(Mandatory)]$Configuration,[hashtable]$CredentialMap=@{},[hashtable]$SecretMap=@{},[string]$DataRoot=(Get-PASOrchestratorDataRoot),[switch]$Foreground)
+    param([Parameter(Mandatory)]$Configuration,[hashtable]$CredentialMap=@{},[hashtable]$SecretMap=@{},[string]$DataRoot=(Get-PASDataRoot),[switch]$Foreground)
     if(-not $Foreground -and $env:OS -ne 'Windows_NT'){throw 'Deployments run from a Windows PowerShell 5.1 controller; this computer can review plans only'}
     $c=Copy-PASConfiguration $Configuration
     $root=Get-PASFleetRoot $DataRoot
@@ -158,9 +149,9 @@ function Start-PASFleet {
             $started=[DateTime]::MinValue; [void][DateTime]::TryParse([string]$f.startedUtc,[Globalization.CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::AdjustToUniversal,[ref]$started)
             $stale=(([string]$f.status -eq 'Launching' -and -not $f.controllerPid -and ([DateTime]::UtcNow-$started).TotalMinutes -gt 2) -or ($f.controllerPid -and -not $pidAlive))
             if(-not $stale){throw "Environment '$($c.name)' already has deployment $($f.id) running"}
-            $h=ConvertTo-PASOrchestratorHashtable $f
+            $h=ConvertTo-PASOrderedHashtable $f
             $h.status=if($f.controllerPid){'Interrupted'}else{'LaunchFailed'}
-            $h.message='No deployment controller is running for this record; resume its units with Resume-PASeasyDeployment if needed'
+            $h.message='No deployment controller is running for this record; resume its units with Resume-PASDeployment if needed'
             Write-PASFleetJson (Join-Path $dir.FullName 'fleet.json') $h
         }
     }
@@ -202,12 +193,12 @@ function Start-PASFleet {
 }
 
 function Invoke-PASFleetController {
-    param([Parameter(Mandatory)][string]$FleetId,[string]$DataRoot=(Get-PASOrchestratorDataRoot),[string]$Envelope='',[hashtable]$InMemoryAuth)
+    param([Parameter(Mandatory)][string]$FleetId,[string]$DataRoot=(Get-PASDataRoot),[string]$Envelope='',[hashtable]$InMemoryAuth)
     $dir=Get-PASFleetDirectory $FleetId $DataRoot
     $fleetPath=Join-Path $dir 'fleet.json'
     $auth=if($InMemoryAuth){$InMemoryAuth}else{$a=Read-PASFleetEnvelope $Envelope;Remove-Item -LiteralPath $Envelope -Force;$a}
-    $c=ConvertTo-PASOrchestratorHashtable ([IO.File]::ReadAllText((Join-Path $dir 'config.json'))|ConvertFrom-Json)
-    $f=ConvertTo-PASOrchestratorHashtable (Read-PASFleetJson $fleetPath)
+    $c=ConvertTo-PASOrderedHashtable ([IO.File]::ReadAllText((Join-Path $dir 'config.json'))|ConvertFrom-Json)
+    $f=ConvertTo-PASOrderedHashtable (Read-PASFleetJson $fleetPath)
     $f.status='Running';$f.controllerPid=$PID;$f.message='Deploying';Write-PASFleetJson $fleetPath $f
     $parallel=([string]$f.mode -eq 'Parallel')
     $trust=@{}
@@ -217,7 +208,7 @@ function Invoke-PASFleetController {
             $units=@($f.units)
             # 1. observe running units
             foreach($u in @($units|Where-Object {$_.status -eq 'Running'})){
-                $run=Get-PASeasyRun -RunId ([string]$u.runId) -DataRoot $DataRoot
+                $run=Get-PASRunRecord -RunId ([string]$u.runId) -DataRoot $DataRoot
                 $s=if($run){[string]$run.status}else{'Unknown'}
                 if($s -eq 'Succeeded'){$u.status='Succeeded';$u.message='Installed and verified';Write-PASFleetEvent $dir 'UnitCompleted' "Unit $($u.id) succeeded (run $($u.runId))" ([string]$u.id)}
                 elseif($s -in @('Failed','LaunchFailed','Unknown','Interrupted')){$u.status='Failed';$u.message=[string]$run.message;Write-PASFleetEvent $dir 'UnitFailed' "Unit $($u.id) ended $s (run $($u.runId)): $($run.message)" ([string]$u.id) '' 'Error'}
@@ -279,7 +270,7 @@ function Start-PASFleetUnit {
             Select-PASPsmpMediaForHost -Component $c -HostRecord $Configuration.hosts[[string]$c.host] -Directory $Directory -DataRoot $DataRoot
         }
         $child=New-PASFleetChildConfiguration -Configuration $Configuration -Unit $Unit -Trust $Trust
-        $valid=Test-PASeasyConfig -Configuration $child -CheckMedia
+        $valid=Test-PASConfiguration -Configuration $child -CheckMedia
         if(-not $valid.Valid){throw ('Configuration check failed: '+($valid.Issues -join '; '))}
         foreach($cid in @($Unit.components)){Write-PASFleetEvent $Directory 'TaskCompleted' 'Local configuration and media checks passed' $cid 'LocalPreflight'}
         $winCreds=@{}
@@ -288,7 +279,7 @@ function Start-PASFleetUnit {
             if($child.hosts.Contains([string]$k)){$hostRecord=$child.hosts[[string]$k]}
             if($hostRecord -and $hostRecord.os -eq 'Windows'){$winCreds[$k]=$Auth.Credentials[$k]}
         }
-        $runId=Start-PASeasyDeployment -Configuration $child -CredentialMap $winCreds -SecretMap $Auth.Secrets -Confirm:$false
+        $runId=Start-PASDeployment -Configuration $child -CredentialMap $winCreds -SecretMap $Auth.Secrets -Confirm:$false
         $Unit.runId=[string]$runId;$Unit.status='Running';$Unit.message='Running'
         Write-PASFleetEvent $Directory 'UnitStarted' "Unit $($Unit.id) started as engine run $runId" ([string]$Unit.id)
     }catch{
@@ -515,13 +506,13 @@ function Invoke-PASSshBootstrap {
 }
 
 # ---- normalized progress for the UI
-function ConvertTo-PASUIComponentId {
+function ConvertTo-PASComponentId {
     <# The Vault engine journals its two roles as primary/primary_final and dr/dr_final. #>
     param([string]$Component)
     switch -Regex ($Component){'^primary(_final)?$'{return 'vault'} '^dr(_final)?$'{return 'dr'} default{return $Component}}
 }
 function Get-PASFleetEvents {
-    param([string]$FleetId,[string]$DataRoot=(Get-PASOrchestratorDataRoot),[int]$Tail=150)
+    param([string]$FleetId,[string]$DataRoot=(Get-PASDataRoot),[int]$Tail=150)
     $dir=Get-PASFleetDirectory $FleetId $DataRoot
     $events=New-Object System.Collections.ArrayList
     $file=Join-Path $dir 'events.jsonl'
@@ -543,22 +534,22 @@ function Get-PASFleetEvents {
     foreach($u in @($f.units)){
         if(-not [string]$u.runId){continue}
         foreach($e in @(Get-PASDeploymentEvents -RunId ([string]$u.runId) -DataRoot $DataRoot -Tail 1000)){
-            $e.Component=ConvertTo-PASUIComponentId $e.Component
+            $e.Component=ConvertTo-PASComponentId $e.Component
             [void]$events.Add($e)
         }
     }
     return @($events.ToArray()|Sort-Object -Property TimestampUtc,Sequence|Select-Object -Last $Tail)
 }
 function Get-PASFleetSnapshot {
-    param([string]$FleetId,[string]$DataRoot=(Get-PASOrchestratorDataRoot),[int]$Tail=150)
+    param([string]$FleetId,[string]$DataRoot=(Get-PASDataRoot),[int]$Tail=150)
     $fleetPath=Join-Path (Get-PASFleetDirectory $FleetId $DataRoot) 'fleet.json'
     $f=Read-PASFleetJson $fleetPath
     if(-not $f){throw "Deployment run not found: $FleetId"}
     # A unit whose engine run was resumed to success after the deployment controller gave up is succeeded now.
     if([string]$f.status -in @('Failed','Interrupted') -and -not ($f.controllerPid -and (Get-Process -Id ([int]$f.controllerPid) -ErrorAction SilentlyContinue))){
-        $h=ConvertTo-PASOrchestratorHashtable $f; $changed=$false
+        $h=ConvertTo-PASOrderedHashtable $f; $changed=$false
         foreach($u in @($h.units|Where-Object {$_.status -eq 'Failed' -and $_.runId})){
-            $run=Get-PASeasyRun -RunId ([string]$u.runId) -DataRoot $DataRoot
+            $run=Get-PASRunRecord -RunId ([string]$u.runId) -DataRoot $DataRoot
             if($run -and [string]$run.status -eq 'Succeeded'){
                 $u.status='Succeeded';$u.message='Installed and verified (after resume)';$changed=$true
                 Write-PASFleetEvent (Split-Path -Parent $fleetPath) 'UnitReconciled' "Unit $($u.id) succeeded after its run was resumed (run $($u.runId))" ([string]$u.id)

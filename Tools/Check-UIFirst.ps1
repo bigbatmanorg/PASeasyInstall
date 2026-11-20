@@ -5,7 +5,7 @@ Non-destructive static and contract validation for the PASeasyInstall GUI-first 
 [CmdletBinding()]param([switch]$RunPester)
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
-$files=@((Join-Path $root 'Start-PASeasyInstall.ps1'))
+$files=@((Join-Path $root 'Start-PASInstall.ps1'))
 $files+=@(Get-ChildItem -LiteralPath (Join-Path $root 'PASeasyInstall') -Recurse -File |
     Where-Object {$_.Extension -in @('.ps1','.psm1','.psd1')} | Select-Object -ExpandProperty FullName)
 $files+=@(Get-ChildItem -LiteralPath (Join-Path $root 'Tests') -Filter '*.ps1' -File |
@@ -18,8 +18,8 @@ foreach($file in $files){
 }
 if($errors.Count){throw "PowerShell parser found errors:`n$($errors -join "`n")"}
 Import-Module (Join-Path $root 'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1') -Force -ErrorAction Stop
-$sample=New-PASeasyConfig -Template Vault -Path (Join-Path $env:TEMP 'paeasy-ui-first-parse.json') -WhatIf
-$validation=Test-PASeasyConfig -Configuration $sample
+$sample=New-PASConfigurationTemplate -Template Vault -Path (Join-Path $env:TEMP 'paeasy-ui-first-parse.json') -WhatIf
+$validation=Test-PASConfiguration -Configuration $sample
 if(-not $validation.Valid){throw "Module contract failed: $($validation.Issues -join '; ')"}
 "PASS: $($files.Count) PowerShell source/test/launcher files parsed; module import and planner contract available. No target writes."
 if($RunPester){

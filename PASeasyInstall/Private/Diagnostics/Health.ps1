@@ -1,5 +1,5 @@
 # Caller owns controller-wide credential coordination. Unknown session state must retain its claim.
-function Invoke-PASeasyAuthenticatedWebHealth {
+function Invoke-PASAuthenticatedWebHealth {
     [CmdletBinding()]
     param([Parameter(Mandatory)][uri]$ApiBaseUri,[Parameter(Mandatory)][pscredential]$Credential,
         [ValidatePattern('^(?:[0-9]+_[0-9]+)?$')][string]$ControlledCPMAccountId='',

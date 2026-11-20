@@ -1,25 +1,5 @@
 # Desired-state configuration. Pure data; no executable strings or plaintext secrets.
-function ConvertTo-PASeasyHashtable {
-    param($Value)
-    if($null -eq $Value){return $null}
-    if($Value -is [string] -or $Value -is [ValueType]){return $Value}
-    if($Value -is [System.Collections.IDictionary]){
-        $result=@{}
-        foreach($key in $Value.Keys){$result[[string]$key]=ConvertTo-PASeasyHashtable $Value[$key]}
-        return ,$result
-    }
-    if($Value -is [pscustomobject]){
-        $result=@{}
-        foreach($property in $Value.PSObject.Properties){$result[$property.Name]=ConvertTo-PASeasyHashtable $property.Value}
-        return ,$result
-    }
-    if($Value -is [array]){
-        $output=@(foreach($entry in $Value){, (ConvertTo-PASeasyHashtable $entry)})
-        return ,$output
-    }
-    return $Value
-}
-function Read-PASeasyConfig {
+function Read-PASConfiguration {
     param([string]$Path,$Configuration)
     if($Path -and $null -ne $Configuration){throw 'Supply -Config OR -Configuration, not both'}
     if($Path){
@@ -27,15 +7,15 @@ function Read-PASeasyConfig {
         $Configuration=Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
     }
     if($null -eq $Configuration){throw 'Deployment configuration required'}
-    $result=ConvertTo-PASeasyHashtable $Configuration
+    $result=ConvertTo-PASHashtable $Configuration
     if($result -isnot [System.Collections.IDictionary]){throw 'Configuration root must be an object'}
     return $result
 }
-function Get-PASeasyPTASyslogHost {
+function Get-PASPTASyslogHost {
     param([hashtable]$Configuration)
     if(-not @($Configuration.components|Where-Object {$_.type -eq 'PTA'}).Count){return ''}
-    if($Configuration.security.profile -eq 'Lab' -and [bool](Get-PASeasyProperty $Configuration.security.overrides 'PTA.SkipVaultSyslog' $false)){return ''}
-    $selected=[string](Get-PASeasyProperty $Configuration.vault 'managementHost' '')
+    if($Configuration.security.profile -eq 'Lab' -and [bool](Get-PASValue $Configuration.security.overrides 'PTA.SkipVaultSyslog' $false)){return ''}
+    $selected=[string](Get-PASValue $Configuration.vault 'managementHost' '')
     if($selected){return $selected}
     $primary=@($Configuration.components|Where-Object {$_.type -eq 'Vault'})
     if($primary.Count -eq 1){return [string]$primary[0].host}
@@ -43,11 +23,11 @@ function Get-PASeasyPTASyslogHost {
     if($matching.Count -eq 1){return [string]$matching[0]}
     return ''
 }
-function Get-PASeasyDeploymentHostIds {
+function Get-PASDeploymentHostIds {
     param([hashtable]$Configuration)
-    return @(@($Configuration.components|ForEach-Object {[string]$_.host})+@($Configuration.activeDirectory.join)+@((Get-PASeasyPTASyslogHost $Configuration))|Where-Object {$_}|Sort-Object -Unique)
+    return @(@($Configuration.components|ForEach-Object {[string]$_.host})+@($Configuration.activeDirectory.join)+@((Get-PASPTASyslogHost $Configuration))|Where-Object {$_}|Sort-Object -Unique)
 }
-function New-PASeasyConfig {
+function New-PASConfigurationTemplate {
     [CmdletBinding(SupportsShouldProcess=$true)]
     param([ValidateSet('Vault','VaultDR','FullLab','ADOnly','ExistingVault','DomainJoin')][string]$Template='FullLab',
         [Parameter(Mandatory)][string]$Path,[switch]$Force)
@@ -91,9 +71,9 @@ function New-PASeasyConfig {
     }
     return $config
 }
-function Test-PASeasyConfig {
+function Test-PASConfiguration {
     [CmdletBinding()]param([string]$Config,$Configuration,[switch]$CheckMedia,[switch]$Strict)
-    $c=Read-PASeasyConfig -Path $Config -Configuration $Configuration
+    $c=Read-PASConfiguration -Path $Config -Configuration $Configuration
     $issues=New-Object 'System.Collections.Generic.List[string]'
     $warnings=New-Object 'System.Collections.Generic.List[string]'
     if([int]$c.schemaVersion -ne 2){$issues.Add('schemaVersion must be 2')}
@@ -118,21 +98,21 @@ function Test-PASeasyConfig {
         if($type -in @('Vault','DRVault') -and @($c.activeDirectory.join) -contains $host){$issues.Add("Vault host $host must not be domain joined")}
         if($type -eq 'AD' -and $c.activeDirectory.mode -eq 'None'){$issues.Add('AD selected but activeDirectory.mode=None')}
         if($type -eq 'PSM'){$warnings.Add('PSM restricts untrusted creation at the Windows Temp root to protect the native TLS backup; existing child permissions are preserved. Connector compatibility requires functional qualification.')}
-        if($type -eq 'PTA' -and (Get-PASeasyProperty (Get-PASeasyProperty $entry 'options' @{}) 'ptaConfigurationTransport' 'VendorCLI') -notin @('VendorCLI','API')){$issues.Add('PTA configuration transport must be VendorCLI or API')}
-        if($type -eq 'PTA' -and (Get-PASeasyProperty (Get-PASeasyProperty $entry 'options' @{}) 'allowUndersizedMemory' $null) -ne $null){$issues.Add('PTA memory exception must use the audited Lab security override PTA.AllowUndersizedMemory')}
-        if($type -eq 'PTA' -and (Get-PASeasyProperty (Get-PASeasyProperty $entry 'options' @{}) 'allowUndersizedCPU' $null) -ne $null){$issues.Add('PTA CPU exception must use the audited Lab security override PTA.AllowUndersizedCPU')}
+        if($type -eq 'PTA' -and (Get-PASValue (Get-PASValue $entry 'options' @{}) 'ptaConfigurationTransport' 'VendorCLI') -notin @('VendorCLI','API')){$issues.Add('PTA configuration transport must be VendorCLI or API')}
+        if($type -eq 'PTA' -and (Get-PASValue (Get-PASValue $entry 'options' @{}) 'allowUndersizedMemory' $null) -ne $null){$issues.Add('PTA memory exception must use the audited Lab security override PTA.AllowUndersizedMemory')}
+        if($type -eq 'PTA' -and (Get-PASValue (Get-PASValue $entry 'options' @{}) 'allowUndersizedCPU' $null) -ne $null){$issues.Add('PTA CPU exception must use the audited Lab security override PTA.AllowUndersizedCPU')}
         if($type -eq 'PTA'){
-            $options=Get-PASeasyProperty $entry 'options' @{}
+            $options=Get-PASValue $entry 'options' @{}
             $ptaIP=$null
             if(-not [Net.IPAddress]::TryParse([string]$target.address,[ref]$ptaIP) -or $ptaIP.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork){$issues.Add('PTA TLS requires a literal target IPv4 address; use options.ptaName for its DNS certificate name')}
-            $pfx=[string](Get-PASeasyProperty $options 'certificatePfxFile' '')
-            $pfxHash=[string](Get-PASeasyProperty $options 'certificatePfxSHA256' '')
-            $name=[string](Get-PASeasyProperty $options 'ptaName' '')
-            $labCA=($c.security.profile -eq 'Lab' -and [bool](Get-PASeasyProperty $c.security.overrides 'PTA.GenerateLabCA' $false))
+            $pfx=[string](Get-PASValue $options 'certificatePfxFile' '')
+            $pfxHash=[string](Get-PASValue $options 'certificatePfxSHA256' '')
+            $name=[string](Get-PASValue $options 'ptaName' '')
+            $labCA=($c.security.profile -eq 'Lab' -and [bool](Get-PASValue $c.security.overrides 'PTA.GenerateLabCA' $false))
             if(($pfx -or $pfxHash) -and (-not $pfx -or $pfxHash -notmatch '^[A-Fa-f0-9]{64}$')){$issues.Add('PTA PFX requires options.certificatePfxFile and certificatePfxSHA256')}
             if($pfx -and $labCA){$issues.Add('PTA operator PFX and generated Lab CA are mutually exclusive')}
             if($name -and ($name -notmatch '^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$' -or $name.Contains('..'))){$issues.Add('PTA ptaName must be a safe DNS name')}
-            if((Get-PASeasyProperty $options 'generateLabCA' $null) -ne $null){$issues.Add('PTA generated CA requires audited Lab security override PTA.GenerateLabCA')}
+            if((Get-PASValue $options 'generateLabCA' $null) -ne $null){$issues.Add('PTA generated CA requires audited Lab security override PTA.GenerateLabCA')}
             if($CheckMedia){
                 if(-not $pfx -and -not $labCA){$issues.Add('PTA requires an operator PFX or explicit Lab override PTA.GenerateLabCA')}
                 if($pfx){
@@ -142,21 +122,21 @@ function Test-PASeasyConfig {
             }elseif(-not $pfx -and -not $labCA){$warnings.Add('PTA TLS certificate source must be configured before installation')}
         }
         if($type -eq 'CPM'){
-            $options=Get-PASeasyProperty $entry 'options' @{}
-            $trustFile=[string](Get-PASeasyProperty $options 'pvwaTrustCertificateFile' '')
-            $trustHash=[string](Get-PASeasyProperty $options 'pvwaTrustCertificateSHA256' '')
+            $options=Get-PASValue $entry 'options' @{}
+            $trustFile=[string](Get-PASValue $options 'pvwaTrustCertificateFile' '')
+            $trustHash=[string](Get-PASValue $options 'pvwaTrustCertificateSHA256' '')
             if(($trustFile -or $trustHash) -and (-not $trustFile -or $trustHash -notmatch '^[A-Fa-f0-9]{64}$')){$issues.Add('CPM public trust certificate requires options.pvwaTrustCertificateFile and pvwaTrustCertificateSHA256')}
             if($CheckMedia -and $trustFile -and -not(Test-Path -LiteralPath $trustFile -PathType Leaf)){$issues.Add('CPM public trust certificate file is missing')}
-            if((Get-PASeasyProperty $options 'allowPinnedLeafTrust' $null) -ne $null){$issues.Add('CPM leaf trust exception must use audited Lab security override CPM.AllowPinnedLeafTrust')}
+            if((Get-PASValue $options 'allowPinnedLeafTrust' $null) -ne $null){$issues.Add('CPM leaf trust exception must use audited Lab security override CPM.AllowPinnedLeafTrust')}
         }
         if($type -in @('PSMP','PTA')){$warnings.Add("$type Linux installation requires qualification on the selected target distribution and supplied media")}
         if($CheckMedia -and $type -notin @('Vault','DRVault','AD')){
-            $mediaPath=[string](Get-PASeasyProperty $entry 'media' '')
+            $mediaPath=[string](Get-PASValue $entry 'media' '')
             if(-not $mediaPath -or -not(Test-Path -LiteralPath $mediaPath -PathType Leaf)){$issues.Add("Media ZIP missing for component '$id' ($mediaPath)")}
             if($type -eq 'PTA'){
-                $opts=Get-PASeasyProperty $entry 'options' @{}
-                $key=[string](Get-PASeasyProperty $opts 'signingKeyFile' '')
-                $fingerprint=[string](Get-PASeasyProperty $opts 'signingKeyFingerprint' '')
+                $opts=Get-PASValue $entry 'options' @{}
+                $key=[string](Get-PASValue $opts 'signingKeyFile' '')
+                $fingerprint=[string](Get-PASValue $opts 'signingKeyFingerprint' '')
                 if(-not $key -or -not(Test-Path -LiteralPath $key -PathType Leaf)){$issues.Add('PTA requires options.signingKeyFile (reviewed vendor public RPM key)')}
                 if($fingerprint -notmatch '^[A-Fa-f0-9]{40}$'){$issues.Add('PTA requires reviewed options.signingKeyFingerprint')}
             }
@@ -184,7 +164,7 @@ function Test-PASeasyConfig {
     }
     # Multiple host IDs for one literal endpoint bypass dedicated-role and join guards.
     # Co-location must use one host record so every policy sees the same identity.
-    $usedHosts=@(Get-PASeasyDeploymentHostIds $c)
+    $usedHosts=@(Get-PASDeploymentHostIds $c)
     $reservedCredentialAliases=@()
     if(@($c.components|Where-Object {$_.type -eq 'Vault'}).Count){$reservedCredentialAliases+=@('PrimaryAdmin','DRAdmin')}
     $reservedCredentialAliases+=@($c.components|Where-Object {$_.type -eq 'AD'}|ForEach-Object {([string]$_.id)+'-domain'})
@@ -226,10 +206,10 @@ function Test-PASeasyConfig {
         }
     }
     if(@($c.components|Where-Object {$_.type -eq 'PTA'}).Count){
-        $skip=($c.security.profile -eq 'Lab' -and [bool](Get-PASeasyProperty $c.security.overrides 'PTA.SkipVaultSyslog' $false))
-        $management=Get-PASeasyPTASyslogHost $c
+        $skip=($c.security.profile -eq 'Lab' -and [bool](Get-PASValue $c.security.overrides 'PTA.SkipVaultSyslog' $false))
+        $management=Get-PASPTASyslogHost $c
         if(-not $skip -and (-not $management -or -not $c.hosts.Contains($management) -or $c.hosts[$management].os -ne 'Windows')){$issues.Add('PTA TLS syslog requires vault.managementHost referencing the primary Windows host')}
-        $endpoint=[string](Get-PASeasyProperty $c.vault 'managementEndpoint' 'PAExec.Management')
+        $endpoint=[string](Get-PASValue $c.vault 'managementEndpoint' 'PAExec.Management')
         if($endpoint -notmatch '^[A-Za-z][A-Za-z0-9_.-]{0,63}$'){$issues.Add('Invalid Vault management endpoint name')}
         if(@($c.components|Where-Object {$_.type -eq 'PTA'}).Count -gt 1){$issues.Add('Only one PTA syslog receiver per Vault is supported by this installer')}
         foreach($pta in @($c.components|Where-Object {$_.type -eq 'PTA'})){
@@ -251,9 +231,4 @@ function Test-PASeasyConfig {
     if($raw -match '"(?:password|vaultAdminPassword|masterPassword|secretValue)"\s*:'){$issues.Add('Configuration appears to contain a plaintext password field: use credential/secret references')}
     if($Strict -and $warnings.Count){foreach($w in $warnings){$issues.Add($w)}}
     return [pscustomobject]@{Valid=($issues.Count -eq 0);Issues=@($issues.ToArray());Warnings=@($warnings.ToArray());Configuration=$c}
-}
-function Get-PASeasyProperty {param($Object,[string]$Name,$Default=$null)
-    if($null -eq $Object){return $Default}
-    if($Object -is [System.Collections.IDictionary]){if($Object.Contains($Name)){return $Object[$Name]};return $Default}
-    $p=$Object.PSObject.Properties[$Name];if($p){return $p.Value};return $Default
 }

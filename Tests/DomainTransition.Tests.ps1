@@ -13,14 +13,14 @@ InModuleScope PASeasyInstall.Core {
                 [pscustomobject]@{State='Opened';Availability='Available'}
             }
             $target=@{Protocol='WinRM';ComputerName='fixture.invalid';CredentialRef='before';TransitionCredentialRef='after';ConfigurationName='Microsoft.PowerShell';UseSSL=$true;ConnectRetrySeconds=0}
-            (Get-PSConnection $target $creds).State | Should -Be 'Opened'
+            (Get-PASConnection $target $creds).State | Should -Be 'Opened'
             Should -Invoke New-PSSession -Times 2 -Exactly
         }
         It 'does not invent or guess a post-promotion credential' {
             $secret=ConvertTo-SecureString 'synthetic-value' -AsPlainText -Force
             Mock New-PSSession {throw 'should never connect'}
             $target=@{Protocol='WinRM';ComputerName='fixture.invalid';CredentialRef='before';TransitionCredentialRef='absent'}
-            {Get-PSConnection $target @{before=[pscredential]::new('BEFORE\Administrator',$secret)}} | Should -Throw '*transition credential*'
+            {Get-PASConnection $target @{before=[pscredential]::new('BEFORE\Administrator',$secret)}} | Should -Throw '*transition credential*'
             Should -Invoke New-PSSession -Times 0 -Exactly
         }
     }

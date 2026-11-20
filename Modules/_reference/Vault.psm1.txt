@@ -14,7 +14,7 @@ function New-PASVaultConfiguration {
         [string]$ServerZip='',[string]$PACLIZip='',
         [ValidateSet('Secure','Lab')][string]$SecurityProfile='Secure')
     if($PrimaryIP -eq $ControllerIP){throw 'Controller and Primary Vault must have different addresses'}
-    $c=New-PASeasyConfig -Template Vault -Path 'template.json' -WhatIf -Force
+    $c=New-PASConfigurationTemplate -Template Vault -Path 'template.json' -WhatIf -Force
     $c.name=$Environment.Trim()
     $c.mediaRoot=$MediaRoot.Trim()
     $c.controllerAddress=$ControllerIP.Trim()
@@ -33,7 +33,7 @@ function New-PASVaultConfiguration {
     }
     if($ServerZip){$c.media.ServerZip=$ServerZip}
     if($PACLIZip){$c.media.PACLIZip=$PACLIZip}
-    $result=Test-PASeasyConfig -Configuration $c
+    $result=Test-PASConfiguration -Configuration $c
     if(-not $result.Valid){throw ('Invalid Vault configuration: '+($result.Issues -join '; '))}
     return $result.Configuration
 }
@@ -41,14 +41,14 @@ function Invoke-PASVault {
     [CmdletBinding(SupportsShouldProcess=$true)]param([string]$Config,$Configuration,
         [ValidateSet('All','LocalPreflight')][string]$Stage='All',
         [hashtable]$CredentialMap=@{},[hashtable]$SecretMap=@{},[switch]$PlanOnly)
-    $validation=Test-PASeasyConfig -Config $Config -Configuration $Configuration -CheckMedia:($Stage -eq 'LocalPreflight')
+    $validation=Test-PASConfiguration -Config $Config -Configuration $Configuration -CheckMedia:($Stage -eq 'LocalPreflight')
     if(-not $validation.Valid){throw ($validation.Issues -join '; ')}
     $types=@($validation.Configuration.components|ForEach-Object {[string]$_.type})
     if($types.Count -ne 1 -or $types[0] -ne 'Vault'){throw 'Invoke-PASVault only accepts a Primary-only Vault configuration'}
     if($Stage -eq 'LocalPreflight'){return $validation}
-    if($PlanOnly){return (Get-PASeasyPlan -Configuration $validation.Configuration)}
+    if($PlanOnly){return (Get-PASDeploymentPlan -Configuration $validation.Configuration)}
     if($PSCmdlet.ShouldProcess($validation.Configuration.name,'Deploy Primary Vault')){
-        return (Start-PASeasyDeployment -Configuration $validation.Configuration -CredentialMap $CredentialMap -SecretMap $SecretMap -Confirm:$false)
+        return (Start-PASDeployment -Configuration $validation.Configuration -CredentialMap $CredentialMap -SecretMap $SecretMap -Confirm:$false)
     }
 }
 function Get-PASVaultStages {

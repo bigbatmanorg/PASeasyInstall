@@ -2,7 +2,7 @@
 function Get-PASDeploymentEvents {
     [CmdletBinding()]param([Parameter(Mandatory)][ValidatePattern('^[a-fA-F0-9]{32}$')][string]$RunId,
         [string]$DataRoot=(Get-PASDataRoot),[ValidateRange(1,1000)][int]$Tail=150)
-    $dir=Get-PASeasyRunDirectory -RunId $RunId -DataRoot $DataRoot
+    $dir=Get-PASRunDirectory -RunId $RunId -DataRoot $DataRoot
     if(-not(Test-Path -LiteralPath $dir -PathType Container)){return @()}
     $sources=@()
     $controllerEvents=Join-Path $dir 'events-v2.jsonl'
@@ -23,11 +23,11 @@ function Get-PASDeploymentEvents {
                 # A partially written final line may be observed; never guess a step state.
                 continue
             }
-            $stamp=[string](Get-PASProp $data 'timestampUtc' '')
-            $eventType=[string](Get-PASProp $data 'type' (Get-PASProp $data 'event' 'Event'))
-            $stage=[string](Get-PASProp $data 'taskId' '')
-            $target=[string](Get-PASProp $data 'target' (Get-PASProp $data 'component' ''))
-            $level=[string](Get-PASProp $data 'level' 'Information')
+            $stamp=[string](Get-PASValue $data 'timestampUtc' '')
+            $eventType=[string](Get-PASValue $data 'type' (Get-PASValue $data 'event' 'Event'))
+            $stage=[string](Get-PASValue $data 'taskId' '')
+            $target=[string](Get-PASValue $data 'target' (Get-PASValue $data 'component' ''))
+            $level=[string](Get-PASValue $data 'level' 'Information')
             if($level -notin @('Information','Warning','Error')){$level='Information'}
             $state='Info'
             if($level -eq 'Error' -or $eventType -match '(?i)(Failed|Unknown|Stopped)'){$state='Failed'}
@@ -37,7 +37,7 @@ function Get-PASDeploymentEvents {
             [void]$events.Add([pscustomobject]@{
                 TimestampUtc=$stamp;RunId=$RunId;Component=$target;Stage=$stage;Event=$eventType;
                 Level=$level;Status=$state;Source=$sourceType;
-                Message=[string](Get-PASProp $data 'message' '');Sequence=[int](Get-PASProp $data 'sequence' $lineNumber)
+                Message=[string](Get-PASValue $data 'message' '');Sequence=[int](Get-PASValue $data 'sequence' $lineNumber)
             })
         }
     }
@@ -45,7 +45,7 @@ function Get-PASDeploymentEvents {
 }
 function Get-PASDeploymentSnapshot {
     [CmdletBinding()]param([Parameter(Mandatory)][string]$RunId,[string]$DataRoot=(Get-PASDataRoot),[int]$Tail=150)
-    $run=Get-PASeasyRun -RunId $RunId -DataRoot $DataRoot
+    $run=Get-PASRunRecord -RunId $RunId -DataRoot $DataRoot
     if(-not $run){throw "Deployment run not found: $RunId"}
     $events=@(Get-PASDeploymentEvents -RunId $RunId -DataRoot $DataRoot -Tail $Tail)
     $progress=@($events|Where-Object {$_.Event -eq 'TaskCompleted'})

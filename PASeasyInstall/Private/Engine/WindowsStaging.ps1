@@ -1,4 +1,4 @@
-function Get-PSWindowsStagePreparation {
+function Get-PASWindowsStagePreparation {
     # Self-contained for PSRP and Windows runtime adversarial tests.
     $body={
         param([string]$Root,[string]$LockKey='',[string]$RunId='',[bool]$Release=$false,[string]$AuthenticatedUser='')
@@ -69,20 +69,20 @@ function Get-PSWindowsStagePreparation {
         }
         [pscustomobject]@{Message=$message}
     }
-    $moduleRoot=Split-Path (Split-Path $script:PAExecRoot -Parent) -Parent
+    $moduleRoot=Split-Path (Split-Path $script:PASEngineRoot -Parent) -Parent
     $helper=Join-Path $moduleRoot 'Recipes/WindowsComponent/Ownership.ps1'
     return [scriptblock]::Create($body.ToString().Replace('# PAEASY_STATIC_OWNERSHIP_HELPER',[IO.File]::ReadAllText($helper)))
 }
-function Initialize-PSWindowsStageRoot {
+function Initialize-PASWindowsStageRoot {
     param([hashtable]$Target,[hashtable]$Credentials)
-    Assert-PSDetachedSupported $Target
-    $session=Get-PSConnection $Target $Credentials
-    $root=[string](Get-PSObjectValue $Target 'StageRoot' 'C:\ProgramData\PAExec')
-    $reference=[string](Get-PSObjectValue $Target 'CredentialRef' '')
+    Assert-PASDetachedSupported $Target
+    $session=Get-PASConnection $Target $Credentials
+    $root=[string](Get-PASValue $Target 'StageRoot' 'C:\ProgramData\PAExec')
+    $reference=[string](Get-PASValue $Target 'CredentialRef' '')
     $user=if($reference -and $Credentials.ContainsKey($reference)){[string]$Credentials[$reference].UserName}else{''}
-    [void](Invoke-Command -Session $session -ScriptBlock (Get-PSWindowsStagePreparation) -ArgumentList $root,'','',$false,$user -ErrorAction Stop)
+    [void](Invoke-Command -Session $session -ScriptBlock (Get-PASWindowsStagePreparation) -ArgumentList $root,'','',$false,$user -ErrorAction Stop)
 }
-function Get-PSWindowsFilePreparation {
+function Get-PASWindowsFilePreparation {
     $body={
         param([string]$Destination,[string]$ManagementUser='',[bool]$ValidateOnly=$false,[bool]$CreateFile=$true)
         # PAEASY_STATIC_OWNERSHIP_HELPER
@@ -139,7 +139,7 @@ function Get-PSWindowsFilePreparation {
         $owner=if(Test-Path -LiteralPath $path){(Get-Acl $path).GetOwner([Security.Principal.SecurityIdentifier]).Value}else{''}
         [pscustomobject]@{Path=$path;ApprovedRoot=$parent;OwnerSID=$owner}
     }
-    $moduleRoot=Split-Path (Split-Path $script:PAExecRoot -Parent) -Parent
+    $moduleRoot=Split-Path (Split-Path $script:PASEngineRoot -Parent) -Parent
     $helper=Join-Path $moduleRoot 'Recipes/WindowsComponent/Ownership.ps1'
     return [scriptblock]::Create($body.ToString().Replace('# PAEASY_STATIC_OWNERSHIP_HELPER',[IO.File]::ReadAllText($helper)))
 }

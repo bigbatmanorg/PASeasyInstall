@@ -20,11 +20,11 @@ Describe 'Secret-bearing task outputs and remote evidence' {
         & (Get-Module PASeasyInstall.Core) {
             $secret='synthetic-marker'
             $remote=@{state='Succeeded';message="error $secret";data=@{arbitrary=$secret};unexpected=$secret;exitCode=0}
-            $safe=Select-PAExecRemoteEvidence $remote @($secret)
+            $safe=Select-PASRemoteEvidence $remote @($secret)
             ($safe | ConvertTo-Json) | Should -Not -Match $secret
             $safe.ContainsKey('data') | Should -BeFalse
             $safe.ContainsKey('unexpected') | Should -BeFalse
-            {Select-PAExecSafeData @{Metadata=$secret} @($secret)} | Should -Throw '*Sensitive*'
+            {Select-PASSafeData @{Metadata=$secret} @($secret)} | Should -Throw '*Sensitive*'
         }
     }
 }

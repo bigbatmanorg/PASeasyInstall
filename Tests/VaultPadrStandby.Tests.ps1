@@ -201,12 +201,12 @@ Describe 'PADR no-reboot install return boundary (mock vendor process only)' {
 Describe 'PADR static recipe helper inclusion (root-owned payload allowlist prerequisite)' {
     BeforeAll {
         $script:PASRoot=Join-Path $repo PASeasyInstall
-        function Test-PSWindows {return $env:OS -eq 'Windows_NT'}
+        function Test-PASWindows {return $env:OS -eq 'Windows_NT'}
         . (Join-Path $script:PASRoot 'Private/Engine/RecipePayload.ps1')
     }
     It 'ships the immutable manual-standby guard to every PADR start and independent verification task' {
         foreach($relative in @('VaultDR/Configure-PADR.ps1','VaultDR/Install-PADR.ps1','VaultDR/Wait-Replication.ps1','Verify/Verify-DR.ps1','Verify/Verify-PADRInstalled.ps1')){
-            $payload=Get-PSRecipePayload (Join-Path $script:PASRoot ('Recipes/Vault/Tasks/'+$relative))
+            $payload=Get-PASRecipePayload (Join-Path $script:PASRoot ('Recipes/Vault/Tasks/'+$relative))
             $payload.Text|Should -Not -Match 'PAEASY_INCLUDE_'
             $payload.Text|Should -Match 'function Assert-PASeasyPadrManualStandby'
             @($payload.Files|Where-Object {$_ -like '*VaultPadr.ps1'}).Count|Should -Be 1

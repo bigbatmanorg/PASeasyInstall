@@ -14,13 +14,13 @@ Describe 'Close-PASDeployment' {
         New-Item -ItemType Directory -Force $runDir | Out-Null
         & $script:core { param($p, $d) Write-PASJsonAtomic -Path $p -Data $d } (Join-Path $runDir 'run-v2.json') ([ordered]@{
             schemaVersion = 2; id = $id; name = 'CloseTest'; status = 'Unknown'; startedUtc = [DateTime]::UtcNow.ToString('o'); controllerPid = $null; message = 'synthetic' })
-        $root = & $script:core { Get-PASeasyCoordinationRoot }
-        if (-not (Test-Path $root)) { $null = & $script:core { Initialize-PASeasyController } }
+        $root = & $script:core { Get-PASCoordinationRoot }
+        if (-not (Test-Path $root)) { $null = & $script:core { Initialize-PASController } }
         $mine = Join-Path $root ('test-' + $id + '.json'); $theirs = Join-Path $root ('test-' + $other + '.json')
         try {
             Set-Content $mine (@{ RunId = $id; StateRoot = 'x' } | ConvertTo-Json -Compress)
             Set-Content $theirs (@{ RunId = $other; StateRoot = 'x' } | ConvertTo-Json -Compress)
-            { & $script:core { Test-PASeasyActiveEnvironment -Name 'CloseTest' -DataRoot $env:PAS_EASY_DATA_ROOT } } | Should -Throw '*unresolved deployment*'
+            { & $script:core { Test-PASActiveEnvironment -Name 'CloseTest' -DataRoot $env:PAS_EASY_DATA_ROOT } } | Should -Throw '*unresolved deployment*'
 
             $r = Close-PASDeployment -RunId $id -Reason 'test servers reset' -Force
             $r.AbandonedRuns | Should -Be @($id)
@@ -29,7 +29,7 @@ Describe 'Close-PASDeployment' {
             Test-Path $theirs | Should -BeTrue
             (Get-Content (Join-Path $runDir 'run-v2.json') -Raw | ConvertFrom-Json).status | Should -Be 'Abandoned'
             (Get-Content (Join-Path $runDir 'events-v2.jsonl') -Raw) | Should -Match 'RunAbandoned'
-            { & $script:core { Test-PASeasyActiveEnvironment -Name 'CloseTest' -DataRoot $env:PAS_EASY_DATA_ROOT } } | Should -Not -Throw
+            { & $script:core { Test-PASActiveEnvironment -Name 'CloseTest' -DataRoot $env:PAS_EASY_DATA_ROOT } } | Should -Not -Throw
         } finally { Remove-Item $mine, $theirs -Force -ErrorAction SilentlyContinue }
     }
 

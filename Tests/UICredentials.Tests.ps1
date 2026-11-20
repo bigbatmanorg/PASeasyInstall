@@ -6,7 +6,7 @@ BeforeAll {
 Describe 'UI private credential handoff' {
     BeforeEach {
         $path=Join-Path $TestDrive 'config.json'
-        $config=New-PASeasyConfig -Template Vault -Path $path -Force
+        $config=New-PASConfigurationTemplate -Template Vault -Path $path -Force
         $state=@{Auth=(New-PASeasyUICredentialCache)}
     }
     It 'requires independent selected-host and role secrets by default' {
@@ -49,7 +49,7 @@ Describe 'Native Windows credential dialog support' {
 Describe 'PSM domain installer credential references' {
     It 'requires and forwards an independent declared installer identity' {
         $path=Join-Path $TestDrive 'psm.json'
-        $config=New-PASeasyConfig -Template ExistingVault -Path $path -Force
+        $config=New-PASConfigurationTemplate -Template ExistingVault -Path $path -Force
         $config.components=@(@{id='psm';type='PSM';host='pam01';options=@{}})
         $config.activeDirectory.mode='Existing';$config.activeDirectory.join=@('pam01')
         $config|ConvertTo-Json -Depth 50|Set-Content $path
@@ -68,7 +68,7 @@ Describe 'PSM domain installer credential references' {
 Describe 'PTA installer API credential role' {
     It 'requires independent PTA installer and primary Windows credentials' {
         $path=Join-Path $TestDrive 'pta.json'
-        $config=New-PASeasyConfig -Template ExistingVault -Path $path -Force
+        $config=New-PASConfigurationTemplate -Template ExistingVault -Path $path -Force
         $config.components=@(@{id='pta';type='PTA';host='pta01';options=@{ptaConfigurationTransport='API'}})
         $config|ConvertTo-Json -Depth 50|Set-Content $path
         $state=@{Auth=(New-PASeasyUICredentialCache)}
@@ -87,7 +87,7 @@ Describe 'PTA installer API credential role' {
 Describe 'PTA native CLI secret minimization' {
     It 'does not export an unused OS installer password for the default native CLI route' {
         $path=Join-Path $TestDrive 'pta-native.json'
-        $config=New-PASeasyConfig -Template ExistingVault -Path $path -Force
+        $config=New-PASConfigurationTemplate -Template ExistingVault -Path $path -Force
         $config.components=@(@{id='pta';type='PTA';host='pta01';options=@{}})
         $config | ConvertTo-Json -Depth 50 | Set-Content $path
         $state=@{Auth=(New-PASeasyUICredentialCache)}

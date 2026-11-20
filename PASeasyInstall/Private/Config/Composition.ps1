@@ -9,11 +9,6 @@ $script:PASMaxInstances=@{PVWA=4;CPM=4;PSM=4;PSMP=4;PTA=1}
 # Engine/journal names that must never be used as instance ids (event mapping and credential aliases).
 $script:PASReservedIds=@('vault','dr','primary','primary_final','dr_final','vault01','dr01','primaryadmin','dradmin','controller')
 
-function Get-PASOrchestratorDataRoot {
-    if($env:PAS_EASY_DATA_ROOT){return [IO.Path]::GetFullPath($env:PAS_EASY_DATA_ROOT)}
-    if($env:OS -eq 'Windows_NT'){return (Join-Path $env:LOCALAPPDATA 'PASeasyInstall')}
-    return (Join-Path $HOME '.local/share/PASeasyInstall')
-}
 function Get-PASSafeName {
     param([string]$Value,[int]$Max=40)
     $s=([string]$Value).Trim().ToLowerInvariant() -replace '[^a-z0-9_-]','-'
@@ -37,7 +32,7 @@ function Get-PASMediaItemValue {
 function Resolve-PASMediaItemPath {
     <# A plain file is used where it is. An entry inside a ZIP bundle is extracted once into
        <DataRoot>/MediaCache/<key>/<entry file name>; the key covers bundle path, entry, size and time. #>
-    param($Item,[string]$DataRoot=(Get-PASOrchestratorDataRoot))
+    param($Item,[string]$DataRoot=(Get-PASDataRoot))
     $path=Get-PASMediaItemValue $Item 'Path'
     $entry=Get-PASMediaItemValue $Item 'Entry'
     if(-not $path){return ''}
@@ -149,7 +144,7 @@ function New-PASDeploymentConfiguration {
         [ValidateSet('Sequential','Parallel')][string]$ExecutionMode='Sequential',
         [AllowEmptyString()][string]$PrimaryUsername='',[AllowEmptyString()][string]$DRUsername='',
         [ValidateSet('Secure','Lab')][string]$SecurityProfile='Secure',[switch]$AcceptEula,
-        [string]$DataRoot=(Get-PASOrchestratorDataRoot))
+        [string]$DataRoot=(Get-PASDataRoot))
     $lab=($SecurityProfile -eq 'Lab')
     $overrides=[ordered]@{}
     $c=[ordered]@{
@@ -261,7 +256,7 @@ function New-PASDeploymentConfiguration {
     return $c
 }
 
-function Test-PASOrchestratorRules {
+function Test-PASCompositionRules {
     <# Composition rules on top of the engine validation. Returns @{Issues;Warnings}. #>
     param($Configuration)
     $issues=@();$warnings=@()

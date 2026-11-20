@@ -1,4 +1,4 @@
-﻿function Get-PASeasyHostCredential {
+﻿function Get-PASHostCredential {
     param([hashtable]$Config,[hashtable]$CredentialMap,[string]$HostId,[string]$ComponentId='')
     $hostRecord=$Config.hosts[$HostId]
     $keys=@()
@@ -22,26 +22,26 @@
     }
     return $null
 }
-function Resolve-PASeasyCredentialMap {
+function Resolve-PASCredentialMap {
     param([hashtable]$Config,[hashtable]$CredentialMap)
     # Keep durable inventory references stable and never add aliases to the caller's map.
     $resolved=$CredentialMap.Clone()
-    foreach($hostId in @(Get-PASeasyDeploymentHostIds $Config)){
+    foreach($hostId in @(Get-PASDeploymentHostIds $Config)){
         if($Config.hosts[$hostId].os -ne 'Windows'){continue}
-        $credential=Get-PASeasyHostCredential $Config $CredentialMap $hostId
+        $credential=Get-PASHostCredential $Config $CredentialMap $hostId
         if($credential -and -not $resolved.ContainsKey($hostId)){$resolved[$hostId]=$credential}
     }
     foreach($component in @($Config.components)){
         $hostId=[string]$component.host;$id=[string]$component.id
         if($Config.hosts[$hostId].os -ne 'Windows'){continue}
-        $credential=Get-PASeasyHostCredential $Config $CredentialMap $hostId $id
+        $credential=Get-PASHostCredential $Config $CredentialMap $hostId $id
         if($credential -and -not $resolved.ContainsKey($id)){$resolved[$id]=$credential}
     }
     # A Vault is dedicated: its native role, management host and diagnostic
     # component must use the same selected identity, including explicit overrides.
     foreach($component in @($Config.components|Where-Object {$_.type -in @('Vault','DRVault')})){
         $hostId=[string]$component.host;$id=[string]$component.id
-        $credential=Get-PASeasyHostCredential $Config $CredentialMap $hostId $id
+        $credential=Get-PASHostCredential $Config $CredentialMap $hostId $id
         if($credential){
             $role=if($component.type -eq 'Vault'){'PrimaryAdmin'}else{'DRAdmin'}
             $resolved[$role]=$credential;$resolved[$hostId]=$credential;$resolved[$id]=$credential
@@ -49,10 +49,10 @@ function Resolve-PASeasyCredentialMap {
     }
     return $resolved
 }
-function Resolve-PASeasySecretMap {
+function Resolve-PASSecretMap {
     param([hashtable]$Config,[hashtable]$SecretMap)
     $resolved=$SecretMap.Clone()
-    $vault=Get-PASeasyProperty $Config 'vault' @{}
+    $vault=Get-PASValue $Config 'vault' @{}
     if($null -eq $vault){$vault=@{}}
     foreach($pair in @(@('secretRef','VaultAdmin'),@('masterSecretRef','VaultMaster'),@('drSecretRef','DRPassword'))){
         $reference=$pair[1]
@@ -67,9 +67,9 @@ function Resolve-PASeasySecretMap {
     }
     return $resolved
 }
-function Get-PASeasyPlan {
+function Get-PASDeploymentPlan {
     [CmdletBinding()]param([string]$Config,$Configuration,[switch]$ResolveMedia)
-    $validated=Test-PASeasyConfig -Config $Config -Configuration $Configuration
+    $validated=Test-PASConfiguration -Config $Config -Configuration $Configuration
     if(-not $validated.Valid){throw ('Configuration invalid: '+($validated.Issues -join '; '))}
     $c=$validated.Configuration
     $items=New-Object System.Collections.ArrayList
@@ -87,19 +87,19 @@ function Get-PASeasyPlan {
         if($type -notin @('AD','Vault') -and $hasVault){$deps+=@($ordered|Where-Object{$_.type -eq 'Vault'}|ForEach-Object{$_.id})}
         if($type -eq 'PTA'){$deps+=@($ordered|Where-Object{$_.type -eq 'PVWA'}|ForEach-Object{$_.id})}
         $deployable=if($type -eq 'AD'){'ImplementationReadyForQualification'}elseif($type -in @('Vault','DRVault')){'MigratedNeedsRequalification'}else{'RecipePreparedNeedsVendorMediaQualification'}
-        [void]$items.Add([pscustomobject]@{Id=[string]$entry.id;Type=$type;Host=[string]$entry.host;Variant=[string](Get-PASeasyProperty $entry 'variant' 'Standard');DependsOn=@($deps | Sort-Object -Unique);Readiness=$deployable})
+        [void]$items.Add([pscustomobject]@{Id=[string]$entry.id;Type=$type;Host=[string]$entry.host;Variant=[string](Get-PASValue $entry 'variant' 'Standard');DependsOn=@($deps | Sort-Object -Unique);Readiness=$deployable})
     }
-    $media=@();if($ResolveMedia){$media=@(Get-PASeasyFrozenMedia $c)}
-    $mediaDigest=Get-PASeasyDigest (($media | ConvertTo-Json -Depth 8 -Compress) -join '')
-    $fingerprint=Get-PASeasyDigest ((ConvertTo-PASeasyCanonical $c) | ConvertTo-Json -Depth 60 -Compress)
+    $media=@();if($ResolveMedia){$media=@(Get-PASFrozenMedia $c)}
+    $mediaDigest=Get-PASTextDigest (($media | ConvertTo-Json -Depth 8 -Compress) -join '')
+    $fingerprint=Get-PASTextDigest ((ConvertTo-PASCanonical $c) | ConvertTo-Json -Depth 60 -Compress)
     $joins=@(foreach($hostId in @($c.activeDirectory.join)){
         [pscustomobject]@{Id=('join-'+[string]$hostId);Host=[string]$hostId;Domain=[string]$c.activeDirectory.domain;Stages=@('DNS','Join','Reboot','SecureChannelAndSRV');DependsOn=@($ordered|Where-Object {$_.type -eq 'AD'}|ForEach-Object {$_.id})}
     })
-    return [pscustomobject]@{Name=[string]$c.name;ConfigDigest=$fingerprint;SourceDigest=(Get-PASeasySourceDigest -Configuration $c);MediaResolved=[bool]$ResolveMedia;Media=$media;MediaDigest=$mediaDigest;Items=@($items.ToArray());DomainJoins=$joins;Warnings=$validated.Warnings;ExecutionMode='Sequential';SchemaVersion=2}
+    return [pscustomobject]@{Name=[string]$c.name;ConfigDigest=$fingerprint;SourceDigest=(Get-PASSourceDigest -Configuration $c);MediaResolved=[bool]$ResolveMedia;Media=$media;MediaDigest=$mediaDigest;Items=@($items.ToArray());DomainJoins=$joins;Warnings=$validated.Warnings;ExecutionMode='Sequential';SchemaVersion=2}
 }
 # Canonical object order is required: the detached controller is a separate process and
 # Hashtable/JSON property order must not invalidate an unchanged deployment plan.
-function ConvertTo-PASeasyCanonical {
+function ConvertTo-PASCanonical {
     param($Value)
     if($null -eq $Value){return $null}
     if($Value -is [string] -or $Value -is [ValueType]){return $Value}
@@ -107,28 +107,28 @@ function ConvertTo-PASeasyCanonical {
         $ordered=[ordered]@{}
         [string[]]$keys=@($Value.Keys|ForEach-Object {[string]$_})
         [Array]::Sort($keys,[StringComparer]::Ordinal)
-        foreach($key in $keys){$ordered[$key]=ConvertTo-PASeasyCanonical $Value[$key]}
+        foreach($key in $keys){$ordered[$key]=ConvertTo-PASCanonical $Value[$key]}
         return $ordered
     }
     if($Value -is [pscustomobject]){
         $ordered=[ordered]@{}
         [string[]]$names=@($Value.PSObject.Properties|ForEach-Object {[string]$_.Name})
         [Array]::Sort($names,[StringComparer]::Ordinal)
-        foreach($name in $names){$ordered[$name]=ConvertTo-PASeasyCanonical $Value.PSObject.Properties[$name].Value}
+        foreach($name in $names){$ordered[$name]=ConvertTo-PASCanonical $Value.PSObject.Properties[$name].Value}
         return $ordered
     }
     if($Value -is [array]){
-        $list=@(foreach($item in $Value){, (ConvertTo-PASeasyCanonical $item)})
+        $list=@(foreach($item in $Value){, (ConvertTo-PASCanonical $item)})
         return ,$list
     }
     return $Value
 }
-function Get-PASeasyDigest {param([string]$Text)
+function Get-PASTextDigest {param([string]$Text)
     $sha=[Security.Cryptography.SHA256]::Create()
     try{$bytes=[Text.Encoding]::UTF8.GetBytes($Text);return [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-','').ToLowerInvariant()}
     finally{$sha.Dispose()}
 }
-function New-PASeasyComponentWorkflow {
+function New-PASComponentWorkflow {
     param([hashtable]$Component,[hashtable]$Configuration,[string]$RunDirectory)
     $id=[string]$Component.id; $type=[string]$Component.type
     $basedir=Join-Path (Join-Path $RunDirectory 'Payloads') $id
@@ -166,7 +166,7 @@ function New-PASeasyComponentWorkflow {
     }
     $steps=@()
     if($type -eq 'AD'){
-        $source=Join-Path (Get-PASModuleRoot AD) 'Recipes/ActiveDirectory'
+        $source=Join-Path (Get-PASModuleRoot) 'Recipes/ActiveDirectory'
         foreach($file in @(Get-ChildItem -LiteralPath $source -File)){
             Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $basedir $file.Name) -Force
         }
@@ -195,7 +195,7 @@ function New-PASeasyComponentWorkflow {
         if($type -eq 'PTA'){
             $steps+=@{Id='vendor-signing-key';Kind='Transfer';Source=@{ConfigRef=('Values.Components.'+$id+'.SigningKeyFile')};Destination=('/opt/paeasyinstall/media/'+$id+'/RPM-GPG-KEY-CyberArk');TimeoutSeconds=600}
         }
-        if($type -eq 'CPM' -and (Get-PASeasyProperty $Component.options 'pvwaTrustCertificateFile' '')){
+        if($type -eq 'CPM' -and (Get-PASValue $Component.options 'pvwaTrustCertificateFile' '')){
             $steps+=@{Id='pvwa-trust-certificate';Kind='Transfer';Source=@{ConfigRef=('Values.Components.'+$id+'.PVWATrustCertificateFile')};Destination=('C:\ProgramData\PASeasyInstall\media\'+$id+'\pvwa-trust.cer');TimeoutSeconds=600}
         }
         $steps+=@{Id='preflight';Script=$scriptPath;Inputs=@{Stage='Preflight';Settings=@{ConfigRef=('Values.Components.'+$id)}};Verify=$verifyPath;TimeoutSeconds=600}
@@ -208,15 +208,15 @@ function New-PASeasyComponentWorkflow {
             if($stage -in @('Install','ConfigureTLS','Register','Harden')){$step['Critical']=$true}
             if($stage -in @('Extract','Prerequisites','Install','ConfigureTLS','Register','Harden','PostInstall') -and $mode -in @('WindowsComponent','LinuxComponent')){$step['Mode']='Detached'}
             if($stage -eq 'Register'){$step.Inputs['VaultPassword']=@{SecretRef='VaultAdmin'};$step.RequiresVaultSession=$true}
-            if($type -eq 'PTA' -and $stage -eq 'ConfigureTLS' -and (Get-PASeasyProperty $Component.options 'certificatePfxFile' '')){
+            if($type -eq 'PTA' -and $stage -eq 'ConfigureTLS' -and (Get-PASValue $Component.options 'certificatePfxFile' '')){
                 $step.Inputs.CertificatePfxData=@{SecretRef=('PTACertificatePfxData_'+$id)}
                 $step.Inputs.CertificatePassword=@{SecretRef='PTACertificatePassword'}
             }
-            if($type -eq 'PTA' -and $stage -eq 'Register' -and (Get-PASeasyProperty $Component.options 'ptaConfigurationTransport' 'VendorCLI') -eq 'API'){$step.Inputs['InstallerPassword']=@{SecretRef='PTAInstallerPassword'}}
+            if($type -eq 'PTA' -and $stage -eq 'Register' -and (Get-PASValue $Component.options 'ptaConfigurationTransport' 'VendorCLI') -eq 'API'){$step.Inputs['InstallerPassword']=@{SecretRef='PTAInstallerPassword'}}
             if($type -eq 'PSM' -and $stage -in @('Prerequisites','Install','Register','Harden','PostInstall')){
                 $principalRef=''
-                $psmOptions=Get-PASeasyProperty $Component 'options' $null
-                if($psmOptions -and (Get-PASeasyProperty $psmOptions 'taskPrincipalCredentialRef' '')){$principalRef=[string](Get-PASeasyProperty $psmOptions 'taskPrincipalCredentialRef' '')}
+                $psmOptions=Get-PASValue $Component 'options' $null
+                if($psmOptions -and (Get-PASValue $psmOptions 'taskPrincipalCredentialRef' '')){$principalRef=[string](Get-PASValue $psmOptions 'taskPrincipalCredentialRef' '')}
                 elseif($Configuration.activeDirectory.mode -ne 'None' -and @($Configuration.activeDirectory.join) -contains [string]$Component.host){$principalRef='PSMDomainInstaller'}
                 if($principalRef){$step.TaskPrincipalCredentialRef=$principalRef}
             }
@@ -241,7 +241,7 @@ function New-PASeasyComponentWorkflow {
     [IO.File]::WriteAllText($wfPath,(ConvertTo-PASLiteral $wf),[Text.UTF8Encoding]::new($false))
     return $wfPath
 }
-function New-PASeasyRuntimeInventory {
+function New-PASRuntimeInventory {
     param([hashtable]$Config,[string]$RunDirectory,[switch]$SkipMediaHash,[hashtable]$CredentialMap=@{})
     $targets=@{};$values=@{}
     foreach($entry in @($Config.components)){
@@ -265,16 +265,16 @@ function New-PASeasyRuntimeInventory {
             }
         }
         if($host.Contains('port')){$targets[$id]['Port']=[int]$host.port}
-        $componentSettings=@{Id=$id;Type=[string]$entry.type;MediaZip=[string](Get-PASeasyProperty $entry 'media' '');
+        $componentSettings=@{Id=$id;Type=[string]$entry.type;MediaZip=[string](Get-PASValue $entry 'media' '');
             MediaTarget=$(if($linux){('/opt/paeasyinstall/media/'+$id+'/installer.zip')}else{('C:\ProgramData\PASeasyInstall\media\'+$id+'\installer.zip')});
             StageRoot=$(if($linux){('/opt/paeasyinstall/components/'+$id)}else{('C:\ProgramData\PASeasyInstall\components\'+$id)});
             Address=[string]$host.address;
             VaultAddress=[string]$Config.vault.address;VaultUser=[string]$Config.vault.adminUser;
-            Domain=[string](Get-PASeasyProperty $Config.activeDirectory 'domain' '');SecurityProfile=[string]$Config.security.profile;
+            Domain=[string](Get-PASValue $Config.activeDirectory 'domain' '');SecurityProfile=[string]$Config.security.profile;
             ApplyHardening=$true;ValidateTLS=$true;Options=@{} }
         $componentSettings.MediaSHA256=''
         if(-not $linux){
-            $managementCredential=Get-PASeasyHostCredential $Config $CredentialMap $hostId $id
+            $managementCredential=Get-PASHostCredential $Config $CredentialMap $hostId $id
             $componentSettings.ManagementUser=if($managementCredential -is [pscredential]){$managementCredential.UserName}else{[string]$host.user}
             $componentSettings.ManagementEndpoint='PASeasyInstall.Management'
         }
@@ -286,23 +286,23 @@ function New-PASeasyRuntimeInventory {
         }
         if($entry.Contains('options')){$componentSettings.Options=$entry.options.Clone()}
         if($entry.type -eq 'CPM'){
-            $componentSettings.PVWATrustCertificateFile=[string](Get-PASeasyProperty $componentSettings.Options 'pvwaTrustCertificateFile' '')
-            $componentSettings.PVWATrustCertificateSHA256=[string](Get-PASeasyProperty $componentSettings.Options 'pvwaTrustCertificateSHA256' '')
+            $componentSettings.PVWATrustCertificateFile=[string](Get-PASValue $componentSettings.Options 'pvwaTrustCertificateFile' '')
+            $componentSettings.PVWATrustCertificateSHA256=[string](Get-PASValue $componentSettings.Options 'pvwaTrustCertificateSHA256' '')
             $componentSettings.PVWATrustCertificateTarget=if($componentSettings.PVWATrustCertificateFile){'C:\ProgramData\PASeasyInstall\media\'+$id+'\pvwa-trust.cer'}else{''}
             $componentSettings.AllowPinnedLeafTrust=$false
             if($Config.security.profile -eq 'Lab' -and $Config.security.overrides.Contains('CPM.AllowPinnedLeafTrust')){$componentSettings.AllowPinnedLeafTrust=[bool]$Config.security.overrides['CPM.AllowPinnedLeafTrust']}
         }
         if($entry.type -eq 'PTA'){
             $componentSettings.PolicyProfile=[string]$Config.security.profile
-            $componentSettings.PTAName=[string](Get-PASeasyProperty $componentSettings.Options 'ptaName' '')
-            $componentSettings.PTACertificatePfxSHA256=[string](Get-PASeasyProperty $componentSettings.Options 'certificatePfxSHA256' '')
+            $componentSettings.PTAName=[string](Get-PASValue $componentSettings.Options 'ptaName' '')
+            $componentSettings.PTACertificatePfxSHA256=[string](Get-PASValue $componentSettings.Options 'certificatePfxSHA256' '')
             $componentSettings.Options.generateLabCA=$false
             if($Config.security.profile -eq 'Lab' -and $Config.security.overrides.Contains('PTA.GenerateLabCA')){$componentSettings.Options.generateLabCA=[bool]$Config.security.overrides['PTA.GenerateLabCA']}
             $componentSettings.Options.allowUndersizedMemory=$false
             $componentSettings.Options.allowUndersizedCPU=$false
             if($Config.security.profile -eq 'Lab' -and $Config.security.overrides.Contains('PTA.AllowUndersizedMemory')){$componentSettings.Options.allowUndersizedMemory=[bool]$Config.security.overrides['PTA.AllowUndersizedMemory']}
             if($Config.security.profile -eq 'Lab' -and $Config.security.overrides.Contains('PTA.AllowUndersizedCPU')){$componentSettings.Options.allowUndersizedCPU=[bool]$Config.security.overrides['PTA.AllowUndersizedCPU']}
-            $componentSettings.SigningKeyFile=[string](Get-PASeasyProperty $componentSettings.Options 'signingKeyFile' '')
+            $componentSettings.SigningKeyFile=[string](Get-PASValue $componentSettings.Options 'signingKeyFile' '')
             $componentSettings.SigningKeyTarget='/opt/paeasyinstall/media/'+$id+'/RPM-GPG-KEY-CyberArk'
         }
         if($Config.security.profile -eq 'Lab' -and $Config.security.overrides){
@@ -315,14 +315,14 @@ function New-PASeasyRuntimeInventory {
 }
 
 # Domain joins are separate durable host workflows, not implicit side effects of other recipes.
-function New-PASeasyDomainJoinWorkflow {
+function New-PASDomainJoinWorkflow {
     param([hashtable]$Config,[string]$HostId,[string]$RunDirectory)
     $id='join-'+$HostId;$hostObj=$Config.hosts[$HostId]
     if(-not $hostObj -or $hostObj.os -ne 'Windows'){throw "Domain join supports Windows hosts only: $HostId"}
     $base=Join-Path (Join-Path $RunDirectory 'Payloads') $id
     $wfdir=Join-Path $base 'Workflows'
     New-Item -ItemType Directory -Path $wfdir -Force|Out-Null
-    foreach($file in @(Get-ChildItem -LiteralPath (Join-Path (Get-PASModuleRoot AD) 'Recipes/ActiveDirectory') -File)){
+    foreach($file in @(Get-ChildItem -LiteralPath (Join-Path (Get-PASModuleRoot) 'Recipes/ActiveDirectory') -File)){
         Copy-Item $file.FullName -Destination (Join-Path $base $file.Name) -Force
     }
     foreach($taskName in @('Join-Task.ps1','Join-Verify.ps1')){
@@ -353,7 +353,7 @@ function New-PASeasyDomainJoinWorkflow {
         }
     }
     $inv.Values.Components[$id]=@{Domain=[string]$Config.activeDirectory.domain;JoinUser=[string]$Config.activeDirectory.joinUser;StageRoot=('C:\ProgramData\PASeasyInstall\components\'+$id)}
-    $dns=@(Get-PASeasyProperty $Config.activeDirectory 'dnsServers' @())
+    $dns=@(Get-PASValue $Config.activeDirectory 'dnsServers' @())
     if(-not $dns.Count -and $Config.activeDirectory.mode -eq 'Create'){
         $dc=@($Config.components | Where-Object {$_.type -eq 'AD'})
         if($dc.Count -eq 1){$dns=@([string]$Config.hosts[[string]$dc[0].host].address)}
@@ -364,14 +364,14 @@ function New-PASeasyDomainJoinWorkflow {
         if(-not [Net.IPAddress]::TryParse([string]$server,[ref]$ip) -or $ip.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or $ip.Equals([Net.IPAddress]::Any) -or $ip.Equals([Net.IPAddress]::Broadcast)){throw 'Domain DNS servers must be valid IPv4 addresses'}
     }
     $inv.Values.Components[$id].DnsServers=@($dns)
-    $inv.Values.Components[$id].InterfaceIndex=[int](Get-PASeasyProperty $hostObj 'interfaceIndex' 0)
+    $inv.Values.Components[$id].InterfaceIndex=[int](Get-PASValue $hostObj 'interfaceIndex' 0)
     $invpath=Join-Path $RunDirectory ($id+'-inventory.psd1')
     [IO.File]::WriteAllText($invpath,(ConvertTo-PASLiteral $inv),[Text.UTF8Encoding]::new($false))
     return @{Workflow=$wfpath;Inventory=$invpath;Target=$id}
 }
 
 # Pin executable recipes and engine assets as well as configuration. Never resume changed code.
-function Get-PASeasySourceDigest {
+function Get-PASSourceDigest {
     param([hashtable]$Configuration)
     # Executable module/source fingerprint; excludes GUI styling and documentation.
     $mods=Get-PASModulesRoot
@@ -396,22 +396,22 @@ function Get-PASeasySourceDigest {
     }
     [string[]]$ordered=@($entries)
     [Array]::Sort($ordered,[StringComparer]::Ordinal)
-    return (Get-PASeasyDigest ($ordered -join "`n"))
+    return (Get-PASTextDigest ($ordered -join "`n"))
 }
 
-function Get-PASeasyFrozenMedia {
+function Get-PASFrozenMedia {
     param([hashtable]$Configuration)
     $files=@()
     foreach($component in $Configuration.components){
         if($component.type -notin @('Vault','DRVault','AD')){
-            $path=[string](Get-PASeasyProperty $component 'media' '')
+            $path=[string](Get-PASValue $component 'media' '')
             if(-not $path -or -not(Test-Path -LiteralPath $path -PathType Leaf)){throw "Missing media for component $($component.id)"}
             $files+=[IO.Path]::GetFullPath($path)
             if($component.type -eq 'PTA'){
-                $key=[string](Get-PASeasyProperty $component.options 'signingKeyFile' '')
+                $key=[string](Get-PASValue $component.options 'signingKeyFile' '')
                 if(-not $key -or -not(Test-Path -LiteralPath $key -PathType Leaf)){throw 'PTA vendor signing key source missing'}
                 $files+=[IO.Path]::GetFullPath($key)
-                $pfx=[string](Get-PASeasyProperty $component.options 'certificatePfxFile' '')
+                $pfx=[string](Get-PASValue $component.options 'certificatePfxFile' '')
                 if($pfx){
                     $asset=Get-Item -LiteralPath $pfx -ErrorAction Stop
                     if($asset.PSIsContainer -or $asset.Length -le 0 -or $asset.Length -gt 32768){throw 'PTA PFX must be a nonempty file no larger than 32768 bytes'}
@@ -420,7 +420,7 @@ function Get-PASeasyFrozenMedia {
                 }
             }
             if($component.type -eq 'CPM'){
-                $trust=[string](Get-PASeasyProperty $component.options 'pvwaTrustCertificateFile' '')
+                $trust=[string](Get-PASValue $component.options 'pvwaTrustCertificateFile' '')
                 if($trust){
                     if(-not(Test-Path -LiteralPath $trust -PathType Leaf)){throw 'CPM public trust certificate source missing'}
                     if((Get-FileHash -LiteralPath $trust -Algorithm SHA256).Hash -ine [string]$component.options.pvwaTrustCertificateSHA256){throw 'CPM public trust certificate differs from its configured SHA256'}

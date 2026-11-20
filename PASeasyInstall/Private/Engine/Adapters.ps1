@@ -2,23 +2,23 @@ $script:PSConnections = @{}
 $script:PATaskHostText = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Assets/TaskHost.ps1'))
 $script:PATaskHostBlock = [scriptblock]::Create($script:PATaskHostText)
 
-function New-PSUnknownError {
+function New-PASUnknownError {
     param([string]$Message)
     return (New-Object System.Exception ('PAExecUnknown: ' + $Message))
 }
-function Get-PSConnection {
+function Get-PASConnection {
     param([hashtable]$Target,[hashtable]$Credentials)
     $protocol=[string]$Target.Protocol
     if ($protocol -ne 'WinRM') { return $null }
-    if (-not (Test-PSWindows)) { return $null }
+    if (-not (Test-PASWindows)) { return $null }
     $computer=[string]$Target.ComputerName
-    $key=[string](Get-PSObjectValue $Target 'CredentialRef' '')
+    $key=[string](Get-PASValue $Target 'CredentialRef' '')
     if (-not $Credentials.ContainsKey($key) -or $Credentials[$key] -isnot [pscredential]) { throw "WinRM target '$computer' requires PSCredential '$key'" }
     # ConfigurationName may be an ordered list: a preferred (e.g. restricted) endpoint, then fallbacks that are
     # used only when the preferred endpoint is not registered on the target (never on authentication errors).
-    $configurations=@(@(Get-PSObjectValue $Target 'ConfigurationName' @('')) | ForEach-Object { [string]$_ })
+    $configurations=@(@(Get-PASValue $Target 'ConfigurationName' @('')) | ForEach-Object { [string]$_ })
     if($configurations.Count -eq 0){$configurations=@('')}
-    $fingerprint="$computer/$key/$([string](Get-PSObjectValue $Target 'UseSSL' $false))/$($configurations -join '|')/$([string](Get-PSObjectValue $Target 'Port' ''))"
+    $fingerprint="$computer/$key/$([string](Get-PASValue $Target 'UseSSL' $false))/$($configurations -join '|')/$([string](Get-PASValue $Target 'Port' ''))"
     if ($script:PSConnections.ContainsKey($fingerprint)) {
         $session=$script:PSConnections[$fingerprint]
         if ($session.State -eq 'Opened' -and $session.Availability -eq 'Available') { return $session }
@@ -26,23 +26,23 @@ function Get-PSConnection {
         $script:PSConnections.Remove($fingerprint)
     }
     $credentialRefs=@($key)
-    $transition=[string](Get-PSObjectValue $Target 'TransitionCredentialRef' '')
+    $transition=[string](Get-PASValue $Target 'TransitionCredentialRef' '')
     if($transition){
         if(-not $Credentials.ContainsKey($transition) -or $Credentials[$transition] -isnot [pscredential]){throw 'Explicit domain-transition credential is required'}
         if($Credentials[$transition].UserName -ne $Credentials[$key].UserName){$credentialRefs+=$transition}
     }
     $credentialIndex=0
     $sessionArgs=@{ ComputerName=$computer; Credential=$Credentials[$key]; ErrorAction='Stop'; Authentication='Negotiate' }
-    if ([bool](Get-PSObjectValue $Target 'UseSSL' $false)) { $sessionArgs.UseSSL=$true }
+    if ([bool](Get-PASValue $Target 'UseSSL' $false)) { $sessionArgs.UseSSL=$true }
     if ($Target.Contains('Port')) { $sessionArgs.Port=[int]$Target.Port }
     if ($Target.Contains('Authentication')) { $sessionArgs.Authentication=[string]$Target.Authentication }
-    $optionArgs=@{ OpenTimeout=([int](Get-PSObjectValue $Target 'OpenTimeoutSeconds' 30))*1000; OperationTimeout=([int](Get-PSObjectValue $Target 'OperationTimeoutSeconds' 600))*1000 }
-    if ([bool](Get-PSObjectValue $Target 'SkipCACheck' $false)) { $optionArgs.SkipCACheck=$true }
-    if ([bool](Get-PSObjectValue $Target 'SkipCNCheck' $false)) { $optionArgs.SkipCNCheck=$true }
+    $optionArgs=@{ OpenTimeout=([int](Get-PASValue $Target 'OpenTimeoutSeconds' 30))*1000; OperationTimeout=([int](Get-PASValue $Target 'OperationTimeoutSeconds' 600))*1000 }
+    if ([bool](Get-PASValue $Target 'SkipCACheck' $false)) { $optionArgs.SkipCACheck=$true }
+    if ([bool](Get-PASValue $Target 'SkipCNCheck' $false)) { $optionArgs.SkipCNCheck=$true }
     $sessionArgs.SessionOption=New-PSSessionOption @optionArgs
     # A target can be briefly unreachable (installer rebinding HTTP.sys, reboot, service restart). Nothing has
     # been dispatched yet, so connecting is retried for ConnectRetrySeconds; authentication failures are final.
-    $retryUntil=[DateTime]::UtcNow.AddSeconds([int](Get-PSObjectValue $Target 'ConnectRetrySeconds' 600))
+    $retryUntil=[DateTime]::UtcNow.AddSeconds([int](Get-PASValue $Target 'ConnectRetrySeconds' 600))
     $session=$null
     while ($null -eq $session) {
         try {
@@ -75,11 +75,11 @@ function Get-PSConnection {
     $script:PSConnections[$fingerprint]=$session
     return $session
 }
-function Clear-PSConnections {
+function Clear-PASConnections {
     foreach ($s in @($script:PSConnections.Values)) { try { Remove-PSSession $s -ErrorAction SilentlyContinue } catch { Write-Verbose 'Session cleanup failed' } }
     $script:PSConnections=@{}
 }
-function Test-PSTransportFailure {
+function Test-PASTransportFailure {
     param($ErrorRecordOrException)
     $e = $ErrorRecordOrException
     if ($e -is [System.Management.Automation.ErrorRecord]) { $e = $e.Exception }
@@ -92,7 +92,7 @@ function Test-PSTransportFailure {
     }
     return $false
 }
-function Invoke-PSLocalTask {
+function Invoke-PASLocalTask {
     param([string]$ScriptText,[hashtable]$Parameters,[string]$Contract,[int]$TimeoutSeconds=0)
     $ps=[powershell]::Create()
     try {
@@ -101,16 +101,16 @@ function Invoke-PSLocalTask {
         $ms=-1; if ($TimeoutSeconds -gt 0) { $ms=$TimeoutSeconds*1000 }
         if (-not $async.AsyncWaitHandle.WaitOne($ms)) {
             try { $ps.Stop() } catch { Write-Verbose 'Local stop failed' }
-            throw (New-PSUnknownError "local task exceeded $TimeoutSeconds seconds and was stopped; side effects unknown")
+            throw (New-PASUnknownError "local task exceeded $TimeoutSeconds seconds and was stopped; side effects unknown")
         }
         $out=@($ps.EndInvoke($async))
         if ($out.Count -eq 0) { throw 'Local task host returned no result' }
-        return (ConvertTo-PSHashtable $out[-1])
+        return (ConvertTo-PASHashtable $out[-1])
     } finally { $ps.Dispose() }
 }
-function Invoke-PSWinRMTask {
+function Invoke-PASWinRMTask {
     param([hashtable]$Target,[hashtable]$Credentials,[string]$ScriptText,[hashtable]$Parameters,[string]$Contract,[int]$TimeoutSeconds=0)
-    try { $session=Get-PSConnection $Target $Credentials }
+    try { $session=Get-PASConnection $Target $Credentials }
     catch { throw "WinRM connection failed before dispatch: $($_.Exception.Message)" }
     $job=$null
     try {
@@ -119,41 +119,41 @@ function Invoke-PSWinRMTask {
         $finished=Wait-Job -Job $job -Timeout $wait
         if (-not $finished) {
             Stop-Job -Job $job -ErrorAction SilentlyContinue
-            throw (New-PSUnknownError "remote task exceeded $TimeoutSeconds seconds; remote side effects unknown")
+            throw (New-PASUnknownError "remote task exceeded $TimeoutSeconds seconds; remote side effects unknown")
         }
         $child=$job.ChildJobs[0]
         $out=@(Receive-Job -Job $job -ErrorAction SilentlyContinue -ErrorVariable remoteErrors)
         if ($child.JobStateInfo.State -eq 'Failed' -or $out.Count -eq 0) {
             $reason=$child.JobStateInfo.Reason
             $text=[string]$reason; if (-not $text -and $remoteErrors) { $text=[string]$remoteErrors[0] }
-            throw (New-PSUnknownError "WinRM invocation lost or returned no task result: $text")
+            throw (New-PASUnknownError "WinRM invocation lost or returned no task result: $text")
         }
-        return (ConvertTo-PSHashtable $out[-1])
+        return (ConvertTo-PASHashtable $out[-1])
     } catch {
         if ($_.Exception.Message -match '^PAExecUnknown:') { throw }
-        if (Test-PSTransportFailure $_) { throw (New-PSUnknownError "WinRM transport failure: $($_.Exception.Message)") }
+        if (Test-PASTransportFailure $_) { throw (New-PASUnknownError "WinRM transport failure: $($_.Exception.Message)") }
         throw
     } finally {
         if ($job) { Remove-Job -Job $job -Force -ErrorAction SilentlyContinue }
     }
 }
-function Get-PSSSHBaseArguments {
+function Get-PASSSHBaseArguments {
     param([hashtable]$Target,[switch]$Scp)
-    $list=@('-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o',('ConnectTimeout='+[string](Get-PSObjectValue $Target 'ConnectTimeoutSeconds' 15)))
+    $list=@('-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o',('ConnectTimeout='+[string](Get-PASValue $Target 'ConnectTimeoutSeconds' 15)))
     if ($Scp) { $list = @('-B','-q') + $list }
     if ($Target.Contains('KnownHostsFile')) { $list += @('-o',('UserKnownHostsFile='+[string]$Target.KnownHostsFile)) }
     if ($Target.Contains('Port')) { if ($Scp) { $list += @('-P',[string]$Target.Port) } else { $list += @('-p',[string]$Target.Port) } }
     if ($Target.Contains('IdentityFile')) { $list += @('-i',[string]$Target.IdentityFile) }
     return ,$list
 }
-function Get-PSSSHDestination {
+function Get-PASSSHDestination {
     param([hashtable]$Target)
-    $user=[string](Get-PSObjectValue $Target 'User')
+    $user=[string](Get-PASValue $Target 'User')
     $hostName=[string]$Target.ComputerName
     if ($user -notmatch '^[A-Za-z0-9._-]+$' -or $hostName -notmatch '^[A-Za-z0-9.:-]+$') { throw 'Unsafe SSH user/host' }
     return "$user@$hostName"
 }
-function ConvertTo-PSSSHNativeArgument {
+function ConvertTo-PASSSHNativeArgument {
     param([string]$Value)
     $builder=New-Object Text.StringBuilder
     [void]$builder.Append('"');$slashes=0
@@ -167,7 +167,7 @@ function ConvertTo-PSSSHNativeArgument {
     [void]$builder.Append('"')
     return $builder.ToString()
 }
-function Invoke-PSSSHWindowsFileCapture {
+function Invoke-PASSSHWindowsFileCapture {
     param([string]$Executable,[object[]]$Arguments,[int]$TimeoutSeconds)
     $tmp=Join-Path ([IO.Path]::GetTempPath()) ('paeasy-ssh-'+[guid]::NewGuid().ToString('N'))
     New-Item $tmp -ItemType Directory -ErrorAction Stop | Out-Null
@@ -190,7 +190,7 @@ function Invoke-PSSSHWindowsFileCapture {
         if(-not $process.Start()){throw 'Cannot start SSH observer'}
         if(-not $process.WaitForExit($TimeoutSeconds*1000)){
             & taskkill.exe /PID $process.Id /T /F 2>&1 | Out-Null
-            throw (New-PSUnknownError 'SSH observation timed out; target work was not stopped')
+            throw (New-PASUnknownError 'SSH observation timed out; target work was not stopped')
         }
         # Native redirection handles can close shortly after cmd exits. Bound the
         # sharing retry; never restart target work because observation raced exit.
@@ -210,13 +210,13 @@ function Invoke-PSSSHWindowsFileCapture {
         Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
-function Invoke-PSRawSSH {
+function Invoke-PASRawSSH {
     param([hashtable]$Target,[string]$RemoteCommand,[byte[]]$InputBytes)
     $exe=Get-Command ssh -CommandType Application -ErrorAction SilentlyContinue
     if(-not $exe){throw 'ssh executable missing'}
-    $sshArgs=Get-PSSSHBaseArguments $Target
+    $sshArgs=Get-PASSSHBaseArguments $Target
     $controlBytes=$null
-    if((Test-PSWindows) -and -not $InputBytes -and $Target.Runtime -eq 'Bash'){
+    if((Test-PASWindows) -and -not $InputBytes -and $Target.Runtime -eq 'Bash'){
         # cmd.exe has an 8191-character line limit. Encoded Linux guards/status
         # scripts can exceed it before SSH starts. Keep argv bounded and send
         # the command on the same exact-length stdin protocol used for inputs.
@@ -224,25 +224,25 @@ function Invoke-PSRawSSH {
         $InputBytes=$controlBytes
         $RemoteCommand='head -c '+$controlBytes.Length+' | bash'
     }
-    if((Test-PSWindows) -and -not $InputBytes){
+    if((Test-PASWindows) -and -not $InputBytes){
         if($Target.Runtime -eq 'Bash'){
             $encoded=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($RemoteCommand.Replace("`r`n","`n")))
             $RemoteCommand='echo '+$encoded+' | base64 -d | bash'
         }
-        $sshArgs+=@('-n','-T',(Get-PSSSHDestination $Target),$RemoteCommand)
-        return Invoke-PSSSHWindowsFileCapture $exe.Source $sshArgs ([int](Get-PSObjectValue $Target 'CommandTimeoutSeconds' 120))
+        $sshArgs+=@('-n','-T',(Get-PASSSHDestination $Target),$RemoteCommand)
+        return Invoke-PASSSHWindowsFileCapture $exe.Source $sshArgs ([int](Get-PASValue $Target 'CommandTimeoutSeconds' 120))
     }
-    if((Test-PSWindows) -and $InputBytes -and $Target.Runtime -eq 'Bash'){
+    if((Test-PASWindows) -and $InputBytes -and $Target.Runtime -eq 'Bash'){
         $encoded=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($RemoteCommand))
         $RemoteCommand="bash -c 'eval "+'$(echo '+$encoded+" | base64 -d)'"
     }
     if(-not $InputBytes){$sshArgs+='-n'}
-    $sshArgs+=@('-T',(Get-PSSSHDestination $Target),$RemoteCommand)
+    $sshArgs+=@('-T',(Get-PASSSHDestination $Target),$RemoteCommand)
     # PowerShell 5.1 native capture can leave nested SSH waiting on inherited handles.
     # Explicit streams, closed stdin and concurrent drains keep controller reconnects bounded.
     $info=New-Object Diagnostics.ProcessStartInfo
     $info.FileName=$exe.Source
-    $info.Arguments=(@($sshArgs|ForEach-Object{ConvertTo-PSSSHNativeArgument ([string]$_)}) -join ' ')
+    $info.Arguments=(@($sshArgs|ForEach-Object{ConvertTo-PASSSHNativeArgument ([string]$_)}) -join ' ')
     $info.UseShellExecute=$false;$info.CreateNoWindow=$true
     $info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true;$info.RedirectStandardInput=$true
     $process=New-Object Diagnostics.Process
@@ -251,10 +251,10 @@ function Invoke-PSRawSSH {
         if(-not $process.Start()){throw 'Cannot start ssh process'}
         $stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
         if($InputBytes){$process.StandardInput.BaseStream.Write($InputBytes,0,$InputBytes.Length);$process.StandardInput.BaseStream.Flush()}else{$process.StandardInput.Close()}
-        $seconds=[int](Get-PSObjectValue $Target 'CommandTimeoutSeconds' 120)
+        $seconds=[int](Get-PASValue $Target 'CommandTimeoutSeconds' 120)
         if(-not $process.WaitForExit($seconds*1000)){
             try{$process.Kill()}catch{}
-            throw (New-PSUnknownError 'SSH observation timed out; target work was not stopped')
+            throw (New-PASUnknownError 'SSH observation timed out; target work was not stopped')
         }
         $output=$stdout.GetAwaiter().GetResult();$errors=$stderr.GetAwaiter().GetResult()
         return [pscustomobject]@{ExitCode=$process.ExitCode;Output=($output+$errors).TrimEnd()}
@@ -263,13 +263,13 @@ function Invoke-PSRawSSH {
         if($null -ne $controlBytes){[Array]::Clear($controlBytes,0,$controlBytes.Length)}
     }
 }
-function Test-PSSCPExplicitLegacyMode {
+function Test-PASSCPExplicitLegacyMode {
     # Hardened PSMP disables the SFTP subsystem. New OpenSSH clients need -O;
     # older clients already use legacy SCP and do not advertise that switch.
     if(-not(Get-Variable -Name PSScpLegacySupported -Scope Script -ErrorAction SilentlyContinue)){
         $exe=Get-Command scp -CommandType Application -ErrorAction Stop
-        if(Test-PSWindows){
-            $probe=Invoke-PSSSHWindowsFileCapture $exe.Source @() 15
+        if(Test-PASWindows){
+            $probe=Invoke-PASSSHWindowsFileCapture $exe.Source @() 15
             $usage=[string]$probe.Output
         }else{
             $usage=(@(& $exe.Source 2>&1) -join ' ')
@@ -278,7 +278,7 @@ function Test-PSSCPExplicitLegacyMode {
     }
     return [bool]$script:PSScpLegacySupported
 }
-function Copy-PSRawSSH {
+function Copy-PASRawSSH {
     param([hashtable]$Target,[string]$Source,[string]$Destination,[switch]$Download)
     if($Target.Runtime -eq 'Bash'){
         $remotePath=if($Download){$Source}else{$Destination}
@@ -286,79 +286,79 @@ function Copy-PSRawSSH {
         # traversal or reads outside this module's owned staging namespace.
         if($remotePath -notmatch '^/opt/paeasyinstall/[A-Za-z0-9_./-]+$' -or $remotePath -match '/\.\.?(/|$)'){throw 'Unsafe Linux SCP path'}
     }
-    $scpArgs=Get-PSSSHBaseArguments $Target -Scp
-    if($Target.Runtime -eq 'Bash' -and (Test-PSSCPExplicitLegacyMode)){ $scpArgs += '-O' }
-    $remote=(Get-PSSSHDestination $Target)+':'
+    $scpArgs=Get-PASSSHBaseArguments $Target -Scp
+    if($Target.Runtime -eq 'Bash' -and (Test-PASSCPExplicitLegacyMode)){ $scpArgs += '-O' }
+    $remote=(Get-PASSSHDestination $Target)+':'
     if ($Download) { $scpArgs += @(($remote+$Source),$Destination) }
     else { $scpArgs += @($Source,($remote+$Destination)) }
-    if(Test-PSWindows){
+    if(Test-PASWindows){
         $exe=Get-Command scp -CommandType Application -ErrorAction Stop
-        $result=Invoke-PSSSHWindowsFileCapture $exe.Source $scpArgs ([int](Get-PSObjectValue $Target 'TransferTimeoutSeconds' 3600))
-        if($result.ExitCode -ne 0){throw "SCP failed ($($result.ExitCode)): $(Limit-PSText $result.Output 1000)"}
+        $result=Invoke-PASSSHWindowsFileCapture $exe.Source $scpArgs ([int](Get-PASValue $Target 'TransferTimeoutSeconds' 3600))
+        if($result.ExitCode -ne 0){throw "SCP failed ($($result.ExitCode)): $(Limit-PASText $result.Output 1000)"}
     }else{
         $ErrorActionPreference='Continue'
         $output=& scp @scpArgs 2>&1
-        if ($LASTEXITCODE -ne 0) { throw "SCP failed ($LASTEXITCODE): $(Limit-PSText (@($output) -join ' ') 1000)" }
+        if ($LASTEXITCODE -ne 0) { throw "SCP failed ($LASTEXITCODE): $(Limit-PASText (@($output) -join ' ') 1000)" }
     }
 }
-function Read-PSResultMarker {
+function Read-PASResultMarker {
     param([string]$Output,[string]$What)
     $lines=@($Output -split "`r?`n")
     $markers=@($lines | Where-Object { $_.StartsWith('PAEASY_RESULT:') })
     $other=(@($lines | Where-Object { -not $_.StartsWith('PAEASY_RESULT:') }) -join "`n").Trim()
     if ($markers.Count -eq 0) { return [pscustomobject]@{ Found=$false; Value=$null; Other=$other } }
-    try { $value=ConvertTo-PSHashtable (ConvertFrom-Json -InputObject ($markers[-1].Substring('PAEASY_RESULT:'.Length))) }
+    try { $value=ConvertTo-PASHashtable (ConvertFrom-Json -InputObject ($markers[-1].Substring('PAEASY_RESULT:'.Length))) }
     catch { throw "$What returned a malformed PAEASY_RESULT marker" }
     if ($value -isnot [System.Collections.IDictionary]) { throw "$What result marker must contain a JSON object" }
     return [pscustomobject]@{ Found=$true; Value=$value; Other=$other }
 }
-function Invoke-PSRawSSHScript {
+function Invoke-PASRawSSHScript {
     param([hashtable]$Target,[string]$ScriptPath,[string]$ScriptText,[hashtable]$Parameters,[string]$Contract,[int]$TimeoutSeconds=0,[string]$AttemptId='')
-    if([string](Get-PSObjectValue $Target 'Runtime' 'Bash') -ne 'Bash'){throw 'Windows targets require the qualified native WinRM adapter; SSH PowerShell dispatch is not supported'}
+    if([string](Get-PASValue $Target 'Runtime' 'Bash') -ne 'Bash'){throw 'Windows targets require the qualified native WinRM adapter; SSH PowerShell dispatch is not supported'}
     if($ScriptPath -notmatch '\.(sh|bash)$' -or -not(Test-Path -LiteralPath $ScriptPath -PathType Leaf)){throw 'Bash dispatch requires a reviewed local .sh/.bash task file'}
     if([IO.File]::ReadAllText($ScriptPath).Replace("`r`n","`n") -cne $ScriptText.Replace("`r`n","`n")){throw 'Bash task source changed before dispatch'}
     # Short checks use the same protected, durable input transport as installation.
     # No relative SCP paths or plaintext controller inputs.json are created.
     $attempt=if($AttemptId){$AttemptId}else{[guid]::NewGuid().ToString('N')}
-    $null=Get-PSLinuxAttemptRoot $attempt
-    $timeout=if($TimeoutSeconds -gt 0){$TimeoutSeconds}else{[int](Get-PSObjectValue $Target 'CommandTimeoutSeconds' 600)}
-    [void](Initialize-PSLinuxDetached $Target $ScriptPath $Parameters $attempt $timeout $Contract)
-    $remote=Wait-PSDetached $Target @{} $attempt $timeout
-    if($remote.state -notin @('Succeeded','Failed')){throw (New-PSUnknownError ('Linux check '+$attempt+' is '+$remote.state+'; reconcile the durable attempt before retry'))}
-    $directory=Get-PSLinuxAttemptRoot $attempt
-    $outputText=Invoke-PSLinuxControl $Target ('tail -c 262144 -- '+$directory+'/stdout.log.tail')
-    $marker=Read-PSResultMarker $outputText 'Bash task'
-    $output=Limit-PSText $marker.Other 20000
-    $exitCode=[int](Get-PSObjectValue $remote 'exitCode' 1)
+    $null=Get-PASLinuxAttemptRoot $attempt
+    $timeout=if($TimeoutSeconds -gt 0){$TimeoutSeconds}else{[int](Get-PASValue $Target 'CommandTimeoutSeconds' 600)}
+    [void](Initialize-PASLinuxDetached $Target $ScriptPath $Parameters $attempt $timeout $Contract)
+    $remote=Wait-PASDetached $Target @{} $attempt $timeout
+    if($remote.state -notin @('Succeeded','Failed')){throw (New-PASUnknownError ('Linux check '+$attempt+' is '+$remote.state+'; reconcile the durable attempt before retry'))}
+    $directory=Get-PASLinuxAttemptRoot $attempt
+    $outputText=Invoke-PASLinuxControl $Target ('tail -c 262144 -- '+$directory+'/stdout.log.tail')
+    $marker=Read-PASResultMarker $outputText 'Bash task'
+    $output=Limit-PASText $marker.Other 20000
+    $exitCode=[int](Get-PASValue $remote 'exitCode' 1)
     if($remote.state -ne 'Succeeded'){
         return @{Ok=$false;Terminal=$marker.Value;Output=$output;Error=('Bash task '+$attempt+' failed with code '+$exitCode);ExitCode=$exitCode;AttemptId=$attempt}
     }
     if(-not $marker.Found -and $Contract -ne 'ExitCode'){
         return @{Ok=$false;Terminal=$null;Output=$output;Error='Bash task must print PAEASY_RESULT:{json} as its structured result';ExitCode=0;AttemptId=$attempt}
     }
-    Finish-PSLinuxDetached $Target $attempt
+    Finish-PASLinuxDetached $Target $attempt
     return @{Ok=$true;Terminal=$marker.Value;Output=$output;Error=$null;ExitCode=0;AttemptId=$attempt}
 }
-function Invoke-PSAdapterScript {
+function Invoke-PASAdapterScript {
     param([hashtable]$Target,[hashtable]$Credentials,[string]$ScriptPath,[hashtable]$Parameters,[string]$Contract='Object',[int]$TimeoutSeconds=0,[string]$ScriptText='',[string]$AttemptId='')
     $protocol=[string]$Target.Protocol
-    if (-not $ScriptText) { $ScriptText=(Get-PSRecipePayload $ScriptPath).Text }
+    if (-not $ScriptText) { $ScriptText=(Get-PASRecipePayload $ScriptPath).Text }
     if ($null -eq $Parameters) { $Parameters=@{} }
-    if ($protocol -eq 'Local') { return (Invoke-PSLocalTask $ScriptText $Parameters $Contract $TimeoutSeconds) }
-    if ($protocol -eq 'SSH') { return (Invoke-PSRawSSHScript $Target $ScriptPath $ScriptText $Parameters $Contract -TimeoutSeconds $TimeoutSeconds -AttemptId $AttemptId) }
+    if ($protocol -eq 'Local') { return (Invoke-PASLocalTask $ScriptText $Parameters $Contract $TimeoutSeconds) }
+    if ($protocol -eq 'SSH') { return (Invoke-PASRawSSHScript $Target $ScriptPath $ScriptText $Parameters $Contract -TimeoutSeconds $TimeoutSeconds -AttemptId $AttemptId) }
     if ($protocol -ne 'WinRM') { throw "Unsupported adapter protocol '$protocol'" }
-    if (Test-PSWindows) { return (Invoke-PSWinRMTask $Target $Credentials $ScriptText $Parameters $Contract $TimeoutSeconds) }
+    if (Test-PASWindows) { return (Invoke-PASWinRMTask $Target $Credentials $ScriptText $Parameters $Contract $TimeoutSeconds) }
     throw 'Windows remoting requires the native Windows PowerShell controller'
 }
-function Invoke-PSAdapterCommand {
+function Invoke-PASAdapterCommand {
     # Runs a short controller-authored PowerShell snippet on the target. Requires a PowerShell runtime.
     param([hashtable]$Target,[hashtable]$Credentials,[string]$Code,[string]$Contract='ExitCode',[int]$TimeoutSeconds=0)
-    if ([string](Get-PSObjectValue $Target 'Runtime' 'WindowsPowerShell') -eq 'Bash') { throw 'PowerShell command requested on a Bash target' }
-    $response=Invoke-PSAdapterScript -Target $Target -Credentials $Credentials -ScriptPath 'paeasy-command.ps1' -Parameters @{} -Contract $Contract -TimeoutSeconds $TimeoutSeconds -ScriptText $Code
+    if ([string](Get-PASValue $Target 'Runtime' 'WindowsPowerShell') -eq 'Bash') { throw 'PowerShell command requested on a Bash target' }
+    $response=Invoke-PASAdapterScript -Target $Target -Credentials $Credentials -ScriptPath 'paeasy-command.ps1' -Parameters @{} -Contract $Contract -TimeoutSeconds $TimeoutSeconds -ScriptText $Code
     if (-not $response.Ok) { throw ([string]$response.Error) }
     return $response
 }
-function Get-PSLinuxFilePreparation {
+function Get-PASLinuxFilePreparation {
     param([string]$RemotePath)
     if($RemotePath -notmatch '^/opt/paeasyinstall/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_.-]+)*$' -or $RemotePath -match '/\.\.?(/|$)'){throw 'Unsafe Linux transfer destination'}
     # Verify every ancestor before creating directories or allowing SCP to open a file.
@@ -393,7 +393,7 @@ fi
 '@
     return $body.Replace('__DESTINATION__',$RemotePath)
 }
-function Copy-PSAdapterFile {
+function Copy-PASAdapterFile {
     param([hashtable]$Target,[hashtable]$Credentials,[string]$LocalPath,[string]$RemotePath,[switch]$Download)
     if ($Target.Protocol -eq 'Local') {
         if ($Download) { Copy-Item -LiteralPath $RemotePath -Destination $LocalPath -Force }
@@ -401,24 +401,24 @@ function Copy-PSAdapterFile {
         return
     }
     if ($Target.Protocol -eq 'SSH') {
-        if ($Download) { Copy-PSRawSSH $Target $RemotePath $LocalPath -Download }
+        if ($Download) { Copy-PASRawSSH $Target $RemotePath $LocalPath -Download }
         else {
             if($Target.Runtime -eq 'Bash'){
                 if([string]$Target.User -ne 'root'){throw 'Linux media staging requires the qualified root SSH identity'}
-                [void](Invoke-PSLinuxControl $Target (Get-PSLinuxFilePreparation $RemotePath))
+                [void](Invoke-PASLinuxControl $Target (Get-PASLinuxFilePreparation $RemotePath))
             }
-            Copy-PSRawSSH $Target $LocalPath $RemotePath
+            Copy-PASRawSSH $Target $LocalPath $RemotePath
         }
         return
     }
-    if (Test-PSWindows) {
-        $session=Get-PSConnection $Target $Credentials
+    if (Test-PASWindows) {
+        $session=Get-PASConnection $Target $Credentials
         try {
             if ($Download) { Copy-Item -FromSession $session -LiteralPath $RemotePath -Destination $LocalPath -Force -ErrorAction Stop }
             else {
-                $reference=[string](Get-PSObjectValue $Target 'CredentialRef' '')
+                $reference=[string](Get-PASValue $Target 'CredentialRef' '')
                 $user=if($reference -and $Credentials.ContainsKey($reference)){[string]$Credentials[$reference].UserName}else{''}
-                $prepared=Invoke-Command -Session $session -ScriptBlock (Get-PSWindowsFilePreparation) -ArgumentList $RemotePath,$user -ErrorAction Stop
+                $prepared=Invoke-Command -Session $session -ScriptBlock (Get-PASWindowsFilePreparation) -ArgumentList $RemotePath,$user -ErrorAction Stop
                 $length=(Get-Item -LiteralPath $LocalPath -ErrorAction Stop).Length
                 if($prepared.ApprovedRoot.TrimEnd('\') -eq [IO.Path]::GetPathRoot($prepared.ApprovedRoot).TrimEnd('\')){
                     # The legacy vendor recovery-public-key path is at the volume root.
@@ -469,40 +469,40 @@ function Copy-PSAdapterFile {
                 if($received.Sha256 -ne (Get-FileHash -LiteralPath $LocalPath -Algorithm SHA256).Hash){throw 'PSRP upload digest differs from the controller source'}
             }
         } catch {
-            Clear-PSConnections
+            Clear-PASConnections
             throw
         }
         return
     }
     throw 'Windows file transfer requires the native Windows PowerShell controller'
 }
-function Get-PSRemoteFileHash {
+function Get-PASRemoteFileHash {
     param([hashtable]$Target,[hashtable]$Credentials,[string]$Path)
     if ($Target.Protocol -eq 'Local') {
         if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
         return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToUpperInvariant()
     }
-    if ([string](Get-PSObjectValue $Target 'Runtime' 'WindowsPowerShell') -eq 'Bash') {
+    if ([string](Get-PASValue $Target 'Runtime' 'WindowsPowerShell') -eq 'Bash') {
         $quoted="'" + $Path.Replace("'","'\''") + "'"
-        $r=Invoke-PSRawSSH $Target "if [ -f $quoted ]; then sha256sum -- $quoted | cut -d' ' -f1; fi"
-        if ($r.ExitCode -eq 255) { throw (New-PSUnknownError 'SSH lost while hashing remote file') }
+        $r=Invoke-PASRawSSH $Target "if [ -f $quoted ]; then sha256sum -- $quoted | cut -d' ' -f1; fi"
+        if ($r.ExitCode -eq 255) { throw (New-PASUnknownError 'SSH lost while hashing remote file') }
         if ($r.ExitCode -ne 0) { throw "Remote hash failed: $($r.Output)" }
         return ([string]$r.Output).Trim().ToUpperInvariant()
     }
-    $code='$p='+(ConvertTo-PSSingleQuoted $Path)+'; $h=''''; if(Test-Path -LiteralPath $p -PathType Leaf){$h=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash}; [pscustomobject]@{Message=''hash'';Hash=$h}'
-    $r=Invoke-PSAdapterCommand $Target $Credentials $code 'Object'
-    return ([string](Get-PSObjectValue $r.Terminal 'Hash' '')).ToUpperInvariant()
+    $code='$p='+(ConvertTo-PASSingleQuoted $Path)+'; $h=''''; if(Test-Path -LiteralPath $p -PathType Leaf){$h=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash}; [pscustomobject]@{Message=''hash'';Hash=$h}'
+    $r=Invoke-PASAdapterCommand $Target $Credentials $code 'Object'
+    return ([string](Get-PASValue $r.Terminal 'Hash' '')).ToUpperInvariant()
 }
-function Copy-PSRelayFiles {
+function Copy-PASRelayFiles {
     # Key bytes stay in SecureString PSRP payloads, never code, task Data or JSON.
     param([hashtable]$SourceTarget,[hashtable]$DestinationTarget,[hashtable]$Credentials,[string]$SourceDir,[string]$DestinationDir,[string[]]$Files,[int]$MaxBytes=1048576)
-    if(-not(Test-PSWindows) -or $SourceTarget.Protocol -ne 'WinRM' -or $DestinationTarget.Protocol -ne 'WinRM'){throw 'Qualified binary relay requires Windows WinRM endpoints'}
+    if(-not(Test-PASWindows) -or $SourceTarget.Protocol -ne 'WinRM' -or $DestinationTarget.Protocol -ne 'WinRM'){throw 'Qualified binary relay requires Windows WinRM endpoints'}
     if(@($Files).Count -eq 0){throw 'Relay requires an explicit filename allowlist'}
-    $sourceSession=Get-PSConnection $SourceTarget $Credentials
-    $destinationSession=Get-PSConnection $DestinationTarget $Credentials
-    $reference=[string](Get-PSObjectValue $DestinationTarget 'CredentialRef' '')
+    $sourceSession=Get-PASConnection $SourceTarget $Credentials
+    $destinationSession=Get-PASConnection $DestinationTarget $Credentials
+    $reference=[string](Get-PASValue $DestinationTarget 'CredentialRef' '')
     $user=if($reference -and $Credentials.ContainsKey($reference)){[string]$Credentials[$reference].UserName}else{''}
-    $sourceReference=[string](Get-PSObjectValue $SourceTarget 'CredentialRef' '')
+    $sourceReference=[string](Get-PASValue $SourceTarget 'CredentialRef' '')
     $sourceUser=if($sourceReference -and $Credentials.ContainsKey($sourceReference)){[string]$Credentials[$sourceReference].UserName}else{''}
     $changed=$false
     foreach($name in $Files){
@@ -537,7 +537,7 @@ function Copy-PSRelayFiles {
         }
         if($record.Payload -isnot [Security.SecureString]){throw 'Relay did not return an encrypted PSRP payload'}
         try{
-            [void](Invoke-Command -Session $destinationSession -ScriptBlock (Get-PSWindowsFilePreparation) -ArgumentList $destination,$user,$false,$false -ErrorAction Stop)
+            [void](Invoke-Command -Session $destinationSession -ScriptBlock (Get-PASWindowsFilePreparation) -ArgumentList $destination,$user,$false,$false -ErrorAction Stop)
             $result=Invoke-Command -Session $destinationSession -ArgumentList $destination,$record.Payload,([string]$record.Hash),$MaxBytes -ErrorAction Stop -ScriptBlock {
                 param($path,[Security.SecureString]$payload,[string]$expected,[int]$limit)
                 $ErrorActionPreference='Stop'

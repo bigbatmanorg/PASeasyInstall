@@ -1,19 +1,19 @@
 # PAExec private utilities. No classes, syntax or APIs requiring PowerShell 7.
-function Test-PSWindows { return ($env:OS -eq 'Windows_NT') }
-function Get-PSNow { return [DateTime]::UtcNow.ToString('o') }
-function Get-PSUtf8NoBom { return (New-Object System.Text.UTF8Encoding($false)) }
-function ConvertTo-PSHashtable {
+function Test-PASWindows { return ($env:OS -eq 'Windows_NT') }
+function Get-PASNow { return [DateTime]::UtcNow.ToString('o') }
+function Get-PASUtf8NoBom { return (New-Object System.Text.UTF8Encoding($false)) }
+function ConvertTo-PASHashtable {
     param($Value)
     if ($null -eq $Value) { return $null }
     if ($Value -is [System.Collections.IDictionary]) {
         $h = @{}
-        foreach ($k in @($Value.Keys)) { $h[[string]$k] = ConvertTo-PSHashtable $Value[$k] }
+        foreach ($k in @($Value.Keys)) { $h[[string]$k] = ConvertTo-PASHashtable $Value[$k] }
         return ,$h
     }
     if ($Value -is [string] -or $Value -is [ValueType]) { return $Value }
     if ($Value -is [System.Array] -or $Value -is [System.Collections.IList]) {
         # Remoting deserializes arrays as ArrayList; treat every list as an array.
-        $items = @(); foreach ($v in $Value) { $items += ,(ConvertTo-PSHashtable $v) }
+        $items = @(); foreach ($v in $Value) { $items += ,(ConvertTo-PASHashtable $v) }
         return ,$items
     }
     $isCustom = $false
@@ -22,54 +22,44 @@ function ConvertTo-PSHashtable {
     }
     if ($isCustom) {
         $h = @{}
-        foreach ($p in $Value.PSObject.Properties) { $h[$p.Name] = ConvertTo-PSHashtable $p.Value }
+        foreach ($p in $Value.PSObject.Properties) { $h[$p.Name] = ConvertTo-PASHashtable $p.Value }
         return ,$h
     }
     return $Value
 }
-function Get-PSObjectValue {
-    param($Value, [string]$Name, $Default = $null)
-    if ($null -eq $Value) { return $Default }
-    if ($Value -is [System.Collections.IDictionary]) {
-        if ($Value.Contains($Name)) { return $Value[$Name] }
-        return $Default
-    }
-    if ($Value.PSObject.Properties[$Name]) { return $Value.$Name }
-    return $Default
-}
-function Get-PSPath {
+function Get-PASPath {
     param([string]$Base,[string]$Relative)
     if ([IO.Path]::IsPathRooted($Relative)) { return [IO.Path]::GetFullPath($Relative) }
     return [IO.Path]::GetFullPath((Join-Path $Base $Relative))
 }
-function Assert-PSProjectPath {
+function Assert-PASProjectPath {
     param([string]$Base,[string]$Relative)
     if ([string]::IsNullOrWhiteSpace($Relative)) { throw 'Missing file path' }
     if ([IO.Path]::IsPathRooted($Relative)) { throw "Absolute script path forbidden in workflow: $Relative" }
     $root = [IO.Path]::GetFullPath($Base).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
-    $full = Get-PSPath $Base $Relative
+    $full = Get-PASPath $Base $Relative
     $comparison = [StringComparison]::Ordinal
-    if (Test-PSWindows) { $comparison = [StringComparison]::OrdinalIgnoreCase }
+    if (Test-PASWindows) { $comparison = [StringComparison]::OrdinalIgnoreCase }
     if (-not $full.StartsWith($root,$comparison)) { throw "Script path escapes workflow directory: $Relative" }
     if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { throw "Script file missing: $Relative" }
     return $full
 }
-function Read-PSJson {
+function Read-PASJournal {
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
     $text = [IO.File]::ReadAllText($Path,[Text.Encoding]::UTF8)
     try { $parsed = ConvertFrom-Json -InputObject $text -ErrorAction Stop }
     catch { throw "PAExecCorrupt: cannot parse JSON journal '$Path': $($_.Exception.Message)" }
     if ($null -eq $parsed) { throw "PAExecCorrupt: empty JSON journal '$Path'" }
-    return (ConvertTo-PSHashtable $parsed)
+    return (ConvertTo-PASHashtable $parsed)
 }
-function Write-PSJsonAtomic {
+function Write-PASJournal {
     param([string]$Path,$Object)
     $dir = Split-Path -Parent $Path
     if (-not (Test-Path -LiteralPath $dir)) { New-Item -Path $dir -ItemType Directory -Force | Out-Null }
     $tmp = "$Path.$([guid]::NewGuid().ToString('N')).tmp"
     try {
-        [IO.File]::WriteAllText($tmp,($Object | ConvertTo-Json -Depth 30 -Compress),(Get-PSUtf8NoBom))
+        [IO.File]::WriteAllText($tmp,($Object | ConvertTo-Json -Depth 30 -Compress),(Get-PASUtf8NoBom))
         $attempt = 0
         while ($true) {
             try {
@@ -90,7 +80,7 @@ function Write-PSJsonAtomic {
         }
     } finally { if ([IO.File]::Exists($tmp)) { [IO.File]::Delete($tmp) } }
 }
-function Protect-PSText {
+function Protect-PASText {
     param([string]$Text,[object[]]$Redactions)
     if ($null -eq $Text) { return $Text }
     $result = $Text
@@ -104,25 +94,25 @@ function Protect-PSText {
     }
     return $result
 }
-function Add-PSEvent {
+function Add-PASEvent {
     param([hashtable]$Context,[string]$Type,[string]$TaskId,[string]$Message,[string]$Status='Information')
     $Context.Seq = [int]$Context.Seq + 1
-    $safeMessage = Protect-PSText (Limit-PSText $Message 4000) $Context.Redactions
+    $safeMessage = Protect-PASText (Limit-PASText $Message 4000) $Context.Redactions
     $record = [ordered]@{
-        schemaVersion=1; timestampUtc=(Get-PSNow); sequence=$Context.Seq
+        schemaVersion=1; timestampUtc=(Get-PASNow); sequence=$Context.Seq
         runId=$Context.RunId; target=$Context.TargetName; taskId=$TaskId
         type=$Type; level=$Status; message=$safeMessage
     }
-    $line = Protect-PSText ($record | ConvertTo-Json -Compress -Depth 10) $Context.Redactions
+    $line = Protect-PASText ($record | ConvertTo-Json -Compress -Depth 10) $Context.Redactions
     # ConvertTo-Json escapes control characters, so one event is always one physical line.
-    [IO.File]::AppendAllText((Join-Path $Context.RunDirectory 'events.jsonl'),$line + "`n",(Get-PSUtf8NoBom))
+    [IO.File]::AppendAllText((Join-Path $Context.RunDirectory 'events.jsonl'),$line + "`n",(Get-PASUtf8NoBom))
     if ($Context.Echo) {
         $label = '[' + $Context.TargetName + ']'
         if ($TaskId) { $label += '[' + $TaskId + ']' }
         Write-Host ("{0} {1} {2} {3}" -f ([DateTime]::Now.ToString('HH:mm:ss')),$label,$Type,$safeMessage)
     }
 }
-function Get-PSDigest {
+function Get-PASFileSetDigest {
     param([string[]]$Files)
     $hash = [Security.Cryptography.SHA256]::Create()
     try {
@@ -139,7 +129,7 @@ function Get-PSDigest {
         return ([BitConverter]::ToString($hash.ComputeHash($data))).Replace('-','').ToLowerInvariant()
     } finally { $hash.Dispose() }
 }
-function Get-PSSecretPlaintext {
+function Get-PASSecretPlaintext {
     param($Secret)
     if ($Secret -is [Security.SecureString]) {
         $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secret)
@@ -149,14 +139,14 @@ function Get-PSSecretPlaintext {
     if ($Secret -is [pscredential]) { throw 'Use a PSCredential only for transport authentication, not task input' }
     return [string]$Secret
 }
-function Resolve-PSValue {
+function Resolve-PASValue {
     param($Value,[hashtable]$Inventory,[hashtable]$Secrets,[hashtable]$Outputs,[hashtable]$Runtime=@{})
     if ($null -eq $Value) { return $null }
     if ($Value -is [System.Collections.IDictionary]) {
         if ($Value.Contains('SecretRef')) {
             $key=[string]$Value['SecretRef']
             if (-not $Secrets.ContainsKey($key)) { throw "Missing secret reference '$key'" }
-            return (Get-PSSecretPlaintext $Secrets[$key])
+            return (Get-PASSecretPlaintext $Secrets[$key])
         }
         if ($Value.Contains('ConfigRef')) {
             $parts = ([string]$Value['ConfigRef']).Split('.')
@@ -177,16 +167,16 @@ function Resolve-PSValue {
             if (-not $Runtime.ContainsKey($key)) { throw "Unknown runtime reference '$key' (supported: $(@($Runtime.Keys) -join ', '))" }
             return $Runtime[$key]
         }
-        $h=@{}; foreach ($k in @($Value.Keys)) { $h[$k] = Resolve-PSValue $Value[$k] $Inventory $Secrets $Outputs $Runtime }
+        $h=@{}; foreach ($k in @($Value.Keys)) { $h[$k] = Resolve-PASValue $Value[$k] $Inventory $Secrets $Outputs $Runtime }
         return ,$h
     }
     if ($Value -is [array]) {
-        $values = @(); foreach ($v in $Value) { $values += ,(Resolve-PSValue $v $Inventory $Secrets $Outputs $Runtime) }
+        $values = @(); foreach ($v in $Value) { $values += ,(Resolve-PASValue $v $Inventory $Secrets $Outputs $Runtime) }
         return ,$values
     }
     return $Value
 }
-function Get-PSFileLock {
+function Get-PASFileLock {
     param([string]$Path)
     $dir=Split-Path -Parent $Path
     if (-not (Test-Path -LiteralPath $dir)) { New-Item -Path $dir -ItemType Directory -Force | Out-Null }
@@ -196,21 +186,21 @@ function Get-PSFileLock {
         throw "PAExecLocked: another controller process holds the run lock '$Path'"
     }
 }
-function Limit-PSText {
+function Limit-PASText {
     param([string]$Text,[int]$MaxCharacters=20000)
     if ($null -eq $Text) { return '' }
     if ($Text.Length -le $MaxCharacters) { return $Text }
     return $Text.Substring(0,$MaxCharacters) + ' [TRUNCATED]'
 }
-function ConvertTo-PSSingleQuoted {
+function ConvertTo-PASSingleQuoted {
     param([string]$Value)
     return ("'" + $Value.Replace("'","''") + "'")
 }
 
 # Persist only typed nonsecret diagnostic outputs. Never journal arbitrary vendor-returned objects.
-function Select-PAExecSafeData {
+function Select-PASSafeData {
     param($Data,[string[]]$Redactions=@())
-    $data=ConvertTo-PSHashtable $Data
+    $data=ConvertTo-PASHashtable $Data
     if($data -isnot [System.Collections.IDictionary]){throw 'Step returned unsupported Data payload'}
     $allow=@('Pacli','SafeName','Cycle','Metadata','RebootRequired','Computer','OS','Build','Hash','TrustBundleSHA256','Version','File')
     $out=@{}
@@ -231,18 +221,28 @@ function Select-PAExecSafeData {
 }
 
 # Remote status is untrusted. Persist a bounded evidence projection, never its arbitrary Data.
-function Select-PAExecRemoteEvidence {
+function Select-PASRemoteEvidence {
     param($Result,[string[]]$Redactions=@())
     $record=@{}
     foreach($name in @('state','attemptId','startedUtc','endedUtc','bootUtc','host','recovery','message')){
-        $value=Get-PSObjectValue $Result $name $null
-        if($null -ne $value){$record[$name]=Limit-PSText (Protect-PSText ([string]$value) $Redactions) 2000}
+        $value=Get-PASValue $Result $name $null
+        if($null -ne $value){$record[$name]=Limit-PASText (Protect-PASText ([string]$value) $Redactions) 2000}
     }
     foreach($name in @('pid','exitCode')){
-        $value=Get-PSObjectValue $Result $name $null
+        $value=Get-PASValue $Result $name $null
         if($value -is [int] -or $value -is [long]){$record[$name]=$value}
     }
-    $changed=Get-PSObjectValue $Result 'changed' $null
+    $changed=Get-PASValue $Result 'changed' $null
     if($changed -is [bool]){$record.changed=$changed}
     return $record
 }
+function ConvertTo-PASOrderedHashtable {
+    param($Value)
+    if($null -eq $Value){return $null}
+    if($Value -is [string] -or $Value -is [ValueType]){return $Value}
+    if($Value -is [System.Collections.IDictionary]){$h=[ordered]@{};foreach($k in $Value.Keys){$h[[string]$k]=ConvertTo-PASOrderedHashtable $Value[$k]};return $h}
+    if($Value -is [pscustomobject]){$h=[ordered]@{};foreach($p in $Value.PSObject.Properties){$h[$p.Name]=ConvertTo-PASOrderedHashtable $p.Value};return $h}
+    if($Value -is [System.Collections.IEnumerable]){return ,@(foreach($i in $Value){ConvertTo-PASOrderedHashtable $i})}
+    return $Value
+}
+

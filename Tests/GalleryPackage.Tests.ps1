@@ -1,10 +1,10 @@
 # Release packaging: Gallery stage content, forbidden-content scan, umbrella command surface and the
-# credential requirements Invoke-PASeasyInstall prompts for. No servers and no network.
+# credential requirements Invoke-PASInstall prompts for. No servers and no network.
 BeforeAll {
     $script:repo = Split-Path -Parent $PSScriptRoot
-    $script:expected = @('Start-PASeasyInstall','Invoke-PASeasyInstall','New-PASDeploymentConfiguration','Get-PASMediaInventory',
+    $script:expected = @('Start-PASInstall','Invoke-PASInstall','New-PASDeploymentConfiguration','Get-PASMediaInventory',
         'Get-PASMediaSelection','Test-PASEnvironment','Get-PASEnvironmentPlan','Save-PASEnvironment','Start-PASEnvironment',
-        'Get-PASEnvironmentSnapshot','Get-PASEnvironmentEvents','Get-PASStageCatalog','Resume-PASeasyDeployment',
+        'Get-PASEnvironmentSnapshot','Get-PASEnvironmentEvents','Get-PASStageCatalog','Resume-PASDeployment',
         'Test-PASEnvironmentHealth','Export-PASRunData','Close-PASDeployment')
     function Copy-RepoForBuild([string]$To) {
         New-Item -ItemType Directory -Path $To -Force | Out-Null
@@ -77,7 +77,7 @@ Describe 'Umbrella command surface' {
     }
 }
 
-Describe 'Invoke-PASeasyInstall credential requirements' {
+Describe 'Invoke-PASInstall credential requirements' {
     BeforeAll {
         function New-Cfg([switch]$Composed, [string]$Profile = 'Lab') {
             $c = [ordered]@{ name = 'T'; security = [ordered]@{ profile = $Profile; overrides = [ordered]@{} }

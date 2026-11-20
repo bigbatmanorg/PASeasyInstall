@@ -5,14 +5,14 @@ BeforeAll {
 Describe 'Controller bootstrap failure and process identity' {
     It 'starts the private controller from the public detached API and rejects missing credentials before remote dispatch' {
         $dataRoot=Join-Path $TestDrive 'private-controller'
-        $config=New-PASeasyConfig -Template DomainJoin -Path (Join-Path $TestDrive 'private-controller.json') -WhatIf
+        $config=New-PASConfigurationTemplate -Template DomainJoin -Path (Join-Path $TestDrive 'private-controller.json') -WhatIf
         $config.name='BootstrapFixture'+[guid]::NewGuid().ToString('N')
         $id=$null
         try{
-            $id=Start-PASeasyDeployment -Configuration $config -DataRoot $dataRoot -Confirm:$false
+            $id=Start-PASDeployment -Configuration $config -DataRoot $dataRoot -Confirm:$false
             $deadline=[DateTime]::UtcNow.AddSeconds(20)
             do{
-                $run=Get-PASeasyRun -RunId $id -DataRoot $dataRoot
+                $run=Get-PASRunRecord -RunId $id -DataRoot $dataRoot
                 if($run.status -notin @('Launching','Running')){break}
                 Start-Sleep -Milliseconds 100
             }while([DateTime]::UtcNow -lt $deadline)
@@ -27,7 +27,7 @@ Describe 'Controller bootstrap failure and process identity' {
                 & (Get-Module PASeasyInstall.Core) {
                     param($root,$runId,$name)
                     foreach($resource in @(('environment-'+$name),'host-192.0.2.13')){
-                        $gate=Enter-PASeasyGate -Name $resource -DataRoot $root -RunId $runId -TimeoutSeconds 1
+                        $gate=Enter-PASGate -Name $resource -DataRoot $root -RunId $runId -TimeoutSeconds 1
                         try{$gate.Complete()}finally{$gate.Dispose()}
                     }
                 } $dataRoot $id $config.name
@@ -49,7 +49,7 @@ Describe 'Controller bootstrap failure and process identity' {
         try{
             $child.WaitForExit(15000) | Should -BeTrue
             $child.HasExited | Should -BeTrue
-            $run=Get-PASeasyRun -RunId $runId -DataRoot $dataRoot
+            $run=Get-PASRunRecord -RunId $runId -DataRoot $dataRoot
             $run.status | Should -Be 'LaunchFailed'
             $run.controllerPid | Should -Be $child.Id
             Test-Path $envelope | Should -BeFalse
@@ -60,6 +60,6 @@ Describe 'Controller bootstrap failure and process identity' {
         $id=[guid]::NewGuid().ToString('N');$dataRoot=Join-Path $TestDrive 'foreground'
         $dir=Join-Path (Join-Path $dataRoot 'Runs') $id;New-Item $dir -ItemType Directory -Force | Out-Null
         @{id=$id;status='Running';controllerPid=$PID;controllerStartedUtc=[Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().ToString('o');message='running'} | ConvertTo-Json | Set-Content (Join-Path $dir 'run-v2.json')
-        (Get-PASeasyRun -RunId $id -DataRoot $dataRoot).status | Should -Be 'Running'
+        (Get-PASRunRecord -RunId $id -DataRoot $dataRoot).status | Should -Be 'Running'
     }
 }

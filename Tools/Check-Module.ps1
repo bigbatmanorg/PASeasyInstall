@@ -13,13 +13,13 @@ if($bad.Count){throw "PowerShell parse errors:`n$($bad -join "`n")"}
 $manifest=Test-ModuleManifest -Path $module -ErrorAction Stop
 Import-Module $module -Force -ErrorAction Stop
 Import-Module (Join-Path $root 'Modules/PASeasyInstall.Orchestrator/PASeasyInstall.Orchestrator.psd1') -Force
-$sample=New-PASeasyConfig -Template Vault -Path (Join-Path $env:TEMP 'paeasy-smoke-example.json') -WhatIf
-$test=Test-PASeasyConfig -Configuration $sample
+$sample=New-PASConfigurationTemplate -Template Vault -Path (Join-Path $env:TEMP 'paeasy-smoke-example.json') -WhatIf
+$test=Test-PASConfiguration -Configuration $sample
 if(-not $test.Valid){throw "Config smoke failed: $($test.Issues -join '; ')"}
-$plan=Get-PASeasyPlan -Configuration $sample
+$plan=Get-PASDeploymentPlan -Configuration $sample
 if(@($plan.Items).Count -ne 1 -or $plan.Items[0].Type -ne 'Vault'){throw 'Planner smoke mismatch'}
-$exports=@('New-PASeasyConfig','Test-PASeasyConfig','Get-PASeasyPlan','Start-PASeasyDeployment',
- 'Resume-PASeasyDeployment','Get-PASeasyRun','Get-PASeasyRuns','Get-PASeasyLog',
- 'Get-PASeasyLogSources','Get-PASeasyComponentStatus','Test-PASeasyDeployment')
+$exports=@('New-PASConfigurationTemplate','Test-PASConfiguration','Get-PASDeploymentPlan','Start-PASDeployment',
+ 'Resume-PASDeployment','Get-PASRunRecord','Get-PASRunRecords','Get-PASRunLog',
+ 'Get-PASLogSource','Get-PASComponentStatus','Test-PASDeploymentStatus')
 foreach($name in $exports){if(-not(Get-Command $name -ErrorAction SilentlyContinue)){throw "Missing export: $name"}}
 "PASS: PowerShell parsed, Core imported, $($manifest.Version), configuration validated, plan generated one Vault; NO LIVE VM TESTS."
