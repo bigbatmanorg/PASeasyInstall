@@ -399,6 +399,22 @@ function Invoke-PASRunTarget {
     if ($vaultAddress) { $arguments.VaultAddress = $vaultAddress }
     Invoke-PASWorkflow @arguments | Out-Null
 }
+function Add-PASDomainCredentialAlias {
+    # After promotion the local Administrator of the new domain controller is the domain Administrator:
+    # same password, domain name. The AD target signs in with '<component id>-domain' once the local
+    # account is gone. An alias supplied by the caller is kept.
+    param([hashtable]$Config,[hashtable]$Credentials)
+    foreach ($component in @($Config.components | Where-Object { $_.type -eq 'AD' })) {
+        $id = [string]$component.id
+        $domainRef = $id + '-domain'
+        if ($Credentials.ContainsKey($domainRef) -or -not $Credentials.ContainsKey($id)) { continue }
+        $netbios = ([string]$Config.activeDirectory.domain).Split('.')[0].ToUpperInvariant()
+        $configuredNetbios = [string](Get-PASValue (Get-PASValue $component 'options' $null) 'domainNetbios' '')
+        if ($configuredNetbios) { $netbios = $configuredNetbios }
+        $user = ([string]$Credentials[$id].UserName).Split([char]92)[-1].Split('@')[0]
+        $Credentials[$domainRef] = [pscredential]::new(($netbios + '\' + $user), $Credentials[$id].Password)
+    }
+}
 function Invoke-PASActiveDirectoryForest {
     # Domain promotion runs before the joins and before every PAM component.
     param([hashtable]$Run)
@@ -406,17 +422,8 @@ function Invoke-PASActiveDirectoryForest {
     if (-not $components.Count) { return }
     $component = $components[0]
     $id = [string]$component.id
-    $credentials = $Run.Credentials
-    if (-not $credentials.ContainsKey($id)) { throw 'AD host credential required' }
-    # After promotion the local Administrator becomes the domain Administrator: same password, domain name.
-    $domainRef = $id + '-domain'
-    if (-not $credentials.ContainsKey($domainRef)) {
-        $netbios = ([string]$Run.Config.activeDirectory.domain).Split('.')[0].ToUpperInvariant()
-        $configuredNetbios = [string](Get-PASValue (Get-PASValue $component 'options' $null) 'domainNetbios' '')
-        if ($configuredNetbios) { $netbios = $configuredNetbios }
-        $user = ([string]$credentials[$id].UserName).Split([char]92)[-1].Split('@')[0]
-        $credentials[$domainRef] = [pscredential]::new(($netbios + '\' + $user), $credentials[$id].Password)
-    }
+    if (-not $Run.Credentials.ContainsKey($id)) { throw 'AD host credential required' }
+    Add-PASDomainCredentialAlias -Config $Run.Config -Credentials $Run.Credentials
     Set-PASRunCurrentComponent $Run $id
     Write-PASRunEvent $Run.Directory 'ADForest' 'Creating/verifying Active Directory forest' $id
     $files = Initialize-PASComponentRun -Run $Run -Component $component
@@ -672,4 +679,134 @@ function Invoke-PASRunControllerCore {
         $auth=$null
         $script:PASFrozenMedia=$null
     }
+}
+
+# ---- Stop or abandon a run
+
+function Get-PASRunLockedTargets {
+    <# The servers on which a run may still hold its target lock, read from the inventories the run wrote:
+       every engine target that was started and did not succeed (a successful workflow releases its lock).
+       One entry per server lock: Name (engine target), Target (inventory entry), Computer, LockFolder. #>
+    param([string]$RunDirectory)
+    $files = @(Get-ChildItem -LiteralPath $RunDirectory -Filter '*inventory.psd1' -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+    $payloads = Join-Path $RunDirectory 'Payloads'
+    if (Test-Path -LiteralPath $payloads -PathType Container) {
+        $files += @(Get-ChildItem -LiteralPath $payloads -Directory | ForEach-Object { Join-Path $_.FullName 'inventory.psd1' } | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })
+    }
+    $seen = @{}
+    foreach ($file in $files) {
+        $inventory = Import-PowerShellDataFile -Path $file
+        foreach ($name in @($inventory.Targets.Keys)) {
+            $target = $inventory.Targets[$name]
+            if ([string](Get-PASValue $target 'Protocol' '') -eq 'Local') { continue }
+            $state = $null
+            try { $state = Read-PASJournal (Join-Path (Join-Path $RunDirectory ([string]$name)) 'state.json') } catch { $state = @{ status = 'Unknown' } }
+            if (-not $state -or [string](Get-PASValue $state 'status' '') -eq 'Succeeded') { continue }
+            if (-not $target.Contains('Runtime')) { $target['Runtime'] = 'WindowsPowerShell' }
+            $lockKey = [string](Get-PASValue $target 'LockKey' $name)
+            $key = ([string]$target.ComputerName + '|' + $lockKey).ToLowerInvariant()
+            if ($seen.ContainsKey($key)) { continue }
+            $seen[$key] = $true
+            [pscustomobject]@{ Name = [string]$name; Target = $target; Computer = [string]$target.ComputerName; LockFolder = (Get-PASRemoteLockFolder $target $lockKey) }
+        }
+    }
+}
+function Stop-PASDeployment {
+    <#
+    .SYNOPSIS
+    Stops or abandons a run: marks it Abandoned and releases the target locks it still holds.
+    .DESCRIPTION
+    A run that stopped (Failed, Unknown, Blocked, Interrupted, LaunchFailed) keeps a lock folder on every
+    server it did not finish, so that no other run touches a half-installed server. Stop-PASDeployment is
+    how you give those servers back: use it when you will not resume the run (typically after you reset
+    or rebuilt the servers).
+    - While the controller is still running it refuses, unless -Force is given: then it stops the
+      controller process (only the process that is provably this run's controller).
+    - The run is marked Abandoned and a RunStopped event is written. An Abandoned run cannot be resumed.
+    - With -CredentialMap the lock of every unfinished server is released, if it still names this run.
+      A server that cannot be reached becomes a warning, not an error.
+    - Without -CredentialMap nothing is contacted; the lock folders to delete are listed instead.
+    No installed software is changed or removed. Servers may hold a partial installation.
+    .PARAMETER CredentialMap
+    @{ <server id> = PSCredential }, as for Start-PASDeployment. Only needed to release the locks.
+    .EXAMPLE
+    Stop-PASDeployment -RunId 83cf015f78bd4743a54e6d0a9d0dd301 -CredentialMap $creds
+    .EXAMPLE
+    Stop-PASDeployment -RunId $id -Force     # stop a running controller; lists the lock folders
+    #>
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    param([Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{32}$')][string]$RunId,
+        [hashtable]$CredentialMap,[switch]$Force,[string]$DataRoot=(Get-PASDataRoot))
+    $record = Get-PASRunRecord -RunId $RunId -DataRoot $DataRoot
+    if (-not $record) { throw "Run $RunId was not found under $DataRoot" }
+    $dir = Get-PASRunDirectory $RunId $DataRoot
+    $recordPath = Join-Path $dir 'run-v2.json'
+    $previous = [string]$record.status
+    $running = ($previous -in @('Launching','Running'))
+    if ($running -and -not $Force) {
+        throw "Run $RunId is still running (controller process $($record.controllerPid)). Wait for it, or stop it with -Force."
+    }
+    if ($running -and -not $record.controllerPid) {
+        throw "Run $RunId is starting and has no controller process yet. Try again in a moment."
+    }
+    # PID and start time must both match the run record (as in Get-PASRunRecord): a reused PID is never stopped.
+    if ($running -and (Test-PASControllerAlive $record) -ne $true) {
+        throw "Process $($record.controllerPid) cannot be confirmed as the controller of run $RunId; nothing was stopped."
+    }
+    if (-not $PSCmdlet.ShouldProcess($RunId, 'Stop the run, mark it Abandoned and release its target locks')) { return }
+
+    $controllerStopped = $false
+    if ($running) {
+        Stop-Process -Id ([int]$record.controllerPid) -Force -ErrorAction Stop
+        $deadline = [DateTime]::UtcNow.AddSeconds(15)
+        while ((Test-PASControllerAlive $record) -ne $false) {
+            if ([DateTime]::UtcNow -ge $deadline) { throw "Controller process $($record.controllerPid) of run $RunId did not end." }
+            Start-Sleep -Milliseconds 300
+        }
+        $controllerStopped = $true
+    }
+    if ($previous -notin @('Succeeded','Abandoned')) {
+        # Read the stored record again: Get-PASRunRecord may have adjusted the status it returned.
+        $stored = Read-PASJson $recordPath
+        $now = [DateTime]::UtcNow.ToString('o')
+        $stored.status = 'Abandoned'
+        $stored.message = "Stopped by the operator (was $previous). Servers of this run may hold a partial installation."
+        $stored.finishedUtc = $now
+        $stored | Add-Member NoteProperty abandonedUtc $now -Force
+        Write-PASJsonAtomic $recordPath $stored
+        Write-PASRunEvent $dir 'RunStopped' ([string]$stored.message) '' '' 'Warning'
+    }
+
+    $locks = @()
+    $targets = @(Get-PASRunLockedTargets -RunDirectory $dir)
+    if ($CredentialMap) {
+        $config = Read-PASConfiguration -Path (Join-Path $dir 'config.json')
+        $credentials = Resolve-PASCredentialMap -Config $config -CredentialMap (ConvertTo-PASControllerCredentialMap $config $CredentialMap)
+        Add-PASDomainCredentialAlias -Config $config -Credentials $credentials
+        try {
+            foreach ($entry in $targets) {
+                $released = $false
+                $note = ''
+                try {
+                    # The server removes the lock only when its owner file names this RunId.
+                    [void](Invoke-PASRemoteLock ([pscustomobject]@{ Target = $entry.Target; TargetName = $entry.Name }) $credentials $RunId -Release)
+                    $released = $true
+                } catch {
+                    $note = [string]$_.Exception.Message
+                    Write-Warning "The lock of $($entry.Name) on $($entry.Computer) was not released: $note. If it still names run $RunId, delete the folder $($entry.LockFolder) there."
+                }
+                $locks += [pscustomobject]@{ Target = $entry.Name; Computer = $entry.Computer; LockFolder = $entry.LockFolder; Released = $released; Message = $note }
+            }
+        } finally {
+            Clear-PASConnections
+        }
+    } else {
+        foreach ($entry in $targets) {
+            Write-Host "Lock of $($entry.Name): delete the folder $($entry.LockFolder) on $($entry.Computer) if it still names run $RunId."
+            $locks += [pscustomobject]@{ Target = $entry.Name; Computer = $entry.Computer; LockFolder = $entry.LockFolder; Released = $false; Message = 'Not contacted (no -CredentialMap)' }
+        }
+    }
+    $status = $previous
+    if ($previous -ne 'Succeeded') { $status = 'Abandoned' }
+    return [pscustomobject]@{ RunId = $RunId; Status = $status; PreviousStatus = $previous; ControllerStopped = $controllerStopped; Locks = $locks }
 }

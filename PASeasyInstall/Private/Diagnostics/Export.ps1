@@ -1,4 +1,4 @@
-# Release-surface helpers: environment health check and sanitized run-data export.
+# Health check of an installed lab and sanitized export of a run's data.
 # Both are read-only towards the lab, except the health check's single PVWA REST session, which is
 # serialised with deployments through the Vault lock (Locks.ps1) and always logged off.
 
@@ -46,19 +46,15 @@ function Get-PASHealthPinnedCertificate {
             if($f -and (Test-Path -LiteralPath $f -PathType Leaf)){return $f}
         }
     }
-    # A CPM that trusts 'the PVWA of this deployment' had that certificate read over the authenticated management
-    # channel at install time and stored with the composed deployment: reuse the newest one for this environment.
+    # A CPM that trusts 'the PVWA of this deployment' (pvwaTrustFrom) had that certificate read from the PVWA
+    # server at install time and stored in the run directory: reuse the one of the newest run of this environment.
     foreach($comp in @($Configuration.components|Where-Object {$_ -and $_.type -eq 'CPM'})){
         if(-not($comp -is [System.Collections.IDictionary] -and $comp.Contains('options') -and $comp.options -and $comp.options.Contains('pvwaTrustFrom'))){continue}
         $src=[string]$comp.options.pvwaTrustFrom
         if($src -notmatch '^[a-z0-9][a-z0-9_-]{0,63}$'){continue}
-        $root=Get-PASFleetRoot
-        if(-not(Test-Path -LiteralPath $root)){continue}
-        foreach($d in @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue|Sort-Object LastWriteTimeUtc -Descending)){
-            $cer=Join-Path $d.FullName ('pvwa-trust-'+$src+'.cer')
-            if(-not(Test-Path -LiteralPath $cer -PathType Leaf)){continue}
-            $f=Read-PASFleetJson (Join-Path $d.FullName 'fleet.json')
-            if($f -and [string]$f.name -eq [string]$Configuration.name){return $cer}
+        foreach($run in @(Get-PASRunRecords|Where-Object {[string]$_.name -eq [string]$Configuration.name})){
+            $cer=Join-Path (Get-PASRunDirectory ([string]$run.id)) ('pvwa-trust-'+$src+'.cer')
+            if(Test-Path -LiteralPath $cer -PathType Leaf){return $cer}
         }
     }
     return ''
@@ -101,7 +97,7 @@ function Test-PASDRReplication {
     return [pscustomobject]$out
 }
 
-function Test-PASEnvironmentHealth {
+function Test-PASDeploymentHealth {
     <#
     .SYNOPSIS
     Checks that an installed lab works: PVWA login, the components the Vault sees as connected, and DR replication.
@@ -128,16 +124,16 @@ function Test-PASEnvironmentHealth {
     .PARAMETER DRCredential
     Windows credential of the DR server, for the replication check.
     .EXAMPLE
-    Test-PASEnvironmentHealth -Config .\MyLab.json -VaultCredential (Get-Credential Administrator)
+    Test-PASDeploymentHealth -Config .\MyLab.json -VaultCredential (Get-Credential Administrator)
     .EXAMPLE
-    $h = Test-PASEnvironmentHealth -Config .\MyLab.json -VaultCredential $vault -DRCredential $dr
+    $h = Test-PASDeploymentHealth -Config .\MyLab.json -VaultCredential $vault -DRCredential $dr
     $h.Components | Format-Table Component,User,Address,LoggedOn,Version
     #>
     [CmdletBinding()]
     param([string]$Config,$Configuration,[Parameter(Mandatory)][pscredential]$VaultCredential,
         [uri]$ApiBaseUri,[string]$PvwaCertificateFile='',[pscredential]$DRCredential,
         [ValidateRange(10,600)][int]$TimeoutSeconds=60,[ValidateRange(5,1440)][int]$DRMaxAgeMinutes=75)
-    $valid=Test-PASEnvironment -Config $Config -Configuration $Configuration
+    $valid=Test-PASConfiguration -Config $Config -Configuration $Configuration
     if(-not $valid.Valid){throw ('Configuration invalid: '+($valid.Issues -join '; '))}
     $c=$valid.Configuration
     $result=[ordered]@{Healthy=$false;CheckedUtc=[DateTime]::UtcNow.ToString('o');Environment=[string]$c.name;ApiBaseUri='';
@@ -231,23 +227,23 @@ function Get-PASRunDataSecretHits {
     return $hits
 }
 
-function Export-PASRunData {
+function Export-PASDeploymentData {
     <#
     .SYNOPSIS
-    Writes a sanitized ZIP of one deployment (configuration, plan, status and event journals) for support or documentation.
+    Writes a sanitized ZIP of one run (configuration, plan, status and event journals) for support or documentation.
     .DESCRIPTION
-    Accepts the id returned by Invoke-PASInstall, Start-PASEnvironment or the desktop. That is either a single
-    engine run or a composed deployment, whose unit runs are included. Credential envelopes, lock files and
-    generated payload scripts are never included. Every file is scanned for private keys, credential
-    ciphers and password fields; a file with a hit is left out and listed in the result.
+    Takes the run id returned when the deployment was started. Credential envelopes, lock files and the
+    generated payload folder (scripts and per-component inventories) are never included. Every file is
+    scanned for private keys, credential ciphers and password fields; a file with a hit is left out and
+    listed in the result.
     .PARAMETER RunId
-    32-character deployment or run id.
+    32-character run id.
     .PARAMETER Path
     ZIP file to create. Default: .\PASeasyInstall-run-<RunId>.zip
     .EXAMPLE
-    Export-PASRunData -RunId 688d8e04f1874d41a75cda4441c00553
+    Export-PASDeploymentData -RunId 688d8e04f1874d41a75cda4441c00553
     .EXAMPLE
-    Export-PASRunData -RunId $id -Path C:\Temp\lab-run.zip -Force
+    Export-PASDeploymentData -RunId $id -Path C:\Temp\lab-run.zip -Force
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{32}$')][string]$RunId,[string]$Path='',[switch]$Force,[string]$DataRoot='')
@@ -255,19 +251,9 @@ function Export-PASRunData {
     if(-not $Path){$Path=Join-Path (Get-Location).ProviderPath ("PASeasyInstall-run-$RunId.zip")}
     $Path=[IO.Path]::GetFullPath($Path)
     if((Test-Path -LiteralPath $Path) -and -not $Force){throw "File exists: $Path (use -Force)"}
-    $sources=@()
-    $fleetDir=Join-Path (Join-Path $DataRoot 'fleets') $RunId
     $runDir=Join-Path (Join-Path $DataRoot 'Runs') $RunId
-    if(Test-Path -LiteralPath (Join-Path $fleetDir 'fleet.json')){
-        $sources+=@{Root=$fleetDir;Prefix='deployment'}
-        $fleet=[IO.File]::ReadAllText((Join-Path $fleetDir 'fleet.json'))|ConvertFrom-Json
-        foreach($u in @($fleet.units)){
-            $rid=[string]$u.runId
-            if($rid -match '^[a-f0-9]{32}$'){$d=Join-Path (Join-Path $DataRoot 'Runs') $rid;if(Test-Path -LiteralPath $d){$sources+=@{Root=$d;Prefix=('runs/'+$rid)}}}
-        }
-    }elseif(Test-Path -LiteralPath (Join-Path $runDir 'run-v2.json')){
-        $sources+=@{Root=$runDir;Prefix=('runs/'+$RunId)}
-    }else{throw "No deployment or run $RunId under $DataRoot"}
+    if(-not(Test-Path -LiteralPath (Join-Path $runDir 'run-v2.json') -PathType Leaf)){throw "No run $RunId under $DataRoot"}
+    $sources=@(@{Root=$runDir;Prefix=('runs/'+$RunId)})
     $stage=Join-Path ([IO.Path]::GetTempPath()) ('pas-export-'+[guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $stage|Out-Null
     $included=New-Object System.Collections.ArrayList;$excluded=New-Object System.Collections.ArrayList
@@ -294,74 +280,4 @@ function Export-PASRunData {
         New-PASZipFromDirectory -Directory $stage -Path $Path
     }finally{Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue}
     return [pscustomobject]@{Path=$Path;RunId=$RunId;Files=$included.Count;Excluded=@($excluded)}
-}
-
-function Close-PASDeployment {
-    <#
-    .SYNOPSIS
-    Closes an unresolved deployment record so its environment can be deployed again. Does not change any server.
-    .DESCRIPTION
-    A deployment whose outcome is Unknown or Interrupted, or that failed while holding a coordination claim, blocks
-    new deployments of the same environment and the servers it claimed. After you have decided what to do with
-    those servers (typically: reset or rebuild them), Close-PASDeployment records that decision: it marks the
-    unresolved run(s) Abandoned with your reason, writes a RunAbandoned journal event, and releases the controller
-    claims owned by those runs. It refuses while a controller of the deployment is still running.
-    It never contacts or changes a server. Servers may hold a partial installation; reset them before reinstalling.
-    A Linux server also keeps its own lock (~/.paeasyinstall/locks) until it is reset or the lock is removed.
-    PASeasyInstall builds labs. Production use is at your own risk.
-    .PARAMETER RunId
-    The deployment id returned by Start-PASEnvironment / Invoke-PASInstall, or one engine run id.
-    .PARAMETER Reason
-    Why the record is closed (kept in the run journal).
-    .PARAMETER Force
-    Do not ask for confirmation.
-    .EXAMPLE
-    Close-PASDeployment -RunId 83cf015f78bd4743a54e6d0a9d0dd301 -Reason 'Vault server reset to its clean state'
-    #>
-    [CmdletBinding(SupportsShouldProcess=$true,ConfirmImpact='High')]
-    param([Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{32}$')][string]$RunId,
-          [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Reason,[switch]$Force)
-    $core=Get-PASOwnCoreModule
-    $dataRoot=& $core {Get-PASDataRoot}
-    $isFleet=Test-PASFleetId -RunId $RunId -DataRoot $dataRoot
-    $runIds=@($RunId); $fleetPath=$null; $fleet=$null
-    if($isFleet){
-        $fleetPath=Join-Path (Get-PASFleetDirectory $RunId $dataRoot) 'fleet.json'
-        $fleet=ConvertTo-PASOrderedHashtable (Read-PASFleetJson $fleetPath)
-        if($fleet.controllerPid -and [string]$fleet.status -in @('Launching','Running') -and (Get-Process -Id ([int]$fleet.controllerPid) -ErrorAction SilentlyContinue)){
-            throw "Deployment $RunId is still running (controller process $($fleet.controllerPid)). Wait for it or stop it first."
-        }
-        $runIds=@($fleet.units|Where-Object {$_.runId}|ForEach-Object {[string]$_.runId})
-    }
-    $runs=@()
-    foreach($id in $runIds){
-        $run=& $core {param($i,$d) Get-PASRunRecord -RunId $i -DataRoot $d} $id $dataRoot
-        if(-not $run){continue}
-        if([string]$run.status -in @('Launching','Running')){throw "Run $id is still running. Wait for it or stop its controller first."}
-        $runs+=,$run
-    }
-    $root=& $core {Get-PASCoordinationRoot}
-    $claims=@(Get-ChildItem -LiteralPath $root -Force -Filter '*.json' -ErrorAction SilentlyContinue|Where-Object {
-        $c=$null; try{$c=Get-Content -LiteralPath $_.FullName -Raw|ConvertFrom-Json}catch{}; $c -and [string]$c.RunId -in $runIds })
-    $toAbandon=@($runs|Where-Object {[string]$_.status -in @('Unknown','Interrupted','LaunchFailed','Failed')})
-    $what="$(@($toAbandon).Count) run(s) marked Abandoned, $($claims.Count) controller claim(s) released; servers are not changed"
-    if(-not ($Force -or $PSCmdlet.ShouldProcess($RunId,$what))){return}
-    foreach($run in $toAbandon){
-        $dir=& $core {param($i,$d) Get-PASRunDirectory $i $d} ([string]$run.id) $dataRoot
-        $path=Join-Path $dir 'run-v2.json'
-        $h=ConvertTo-PASOrderedHashtable (Get-Content -LiteralPath $path -Raw|ConvertFrom-Json)
-        $previous=[string]$h.status
-        $h.status='Abandoned';$h.message="Abandoned by operator (was $previous): $Reason";$h.finishedUtc=[DateTime]::UtcNow.ToString('o')
-        & $core {param($p,$d) Write-PASJsonAtomic -Path $p -Data $d} $path $h
-        $evt=[ordered]@{timestampUtc=[DateTime]::UtcNow.ToString('o');event='RunAbandoned';component='';message=$h.message}
-        Add-Content -LiteralPath (Join-Path $dir 'events-v2.jsonl') -Value ($evt|ConvertTo-Json -Compress) -Encoding UTF8
-    }
-    foreach($c in $claims){Remove-Item -LiteralPath $c.FullName -Force}
-    if($isFleet -and [string]$fleet.status -notin @('Succeeded')){
-        $fleet.status='Abandoned';$fleet.message="Abandoned by operator: $Reason";$fleet.finishedUtc=[DateTime]::UtcNow.ToString('o')
-        Write-PASFleetJson $fleetPath $fleet
-        Write-PASFleetEvent (Split-Path -Parent $fleetPath) 'RunAbandoned' $fleet.message
-    }
-    [pscustomobject]@{RunId=$RunId;AbandonedRuns=@($toAbandon|ForEach-Object {[string]$_.id});ReleasedClaims=$claims.Count
-        Note='No server was changed. Reset servers that may hold a partial installation before deploying again.'}
 }
