@@ -1,7 +1,9 @@
 name: Release
 
 # Tag vX.Y.Z or vX.Y.Z-rcN to build, create the GitHub release (portable ZIP + SHA256SUMS) and publish
-# to the PowerShell Gallery. The tag must match ModuleVersion (+ PSData.Prerelease) in PASeasyInstall.psd1.
+# both modules to the PowerShell Gallery: PASeasyInstall first, then PASeasyInstall.UI.
+# The tag must match ModuleVersion (+ PSData.Prerelease) in PASeasyInstall/PASeasyInstall.psd1;
+# PASeasyInstall.UI/PASeasyInstall.UI.psd1 must carry the same ModuleVersion.
 on:
   push:
     tags: ['v*']
@@ -28,12 +30,16 @@ jobs:
           Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck
-          Install-Module NativeHTMLKit.UI -MinimumVersion 0.1.1 -Scope CurrentUser -Force
+          Install-Module NativeHTMLKit.UI -RequiredVersion 0.1.1 -Scope CurrentUser -Force
 
       - name: Version
         id: version
         run: |
-          $d = Import-PowerShellDataFile .\PASeasyInstall.psd1
+          $d = Import-PowerShellDataFile .\PASeasyInstall\PASeasyInstall.psd1
+          $ui = Import-PowerShellDataFile .\PASeasyInstall.UI\PASeasyInstall.UI.psd1
+          if ([string]$ui.ModuleVersion -ne [string]$d.ModuleVersion) {
+            throw "PASeasyInstall.UI is $($ui.ModuleVersion) but PASeasyInstall is $($d.ModuleVersion)"
+          }
           $pre = [string]$d['PrivateData']['PSData']['Prerelease']
           $v = [string]$d.ModuleVersion + $(if ($pre) { "-$pre" } else { '' })
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$v") {
@@ -46,7 +52,7 @@ jobs:
       - name: Static check and tests
         run: .\Tools\Invoke-CITests.ps1 -ResultPath test-results.xml
 
-      - name: Build Gallery package and portable ZIP
+      - name: Build both Gallery packages and the portable ZIP
         run: .\Tools\Build-PortableRelease.ps1 -Output dist | Format-List
 
       - uses: actions/upload-artifact@v4
@@ -79,7 +85,8 @@ jobs:
           PASeasyInstall $VERSION builds CyberArk PAM self-hosted **labs**. Production use is at your own risk.
 
           - **Portable:** download \`PASeasyInstall-$VERSION-portable.zip\`, unblock it, extract it and run \`Start-PASeasyInstall.cmd\`. NativeHTMLKit is included, and nothing is installed.
-          - **PowerShell Gallery:** \`Install-Module PASeasyInstall$( [ "$PRERELEASE" = "true" ] && echo ' -AllowPrerelease')\`, then \`Start-PASeasyInstall\`.
+          - **PowerShell Gallery, commands:** \`Install-Module PASeasyInstall$( [ "$PRERELEASE" = "true" ] && echo ' -AllowPrerelease')\`, then for example \`Install-PASVault\` or \`Install-PASLab\`.
+          - **PowerShell Gallery, desktop:** \`Install-Module PASeasyInstall.UI$( [ "$PRERELEASE" = "true" ] && echo ' -AllowPrerelease')\`, then \`Start-PASeasyInstall\`.
 
           SHA256: see \`SHA256SUMS\`.
           NOTES
@@ -99,7 +106,7 @@ jobs:
         with:
           name: release
           path: dist
-      - name: Publish to the PowerShell Gallery
+      - name: Publish PASeasyInstall and PASeasyInstall.UI to the PowerShell Gallery
         env:
           PSGALLERY_API_KEY: ${{ secrets.POWERSHELL_GALLERY_API_KEY }}
         run: |
@@ -110,5 +117,8 @@ jobs:
           } else {
             Register-PSResourceRepository -PSGallery -Trusted
           }
-          Install-PSResource -Name NativeHTMLKit.UI -Repository PSGallery -TrustRepository -Quiet
+          # The core module first: it has no dependencies.
           Publish-PSResource -Path dist/gallery/PASeasyInstall -Repository PSGallery -ApiKey $env:PSGALLERY_API_KEY -Verbose
+          # The desktop module requires NativeHTMLKit.UI; its manifest is validated against the installed copy.
+          Install-PSResource -Name NativeHTMLKit.UI -Version 0.1.1 -Repository PSGallery -TrustRepository -Quiet
+          Publish-PSResource -Path dist/gallery/PASeasyInstall.UI -Repository PSGallery -ApiKey $env:PSGALLERY_API_KEY -Verbose

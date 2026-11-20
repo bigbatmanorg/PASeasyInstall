@@ -25,13 +25,13 @@ jobs:
           Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck
-          Install-Module NativeHTMLKit.UI -MinimumVersion 0.1.1 -Scope CurrentUser -Force
+          Install-Module NativeHTMLKit.UI -RequiredVersion 0.1.1 -Scope CurrentUser -Force
           $PSVersionTable.PSVersion
 
       - name: Static check and tests
         run: .\Tools\Invoke-CITests.ps1 -ResultPath test-results.xml
 
-      - name: Gallery package and portable ZIP build
+      - name: Gallery packages (PASeasyInstall, PASeasyInstall.UI) and portable ZIP build
         run: |
           $license = if (Test-Path LICENSE) { @{} } else { Write-Warning 'LICENSE missing: building with -AllowMissingLicense'; @{ AllowMissingLicense = $true } }
           .\Tools\Build-PortableRelease.ps1 -Output dist @license | Format-List

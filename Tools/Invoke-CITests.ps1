@@ -1,8 +1,8 @@
 <#
 .SYNOPSIS
-Runs the CI test set: Tools\Check-Modular.ps1, then every Tests\*.Tests.ps1 except those listed in Tests\ci-exclude.txt.
+Runs the CI test set: Tools\Check-Source.ps1, then every Tests\*.Tests.ps1 except those listed in Tests\ci-exclude.txt.
 .DESCRIPTION
-Used by .github/workflows/ci.yml and release.yml on Windows PowerShell 5.1. Needs Pester 5 and NativeHTMLKit.UI.
+Used by .github/workflows/ci.yml and release.yml on Windows PowerShell 5.1. Needs Pester 5. NativeHTMLKit.UI is only needed for the UI manifest check and one UI test.
 Writes NUnit XML to -ResultPath and exits 1 when any test fails.
 .EXAMPLE
 .\Tools\Invoke-CITests.ps1 -ResultPath .\test-results.xml
@@ -11,7 +11,7 @@ Writes NUnit XML to -ResultPath and exits 1 when any test fails.
 $ErrorActionPreference='Stop'
 $repo=(Resolve-Path (Join-Path $PSScriptRoot '..')).ProviderPath
 Set-Location $repo
-& (Join-Path $repo 'Tools\Check-Modular.ps1') 3>$null
+& (Join-Path $repo 'Tools\Check-Source.ps1') 3>$null
 Import-Module Pester -MinimumVersion 5.5.0 -Force
 $exclude=@(Get-Content (Join-Path $repo 'Tests\ci-exclude.txt')|Where-Object {$_ -and -not $_.TrimStart().StartsWith('#')}|ForEach-Object {($_ -split '\|')[0].Trim()})
 $hosted=($env:GITHUB_ACTIONS -eq 'true')
