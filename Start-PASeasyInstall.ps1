@@ -1,24 +1,27 @@
 <#
 .SYNOPSIS
-Opens the PASeasyInstall desktop.
+Opens the PASeasyInstall desktop from a source checkout or the portable ZIP.
 .DESCRIPTION
-Opens the six-step installer desktop (NativeHTMLKit.UI, Windows PowerShell 5.1 or PowerShell 7).
-By default it drives the real installer (the Orchestrator in this folder's Modules). Nothing is sent
-to any server until Install on step 6. -Backend Mock runs the same window against a dummy backend that
-simulates plans and installations and never contacts a server (UI development, demos).
+Imports the PASeasyInstall.UI module from this folder and runs Start-PASeasyInstall: the six-step
+wizard that builds a CyberArk PAM lab. Windows PowerShell 5.1 only; needs the NativeHTMLKit.UI module.
+Nothing is sent to any server until Install on step 6. -Backend Mock runs the same window against a
+simulated installation that never contacts a server (demos, training, UI work).
 .EXAMPLE
-.\Start-PASInstall.ps1
+.\Start-PASeasyInstall.ps1
 .EXAMPLE
-.\Start-PASInstall.ps1 -Advanced
+.\Start-PASeasyInstall.ps1 -Config .\PASeasyInstall-Lab01.json
 .EXAMPLE
-.\Start-PASInstall.ps1 -Backend Mock
+.\Start-PASeasyInstall.ps1 -Backend Mock
 #>
-[CmdletBinding()]param([string]$Config='',[switch]$Advanced,
-    [ValidateSet('Mock','Orchestrator')][string]$Backend='Orchestrator',[string]$ModulesRoot='',
-    [ValidateSet('v1','v2')][string]$Theme='v2')
-$ErrorActionPreference='Stop'
-$moduleFile=Join-Path $PSScriptRoot 'Modules/PASeasyInstall.UI/PASeasyInstall.UI.psd1'
-if(-not(Test-Path -LiteralPath $moduleFile -PathType Leaf)){throw "PASeasyInstall UI module not found: $moduleFile"}
-if($ModulesRoot){$ModulesRoot=[IO.Path]::GetFullPath($ModulesRoot)}
+[CmdletBinding()]
+param(
+    [string]$Config = '',
+    [ValidateSet('Live', 'Mock')][string]$Backend = 'Live'
+)
+$ErrorActionPreference = 'Stop'
+$moduleFile = Join-Path (Join-Path $PSScriptRoot 'PASeasyInstall.UI') 'PASeasyInstall.UI.psd1'
+if (-not (Test-Path -LiteralPath $moduleFile -PathType Leaf)) {
+    throw "PASeasyInstall UI module not found: $moduleFile"
+}
 Import-Module $moduleFile -Force -ErrorAction Stop
-Start-PASeasyUI -Config $Config -Advanced:$Advanced -Backend $Backend -ModulesRoot $ModulesRoot -Theme $Theme
+Start-PASeasyInstall -Config $Config -Backend $Backend
