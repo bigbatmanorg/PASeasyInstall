@@ -94,7 +94,7 @@ function Get-PASDeploymentPlan {
     $joins=@(foreach($hostId in @($c.activeDirectory.join)){
         [pscustomobject]@{Id=('join-'+[string]$hostId);Host=[string]$hostId;Domain=[string]$c.activeDirectory.domain;Stages=@('DNS','Join','Reboot','SecureChannelAndSRV');DependsOn=@($ordered|Where-Object {$_.type -eq 'AD'}|ForEach-Object {$_.id})}
     })
-    return [pscustomobject]@{Name=[string]$c.name;ConfigDigest=$fingerprint;SourceDigest=(Get-PASSourceDigest -Configuration $c);MediaResolved=[bool]$ResolveMedia;Media=$media;MediaDigest=$mediaDigest;Items=@($items.ToArray());DomainJoins=$joins;Warnings=$validated.Warnings;ExecutionMode='Sequential';SchemaVersion=2}
+    return [pscustomobject]@{Name=[string]$c.name;ConfigDigest=$fingerprint;MediaResolved=[bool]$ResolveMedia;Media=$media;MediaDigest=$mediaDigest;Items=@($items.ToArray());DomainJoins=$joins;Warnings=$validated.Warnings;ExecutionMode='Sequential';SchemaVersion=2}
 }
 # Canonical object order is required: the detached controller is a separate process and
 # Hashtable/JSON property order must not invalidate an unchanged deployment plan.
@@ -345,35 +345,6 @@ function New-PASDomainJoinWorkflow {
     $invpath=Join-Path $RunDirectory ($id+'-inventory.psd1')
     [IO.File]::WriteAllText($invpath,(ConvertTo-PASLiteral $inv),[Text.UTF8Encoding]::new($false))
     return @{Workflow=$wfpath;Inventory=$invpath;Target=$id}
-}
-
-# Pin executable recipes and engine assets as well as configuration. Never resume changed code.
-function Get-PASSourceDigest {
-    param([hashtable]$Configuration)
-    # Executable module/source fingerprint; excludes GUI styling and documentation.
-    $mods=Get-PASModulesRoot
-    [string[]]$names=@('Core')
-    if($Configuration){
-        foreach($type in @($Configuration.components|ForEach-Object {[string]$_.type}|Sort-Object -Unique)){
-            $module=if($type -eq 'DRVault'){'DR'}elseif($type -eq 'Vault'){'Vault'}else{$type}
-            if($module -notin $names){$names+=@($module)}
-        }
-        if('DR' -in $names -and 'Vault' -notin $names){$names+=@('Vault')}
-    }else{$names+=@('Vault','DR','PVWA','CPM','PSM','PSMP','AD')}
-
-    $entries=@()
-    foreach($name in $names){
-        $root=Get-PASModuleRoot $name
-        $files=@(Get-ChildItem -LiteralPath $root -Recurse -File |
-            Where-Object {$_.Extension -in @('.ps1','.psm1','.psd1','.sh','.json')})
-        foreach($file in $files){
-            $relative=$file.FullName.Substring($mods.Length).Replace('\','/').TrimStart('/')
-            $entries+=($relative+'='+((Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()))
-        }
-    }
-    [string[]]$ordered=@($entries)
-    [Array]::Sort($ordered,[StringComparer]::Ordinal)
-    return (Get-PASTextDigest ($ordered -join "`n"))
 }
 
 function Get-PASFrozenMedia {

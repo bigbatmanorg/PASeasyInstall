@@ -349,7 +349,15 @@ function Invoke-PASRunControllerCore {
     $config=Read-PASConfiguration -Path (Join-Path $dir 'config.json')
     $plan=Get-PASDeploymentPlan -Configuration $config -ResolveMedia
     $saved=Read-PASJson (Join-Path $dir 'plan-v2.json')
-    if(-not $saved -or $saved.ConfigDigest -ne $plan.ConfigDigest -or -not $saved.PSObject.Properties['SourceDigest'] -or $saved.SourceDigest -ne $plan.SourceDigest -or -not $saved.PSObject.Properties['MediaDigest'] -or $saved.MediaDigest -ne $plan.MediaDigest){throw 'Plan/configuration drift. Refusing execution.'}
+    # The run executes exactly what was planned. Module files may change between start and resume;
+    # the configuration and the installer media may not.
+    if (-not $saved) { throw 'The saved plan of this run is missing or unreadable. Refusing execution.' }
+    if ([string](Get-PASValue $saved 'ConfigDigest' '') -ne $plan.ConfigDigest) {
+        throw 'The configuration of this run changed since it was planned (ConfigDigest differs). Refusing execution; start a new run.'
+    }
+    if ([string](Get-PASValue $saved 'MediaDigest' '') -ne $plan.MediaDigest) {
+        throw 'The installer media changed since this run was planned (MediaDigest differs: a media file was replaced, moved or modified). Restore the original files or start a new run.'
+    }
     $script:PASeasyFrozenMedia=@{}
     foreach($asset in @($plan.Media)){$script:PASeasyFrozenMedia[[string]$asset.Path]=[string]$asset.SHA256}
     if($InMemoryAuth){$auth=$InMemoryAuth}else{
