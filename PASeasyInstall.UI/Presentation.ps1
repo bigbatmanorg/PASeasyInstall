@@ -4,7 +4,7 @@
 function Get-PASUIEscaped { param([AllowNull()][string]$Value) return [Net.WebUtility]::HtmlEncode([string]$Value) }
 
 $script:PASUIComponentNames = @{
-    Vault='Primary Vault'; DRVault='DR Vault'; PVWA='PVWA'; CPM='CPM'; PSM='PSM'; PSMP='PSMP'; PTA='PTA'; AD='Active Directory'
+    Vault='Primary Vault'; DRVault='DR Vault'; PVWA='PVWA'; CPM='CPM'; PSM='PSM'; PSMP='PSMP'; AD='Active Directory'
 }
 function Get-PASUIComponentName { param([string]$Type) if ($script:PASUIComponentNames.ContainsKey($Type)) { return $script:PASUIComponentNames[$Type] } return $Type }
 function Get-PASUIItemName {
@@ -23,7 +23,7 @@ function ConvertTo-PASUIMessageHtml {
 }
 
 function ConvertTo-PASUIReviewHtml {
-    <# $Validation: Test-PASEnvironment result. $Plan: Get-PASEnvironmentPlan result or $null. $StageCounts: @{Vault=14;...} #>
+    <# $Validation: Test-PASLabConfiguration result. $Plan: Get-PASLabPlan result or $null. $StageCounts: @{Vault=14;...} #>
     param($Validation, $Plan, [hashtable]$StageCounts = @{}, [string]$ErrorText = '', [string[]]$ExtraIssues = @(), [string]$CredentialMode = '')
     $h = New-Object System.Text.StringBuilder
     if ($ErrorText) {
@@ -45,7 +45,7 @@ function ConvertTo-PASUIReviewHtml {
     $stageTotal = 0; foreach ($it in $items) { $stageTotal += [int]$StageCounts[(Get-PASUICatalogKey $it.Type)] }
     [void]$h.Append('<div class="pas-kpis">')
     foreach ($k in @(@('Components', $items.Count), @('Target servers', @($items | ForEach-Object { $_.Host } | Sort-Object -Unique).Count),
-                     @('Planned stages', $stageTotal), @('Execution', [string]$Plan.ExecutionMode))) {
+                     @('Planned stages', $stageTotal))) {
         [void]$h.Append('<div class="pas-kpi"><div class="pas-kpi-v">').Append((Get-PASUIEscaped ([string]$k[1]))).Append('</div><div class="pas-kpi-l">').Append($k[0]).Append('</div></div>')
     }
     [void]$h.Append('</div><table class="pas-table"><thead><tr><th>#</th><th>Instance</th><th>Server</th><th>Address</th><th>Installer</th><th>Stages</th><th>Depends on</th></tr></thead><tbody>')
@@ -73,8 +73,7 @@ function ConvertTo-PASUIReviewHtml {
         foreach ($w in $warnings) { [void]$h.Append('<div class="pas-warnitem">! ').Append((Get-PASUIEscaped $w)).Append('</div>') }
         [void]$h.Append('</div>')
     }
-    $digest = [string]$Plan.ConfigDigest; if ($digest.Length -gt 12) { $digest = $digest.Substring(0,12) }
-    [void]$h.Append('<div class="pas-foot">Plan digest <span class="pas-mono">').Append((Get-PASUIEscaped $digest)).Append('</span> · prepared without contacting any server</div>')
+    [void]$h.Append('<div class="pas-foot">Components are installed one after another, in this order. Prepared without contacting any server.</div>')
     return $h.ToString()
 }
 
@@ -95,7 +94,7 @@ function ConvertTo-PASUIReadinessHtml {
 function Merge-PASUIEventHistory {
     <#
       Keeps every event of a run across refreshes. The dashboard polls only the newest events, so a stage's
-      "Complete" event must not be forgotten when it falls out of that window (long or parallel runs).
+      "Complete" event must not be forgotten when it falls out of that window (long runs).
       $History: a hashtable owned by the caller (@{} for a new run). Returns all events, oldest first.
     #>
     param([Parameter(Mandatory)][hashtable]$History, [object[]]$Events = @())
@@ -116,51 +115,124 @@ function Merge-PASUIEventHistory {
     return @($History.List)
 }
 
+function Get-PASUIStatusClass {
+    <# CSS state for a run status or a component status reported by Get-PASRun. #>
+    param([string]$Status)
+    if ($Status -eq 'Succeeded') {
+        return 'complete'
+    }
+    if ($Status -in @('Launching', 'Running')) {
+        return 'running'
+    }
+    if ($Status -in @('Failed', 'LaunchFailed', 'Unknown', 'Interrupted', 'Blocked', 'Abandoned')) {
+        return 'failed'
+    }
+    return 'pending'   # Pending, Skipped
+}
+
+function Test-PASUIRunActive {
+    <# True while the controller of a run is still working (the window keeps polling). #>
+    param([string]$Status)
+    return ($Status -in @('Launching', 'Running'))
+}
+
 function ConvertTo-PASUIDashboardHtml {
     <#
-      $Snapshot : Get-PASEnvironmentSnapshot result (or $null before launch)
+      $Snapshot : Get-PASRun -RunId result (or $null before launch)
       $PlanItems: plan items, to show every component with its full stage list (pending in grey)
       $Catalog  : @{Vault=@('LocalPreflight',...); ...} stage names per catalog key
+      A component's state comes from the snapshot's Components list; its stage chips come from the events.
       Progress is shown as observed stage counts, never as an estimated percentage.
     #>
     param($Snapshot, [object[]]$PlanItems = @(), [hashtable]$Catalog = @{})
     if (-not $Snapshot) { return '<div class="pas-empty">Nothing is running yet. When you click Install, each component and its stages appear here as the controller reports them.</div>' }
     $events = @($Snapshot.Events)
     $h = New-Object System.Text.StringBuilder
+    $runId = [string]$Snapshot.RunId
     $status = [string]$Snapshot.Status
-    $statusClass = switch -Regex ($status) { 'Succeeded|Complete' {'complete'} 'Fail' {'failed'} 'Running|Started' {'running'} default {'info'} }
+    $active = Test-PASUIRunActive $status
+    $statusClass = Get-PASUIStatusClass $status
+    $components = @{}
+    foreach ($component in @($Snapshot.Components | Where-Object { $_ })) {
+        $components[[string]$component.Id] = $component
+    }
     $currentName = [string]$Snapshot.CurrentComponent
     foreach ($it in $PlanItems) { if ($it.Id -eq $currentName) { $currentName = Get-PASUIItemName $it } }
     [void]$h.Append('<div class="pas-runhead"><span class="pas-pill ').Append($statusClass).Append('">').Append((Get-PASUIEscaped $status)).Append('</span>')
-    [void]$h.Append('<span class="pas-runmeta">Run <span class="pas-mono">').Append((Get-PASUIEscaped ([string]$Snapshot.RunId).Substring(0, [Math]::Min(8, ([string]$Snapshot.RunId).Length)))).Append('</span>')
-    # Every instance whose latest event is a running stage (several at once in a parallel run).
+    [void]$h.Append('<span class="pas-runmeta">')
     $runningNow = @()
-    foreach ($it in $PlanItems) {
-        $lastEvt = @($events | Where-Object { $_.Component -eq $it.Id -and $_.Stage -and $_.Status -ne 'Info' } | Select-Object -Last 1)
-        if ($lastEvt.Count -and $lastEvt[0].Status -eq 'Running') { $runningNow += ((Get-PASUIItemName $it) + ' / ' + $lastEvt[0].Stage) }
+    if ($active) {
+        foreach ($it in $PlanItems) {
+            $lastEvt = @($events | Where-Object { $_.Component -eq $it.Id -and $_.Stage -and $_.Status -ne 'Info' } | Select-Object -Last 1)
+            if ($lastEvt.Count -and $lastEvt[0].Status -eq 'Running') { $runningNow += ((Get-PASUIItemName $it) + ' / ' + $lastEvt[0].Stage) }
+        }
     }
-    if ($runningNow.Count) { [void]$h.Append(' · running: <strong>').Append((Get-PASUIEscaped ($runningNow -join ', '))).Append('</strong>') }
-    elseif ($currentName) { [void]$h.Append(' · last: <strong>').Append((Get-PASUIEscaped $currentName)).Append('</strong> / ').Append((Get-PASUIEscaped ([string]$Snapshot.LastStep))) }
-    [void]$h.Append(' · failures: <strong>').Append([int]$Snapshot.ErrorEvents).Append('</strong></span></div>')
+    if ($runningNow.Count) { [void]$h.Append('running: <strong>').Append((Get-PASUIEscaped ($runningNow -join ', '))).Append('</strong> · ') }
+    elseif ($currentName) { [void]$h.Append('last: <strong>').Append((Get-PASUIEscaped $currentName)).Append('</strong> / ').Append((Get-PASUIEscaped ([string]$Snapshot.LastStep))).Append(' · ') }
+    [void]$h.Append('failures: <strong>').Append([int]$Snapshot.ErrorEvents).Append('</strong></span></div>')
+    # The full run id and the run folder: both are needed at the prompt (Get-PASRun, Resume-PASRun).
+    [void]$h.Append('<div class="pas-runinfo">Run id <span class="pas-mono">').Append((Get-PASUIEscaped $runId)).Append('</span></div>')
+    $runDirectory = [string]$Snapshot.RunDirectory
+    if ($runDirectory) {
+        [void]$h.Append('<div class="pas-runinfo">Run folder <span class="pas-mono">').Append((Get-PASUIEscaped $runDirectory)).Append('</span></div>')
+    }
+    if (-not $active -and $status -ne 'Succeeded') {
+        $zip = '.\PASeasyInstall-' + $runId.Substring(0, [Math]::Min(8, $runId.Length)) + '.zip'
+        [void]$h.Append('<div class="pas-cmds"><div class="pas-cmds-head">The run stopped: ').Append((Get-PASUIEscaped $status))
+        if ([string]$Snapshot.Message) { [void]$h.Append(' · ').Append((Get-PASUIEscaped ([string]$Snapshot.Message))) }
+        [void]$h.Append('</div><div class="pas-cmds-text">Fix the cause, then continue the same run from a Windows PowerShell prompt. It carries on after the last completed step:</div>')
+        [void]$h.Append('<div class="pas-cmd">').Append((Get-PASUIEscaped ('Resume-PASRun -RunId ' + $runId))).Append('</div>')
+        [void]$h.Append('<div class="pas-cmds-text">To collect the logs of this run in one ZIP file (no passwords):</div>')
+        [void]$h.Append('<div class="pas-cmd">').Append((Get-PASUIEscaped ('Export-PASDiagnostics -RunId ' + $runId + ' -Path ' + $zip))).Append('</div></div>')
+    }
 
     [void]$h.Append('<div class="pas-lanes">')
+    $shown = @{}
     foreach ($it in $PlanItems) {
+        $shown[[string]$it.Id] = $true
         $stages = @($Catalog[(Get-PASUICatalogKey $it.Type)])
         $mine = @($events | Where-Object { $_.Component -eq $it.Id -and $_.Stage })
         # Informational lines (e.g. "remote attempt ... is Succeeded") never downgrade a stage's state.
         $last = @{}; foreach ($e in $mine) { $s = ([string]$e.Status).ToLowerInvariant(); if ($s -eq 'info' -and $last.ContainsKey([string]$e.Stage)) { continue }; $last[[string]$e.Stage] = $s }
         $done = @($stages | Where-Object { $last[$_] -eq 'complete' }).Count
-        $laneState = if (@($last.Values | Where-Object { $_ -eq 'failed' }).Count) { 'failed' } elseif ($stages.Count -and $done -eq $stages.Count) { 'complete' } elseif ($mine.Count) { 'running' } else { 'pending' }
+        $component = $components[[string]$it.Id]
+        $componentStatus = ''
+        if ($component) {
+            $componentStatus = [string]$component.Status
+            $laneState = Get-PASUIStatusClass $componentStatus
+        } else {
+            $laneState = if (@($last.Values | Where-Object { $_ -eq 'failed' }).Count) { 'failed' } elseif ($stages.Count -and $done -eq $stages.Count) { 'complete' } elseif ($mine.Count -and $active) { 'running' } else { 'pending' }
+        }
         [void]$h.Append('<div class="pas-lane ').Append($laneState).Append('"><div class="pas-lane-head"><span class="pas-lane-name">').Append((Get-PASUIEscaped (Get-PASUIItemName $it))).Append('</span>')
         if ((Get-PASUIItemName $it) -ne (Get-PASUIComponentName $it.Type)) { [void]$h.Append('<span class="pas-type">').Append((Get-PASUIEscaped $it.Type)).Append('</span>') }
         $addr = ''; if ($it.PSObject.Properties['Address']) { $addr = ' · ' + [string]$it.Address }
         [void]$h.Append('<span class="pas-lane-host">').Append((Get-PASUIEscaped ($it.Host + $addr))).Append('</span>')
+        if ($componentStatus -and $componentStatus -notin @('Pending', 'Running', 'Succeeded')) {
+            [void]$h.Append('<span class="pas-lane-status ').Append($laneState).Append('">').Append((Get-PASUIEscaped $componentStatus)).Append('</span>')
+        }
         [void]$h.Append('<span class="pas-lane-count">').Append($done).Append(' / ').Append($stages.Count).Append(' stages</span></div><div class="pas-chips">')
         foreach ($s in $stages) {
             $k = $last[$s]; if (-not $k) { $k = 'pending' } elseif ($k -notin @('running','complete','failed','warning')) { $k = 'info' }
+            # A stage cannot still be running once its component or the run has stopped.
+            if ($k -eq 'running' -and $laneState -ne 'running') { $k = $(if ($laneState -eq 'failed') { 'failed' } else { 'info' }) }
             [void]$h.Append('<span class="pas-chip ').Append($k).Append('">').Append((Get-PASUIEscaped $s)).Append('</span>')
         }
-        [void]$h.Append('</div></div>')
+        [void]$h.Append('</div>')
+        if ($component -and [string]$component.Message -and $componentStatus -ne 'Succeeded') {
+            [void]$h.Append('<div class="pas-lane-msg">').Append((Get-PASUIEscaped ([string]$component.Message))).Append('</div>')
+        }
+        [void]$h.Append('</div>')
+    }
+    # Components the run reports that are not plan items (for example domain joins): state only.
+    foreach ($component in @($Snapshot.Components | Where-Object { $_ -and -not $shown.ContainsKey([string]$_.Id) })) {
+        $laneState = Get-PASUIStatusClass ([string]$component.Status)
+        [void]$h.Append('<div class="pas-lane ').Append($laneState).Append('"><div class="pas-lane-head"><span class="pas-lane-name">').Append((Get-PASUIEscaped ([string]$component.Id))).Append('</span>')
+        [void]$h.Append('<span class="pas-type">').Append((Get-PASUIEscaped ([string]$component.Type))).Append('</span><span class="pas-lane-host"></span>')
+        [void]$h.Append('<span class="pas-lane-status ').Append($laneState).Append('">').Append((Get-PASUIEscaped ([string]$component.Status))).Append('</span></div>')
+        if ([string]$component.Message) {
+            [void]$h.Append('<div class="pas-lane-msg">').Append((Get-PASUIEscaped ([string]$component.Message))).Append('</div>')
+        }
+        [void]$h.Append('</div>')
     }
     [void]$h.Append('</div><div class="pas-stream-head">Event log · newest first</div><div class="pas-stream">')
     foreach ($evt in @($events | Select-Object -Last 40)[-1..-40]) {
@@ -173,7 +245,7 @@ function ConvertTo-PASUIDashboardHtml {
     }
     if (-not $events.Count) { [void]$h.Append('<div class="pas-empty">Controller started. Waiting for the first event…</div>') }
     [void]$h.Append('</div>')
-    if ($status -match 'Succeeded') {
+    if ($status -eq 'Succeeded') {
         [void]$h.Append('<div class="pas-foot">Installer workflow completed. That alone does not prove every PAM integration works — run the component health checks before production use.</div>')
     }
     return $h.ToString()

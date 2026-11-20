@@ -3,33 +3,32 @@
 # effects may run above Start-NativeHTMLKitScript.
 #
 # The UI talks to the installer ONLY through the commands in Backend/Backend.Contract.ps1.
-#   -Backend Orchestrator  (default) the real PASeasyInstall.Orchestrator (-ModulesRoot or this module's Modules folder)
-#   -Backend Mock          dummy backend, simulated runs, no servers touched
-[CmdletBinding()]param([string]$Config='',[switch]$Advanced,
-    [ValidateSet('Mock','Orchestrator')][string]$Backend='Orchestrator',[string]$ModulesRoot='',
-    [ValidateSet('v1','v2')][string]$Theme='v2',[string]$StartDirectory='')
+#   -Backend Live  (default) the PASeasyInstall module
+#   -Backend Mock  the same module with a simulated installation run; no servers touched
+[CmdletBinding()]
+param(
+    [string]$Config = '',
+    [ValidateSet('Live', 'Mock')][string]$Backend = 'Live',
+    [string]$StartDirectory = ''
+)
 $ErrorActionPreference='Stop'
 Import-Module NativeHTMLKit.UI -ErrorAction Stop
 if(-not $StartDirectory){$StartDirectory=(Get-Location).ProviderPath}
-$launchArgs=@('-Backend',$Backend,'-Theme',$Theme,'-StartDirectory',$StartDirectory)
+$launchArgs=@('-Backend',$Backend,'-StartDirectory',$StartDirectory)
 if($Config){$launchArgs+=@('-Config',$Config)}
-if($ModulesRoot){$launchArgs+=@('-ModulesRoot',$ModulesRoot)}
-if($Advanced){$launchArgs+='-Advanced'}
 $pasApp=Start-NativeHTMLKitScript -Name 'PASeasyInstall' -ScriptPath $PSCommandPath -ArgumentList $launchArgs
 # ---- side effects allowed below this line ----
 
 . (Join-Path $PSScriptRoot 'Backend/Backend.Contract.ps1')
 . (Join-Path $PSScriptRoot 'Presentation.ps1')
-$backendKind=Import-PASUIBackend -Kind $Backend -ModulesRoot $ModulesRoot
-$css=[IO.File]::ReadAllText((Join-Path $PSScriptRoot ('Theme.'+$Theme+'.css')))
-$nhkTheme=@{v1=@{Theme='daylight';Density='regular'};v2=@{Theme='cobalt';Density='compact'}}[$Theme]
+$backendKind=Import-PASUIBackend -Kind $Backend
+$css=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Theme.css'))
 $script:LabPassword=[string]$env:PASEASY_LAB_PASSWORD   # Lab-mode prefill only when the operator sets it; no password ships in the code
-$script:PASComponents=@('PVWA','CPM','PSM','PSMP')   # PTA is not part of this release (module kept for future tests)
-$script:PASMaxInstances=@{PVWA=4;CPM=4;PSM=4;PSMP=4;PTA=1}   # UI slots per component; PTA is a single server
+$script:PASComponents=@('PVWA','CPM','PSM','PSMP')
+$script:PASMaxInstances=@{PVWA=4;CPM=4;PSM=4;PSMP=4}   # UI slots per component
 $script:PASComponentInfo=@{
     PVWA='Web access portal (Windows)'; CPM='Password rotation (Windows)'; PSM='Session isolation and recording (Windows)'
-    PSMP='SSH session proxy (Linux)'; PTA='Threat analytics (not available in this release)'}
-$script:PASExperimental=@('PTA')
+    PSMP='SSH session proxy (Linux)'}
 $script:PASMediaKinds=@($script:PASUIMediaOrder|ForEach-Object {$_.C})
 
 $script:PASSteps=@(
@@ -61,7 +60,6 @@ $state=@{
     Step=(New-NHKUiState -Value 1)
     Name=(New-NHKUiState -Value 'MyPAM'); ProjectDir=(New-NHKUiState -Value $StartDirectory)
     VaultMode=(New-NHKUiState -Value 'Primary')                      # Primary | PrimaryDR | Existing
-    ExecMode=(New-NHKUiState -Value 'Sequential')                    # Sequential | Parallel
     Controller=(New-NHKUiState -Value (Get-PASUILocalAddress)); User=(New-NHKUiState -Value 'Administrator'); LinuxUser=(New-NHKUiState -Value 'root')
     Primary=(New-NHKUiState -Value ''); DR=(New-NHKUiState -Value ''); ExistingVault=(New-NHKUiState -Value '')
     LabMode=(New-NHKUiState -Value $true); Universal=(New-NHKUiState -Value $script:LabPassword)
@@ -70,6 +68,7 @@ $state=@{
     PwVaultAdmin=(New-NHKUiState -Value ''); PwMaster=(New-NHKUiState -Value ''); PwDRUser=(New-NHKUiState -Value '')
     AcceptEula=(New-NHKUiState -Value $false)
     Busy=(New-NHKUiState -Value $false)
+    Ready=(New-NHKUiState -Value $false)                              # plan reviewed without issues and every password entered
 }
 foreach($c in $script:PASComponents){
     $state['Count'+$c]=New-NHKUiState -Value '0'
@@ -114,16 +113,18 @@ $state.AnyComponent=New-PASUIComputed -DependsOn $countStates -Data $state -Comp
 $state.ProjectPath=New-PASUIComputed -DependsOn @($state.Name,$state.ProjectDir) -Data $state -Compute {
     param($s) $safe=([string]$s.Name.Value -replace '[^A-Za-z0-9_.-]','_'); if(-not $safe){$safe='project'}
     return (Join-Path ([string]$s.ProjectDir.Value) ('PASeasyInstall-'+$safe+'.json')) }
-$state.ScopeSummary=New-PASUIComputed -DependsOn (@($state.VaultMode,$state.ExecMode)+$countStates) -Data $state -Compute {
+$state.ScopeSummary=New-PASUIComputed -DependsOn (@($state.VaultMode)+$countStates) -Data $state -Compute {
     param($s)
     $comps=@($script:PASComponents|Where-Object {[int]$s['Count'+$_].Value -gt 0}|ForEach-Object {
         $n=[int]$s['Count'+$_].Value; if($n -gt 1){"$n× $_"}else{$_}})
     $vault=switch([string]$s.VaultMode.Value){'Primary'{'a new Primary Vault'}'PrimaryDR'{'a new Primary Vault and DR Vault'}default{''}}
-    $par=([string]$s.ExecMode.Value -eq 'Parallel')
-    if($vault -and $comps.Count){return ('Installs '+$vault+', then '+($comps -join ', ')+$(if($par){' in parallel.'}else{', one after another.'}))}
+    if($vault -and $comps.Count){return ('Installs '+$vault+', then '+($comps -join ', ')+', one after another.')}
     if($vault){return ('Installs '+$vault+' only. Components are skipped; you can add them later.')}
-    if($comps.Count){return ('Installs '+($comps -join ', ')+$(if($par){' in parallel'}else{''})+' and registers them to your existing Vault.')}
+    if($comps.Count){return ('Installs '+($comps -join ', ')+' and registers them to your existing Vault.')}
     return 'Nothing selected yet. Choose at least one component, or install a Vault.' }
+# Install is offered only when nothing is running and the review found nothing left to fix.
+$state.InstallBlocked=New-PASUIComputed -DependsOn @($state.Busy,$state.Ready) -Data $state -Compute {
+    param($s) return ([bool]$s.Busy.Value -or -not [bool]$s.Ready.Value) }
 $state.FirstStep=New-PASUIEquals $state.Step 1
 $state.NotLastStep=New-PASUIEquals $state.Step 6 -Not
 $state.NextLabel=New-PASUIComputed -DependsOn @($state.Step) -Data $state -Compute {
@@ -133,10 +134,10 @@ $state.StepTitle=New-PASUIComputed -DependsOn @($state.Step) -Data $state -Compu
 
 # Working data that never reaches markup.
 $work=@{MediaSources=@();Inventory=@();Candidates=@{};Recommended=@{};Selection=@{};ScopeAuto=$true;Applying=$false
-    Configuration=$null;Validation=$null;Plan=$null;PreviewHash='';SavedFile='';CredIssues=@()
-    RunId='';LastRefresh=[datetime]::MinValue;Catalog=@{};StageCounts=@{}}
+    Configuration=$null;Validation=$null;Plan=$null;Requirements=@();PreviewHash='';SavedFile='';CredIssues=@()
+    RunId='';LastRefresh=[datetime]::MinValue;Catalog=@{};StageCounts=@{};EventHistory=$null;EventHistoryRun=''}
 foreach($k in @('Vault','DR','PVWA','CPM','PSM','PSMP','AD')){
-    $work.Catalog[$k]=@(Get-PASStageCatalog -Component $k | ForEach-Object {[string]$_.Stage})
+    $work.Catalog[$k]=@(Get-PASStageCatalog -Component $k | Sort-Object -Property Order | ForEach-Object {[string]$_.Stage})
     $work.StageCounts[$k]=$work.Catalog[$k].Count
 }
 # Once the user picks the scope themselves, new media no longer changes it.
@@ -161,7 +162,7 @@ function Set-PASUIHtml {param($Node,[string]$Html)
 function Write-PASUIMessage {param([ValidateSet('info','ok','warn','error')][string]$Kind,[string]$Text)
     Set-PASUIHtml $script:pasMessage (ConvertTo-PASUIMessageHtml -Kind $Kind -Text $Text)
 }
-function Get-PASUIDefaultUser {param([string]$Type) if($Type -in @('PSMP','PTA')){return [string]$state.LinuxUser.Value}; return [string]$state.User.Value}
+function Get-PASUIDefaultUser {param([string]$Type) if($Type -eq 'PSMP'){return [string]$state.LinuxUser.Value}; return [string]$state.User.Value}
 function Get-PASUIUser {param([string]$Key,[string]$Type)
     # Per-server account if switched on and filled in, otherwise the default for the server's OS.
     if($state.PerServerUser.Value -and ([string]$state[$Key].Value).Trim()){return ([string]$state[$Key].Value).Trim()}
@@ -176,7 +177,7 @@ function Get-PASUIInstances {
     }
 }
 function Get-PASUIInputHash {
-    $keys=@('Name','ProjectDir','VaultMode','ExecMode','Controller','User','LinuxUser','Primary','DR','ExistingVault','PerServerUser','UserPrimary','UserDR','LabMode','AcceptEula')
+    $keys=@('Name','ProjectDir','VaultMode','Controller','User','LinuxUser','Primary','DR','ExistingVault','PerServerUser','UserPrimary','UserDR','LabMode','AcceptEula')
     foreach($c in $script:PASComponents){$keys+='Count'+$c; for($i=1;$i -le $script:PASMaxInstances[$c];$i++){$keys+=@("Name$c$i","Addr$c$i","User$c$i")}}
     foreach($k in $script:PASMediaKinds){$keys+='Choice'+$k}
     $content=(($keys|ForEach-Object {[string]$state[$_].Value}) + @($work.MediaSources)) -join "`n"
@@ -227,7 +228,7 @@ function Add-PASUIMedia {param([string[]]$Paths)
         try{
             $mode=if($work.Selection['Vault'] -and $work.Selection['DR']){'PrimaryDR'}elseif($work.Selection['Vault']){'Primary'}else{'Existing'}
             $state.VaultMode.Set($mode)
-            foreach($c in $script:PASComponents){$state['Count'+$c].Set($(if($work.Selection[$c] -and ($c -notin $script:PASExperimental -or $Advanced)){'1'}else{'0'}))}
+            foreach($c in $script:PASComponents){$state['Count'+$c].Set($(if($work.Selection[$c]){'1'}else{'0'}))}
         }finally{$work.Applying=$false}
     }
     Update-PASUIMediaView
@@ -247,30 +248,37 @@ function Clear-PASUIMedia {
 # ---- plan
 function Get-PASUIProposedConfiguration {
     $inst=@(Get-PASUIInstances|ForEach-Object {@{Type=$_.Type;Name=$_.Name;Address=$_.Address;Username=$_.Username}})
-    return New-PASDeploymentConfiguration -Environment ([string]$state.Name.Value) -VaultMode ([string]$state.VaultMode.Value) `
+    return New-PASLabConfiguration -Environment ([string]$state.Name.Value) -VaultMode ([string]$state.VaultMode.Value) `
         -Instances $inst -ControllerAddress ([string]$state.Controller.Value) `
         -PrimaryAddress ([string]$state.Primary.Value) -DRAddress ([string]$state.DR.Value) `
         -ExistingVaultAddress ([string]$state.ExistingVault.Value) `
         -Username ([string]$state.User.Value) -LinuxUsername ([string]$state.LinuxUser.Value) -Media $work.Selection `
-        -ExecutionMode ([string]$state.ExecMode.Value) `
         -PrimaryUsername (Get-PASUIUser 'UserPrimary' 'Vault') -DRUsername (Get-PASUIUser 'UserDR' 'Vault') `
         -SecurityProfile $(if($state.LabMode.Value){'Lab'}else{'Secure'}) -AcceptEula:([bool]$state.AcceptEula.Value)
 }
-function Reset-PASUIReview {$work.Configuration=$null;$work.Validation=$null;$work.Plan=$null;$work.PreviewHash='';$work.SavedFile=''}
+function Reset-PASUIReview {
+    $work.Configuration=$null;$work.Validation=$null;$work.Plan=$null;$work.Requirements=@();$work.PreviewHash='';$work.SavedFile=''
+}
 function Invoke-PASUIReview {
+    <# Validates the proposed configuration and asks the backend for its plan and for the credentials it
+       needs. The result is kept until an input changes. Returns $true when there is a plan. #>
     $hash=Get-PASUIInputHash
-    $work.CredIssues=@(Get-PASUICredentialIssues)
-    if($work.PreviewHash -eq $hash -and $work.Plan){Update-PASUIReviewView;return $true}
-    Reset-PASUIReview
     $err=''
-    try{
-        $work.Validation=Test-PASEnvironment -Configuration (Get-PASUIProposedConfiguration)
-        if($work.Validation.Valid){
-            $work.Configuration=$work.Validation.Configuration
-            $work.Plan=Get-PASEnvironmentPlan -Configuration $work.Configuration
-            $work.PreviewHash=$hash
-        }
-    }catch{$err=$_.Exception.Message}
+    if(-not ($work.PreviewHash -eq $hash -and $work.Plan)){
+        Reset-PASUIReview
+        try{
+            $work.Validation=Test-PASLabConfiguration -Configuration (Get-PASUIProposedConfiguration)
+            if($work.Validation.Valid){
+                $cfg=$work.Validation.Configuration
+                $plan=Get-PASLabPlan -Configuration $cfg
+                $work.Requirements=@(Get-PASCredentialRequirement -Configuration $cfg)
+                $work.Configuration=$cfg
+                $work.Plan=$plan
+                $work.PreviewHash=$hash
+            }
+        }catch{$err=$_.Exception.Message}
+    }
+    $work.CredIssues=@(Get-PASUICredentialIssues)
     Update-PASUIReviewView -ErrorText $err
     return [bool]$work.Plan
 }
@@ -285,31 +293,50 @@ function Update-PASUIReviewView {param([string]$ErrorText='')
 }
 
 # ---- credentials (held only in process memory; never saved to the project)
+# WHAT is needed comes from the backend: Get-PASCredentialRequirement lists every server credential and
+# every secret of the reviewed configuration, with the key it must be handed over under. The page has a
+# fixed set of password inputs, so each requirement is matched to the input that belongs to it.
+$script:PASUISecretFields=@{VaultAdmin='PwVaultAdmin';VaultMaster='PwMaster';DRPassword='PwDRUser'}
+function Get-PASUIServerField {
+    <# State key of the password input of one server, found through the plan items installed on it.
+       Instances that share a server use the input of the first of them. '' when the page has none. #>
+    param([string]$HostId)
+    $onHost=@($work.Plan.Items|Where-Object {[string]$_.Host -eq $HostId})
+    if(@($onHost|Where-Object {$_.Type -eq 'Vault'}).Count){return 'PwPrimary'}
+    if(@($onHost|Where-Object {$_.Type -eq 'DRVault'}).Count){return 'PwDR'}
+    $names=@($onHost|ForEach-Object {[string]$_.Name})
+    foreach($inst in Get-PASUIInstances){
+        if($names -contains $inst.Name){return ('Pw'+$inst.Type+$inst.Index)}
+    }
+    return ''
+}
 function Get-PASUIPasswordSlots {
-    <# The password fields the current selection needs: @(@{Key;Label;Host?|Instance?|Role?}) #>
+    <# One slot per requirement: @{Kind;Key;User;Label;Field}. Field is the state key of its password input. #>
     $slots=@()
-    if($state.InstallsVault.Value){$slots+=@{Key='PwPrimary';Label='Primary Vault server';Host='vault01'}}
-    if($state.ShowDR.Value){$slots+=@{Key='PwDR';Label='DR Vault server';Host='dr01'}}
-    foreach($inst in Get-PASUIInstances){$slots+=@{Key=('Pw'+$inst.Type+$inst.Index);Label=($inst.Name+' server');Instance=$inst.Name}}
-    $slots+=@{Key='PwVaultAdmin';Label='Vault Administrator';Role='VaultAdmin'}
-    if($state.InstallsVault.Value){$slots+=@{Key='PwMaster';Label='Vault Master';Role='VaultMaster'}}
-    if($state.ShowDR.Value){$slots+=@{Key='PwDRUser';Label='DR user';Role='DRPassword'}}
+    foreach($requirement in @($work.Requirements)){
+        if($requirement.Kind -eq 'Secret'){
+            $field=[string]$script:PASUISecretFields[[string]$requirement.Key]
+        }else{
+            $field=Get-PASUIServerField ([string]$requirement.HostId)
+        }
+        $slots+=@{Kind=[string]$requirement.Kind;Key=[string]$requirement.Key;User=[string]$requirement.User
+            Label=[string]$requirement.Label;Field=$field}
+    }
     return $slots
 }
-function Get-PASUIPassword {param([string]$Key)
-    if($state.LabMode.Value){return [string]$state.Universal.Value}; return [string]$state[$Key].Value
-}
 function Get-PASUICredentialIssues {
-    if($state.LabMode.Value){if(-not [string]$state.Universal.Value){return @('Enter the universal lab password')};return @()}
-    # Instances that share a server need only the first instance's password.
-    $seenAddr=@{}; $issues=@()
+    # One lab password fills every slot.
+    if($state.LabMode.Value){
+        if(-not [string]$state.Universal.Value){return @('Enter the universal lab password')}
+        return @()
+    }
+    $issues=@()
     foreach($slot in Get-PASUIPasswordSlots){
-        if($slot.Instance){
-            $inst=@(Get-PASUIInstances|Where-Object {$_.Name -eq $slot.Instance})[0]
-            if($inst.Address -and $seenAddr.ContainsKey($inst.Address)){continue}
-            if($inst.Address){$seenAddr[$inst.Address]=$true}
+        if(-not $slot.Field){
+            $issues+=('Password missing: '+$slot.Label+' (this page has no field for it; use lab mode, or Install-PASLab at the prompt)')
+        }elseif(-not [string]$state[$slot.Field].Value){
+            $issues+=('Password missing: '+$slot.Label)
         }
-        if(-not [string]$state[$slot.Key].Value){$issues+=('Enter the password for '+$slot.Label)}
     }
     return $issues
 }
@@ -317,21 +344,22 @@ function New-PASUISecure {param([string]$Text)
     $s=New-Object Security.SecureString; foreach($ch in $Text.ToCharArray()){$s.AppendChar($ch)}; $s.MakeReadOnly(); return $s
 }
 function Get-PASUICredentialMaps {
-    <# CredentialMap is keyed by server name (the backend's host id, named after its first instance). #>
+    <# The -CredentialMap and -SecretMap of Install-PASLab, keyed as the requirements say. #>
     $issues=@(Get-PASUICredentialIssues); if($issues.Count){throw ($issues -join '; ')}
-    $cfg=$work.Configuration; $creds=@{}; $secrets=@{}
+    $creds=@{}; $secrets=@{}
     foreach($slot in Get-PASUIPasswordSlots){
-        $pw=Get-PASUIPassword $slot.Key
-        if($slot.Role){$secrets[$slot.Role]=New-PASUISecure $pw;continue}
-        # Backends may normalise ids (the Orchestrator uses lowercase ids); the instance name is kept as 'name'.
-        $hostId=if($slot.Host){$slot.Host}else{[string](@($cfg.components|Where-Object {[string]$_.name -eq $slot.Instance -or [string]$_.id -eq $slot.Instance})[0].host)}
-        if($creds.ContainsKey($hostId)){continue}   # co-located instances share the first password given
-        $creds[$hostId]=[pscredential]::new([string]$cfg.hosts[$hostId].user,(New-PASUISecure $pw))
+        if($state.LabMode.Value){$pw=[string]$state.Universal.Value}else{$pw=[string]$state[$slot.Field].Value}
+        if($slot.Kind -eq 'Secret'){
+            $secrets[$slot.Key]=New-PASUISecure $pw
+        }else{
+            $creds[$slot.Key]=[pscredential]::new($slot.User,(New-PASUISecure $pw))
+        }
     }
     return @{Credentials=$creds;Secrets=$secrets}
 }
 function Clear-PASUIPasswords {
-    $keys=@('PwPrimary','PwDR','PwVaultAdmin','PwMaster','PwDRUser')
+    # Every password the window holds, the lab password included.
+    $keys=@('Universal','PwPrimary','PwDR','PwVaultAdmin','PwMaster','PwDRUser')
     foreach($c in $script:PASComponents){for($i=1;$i -le $script:PASMaxInstances[$c];$i++){$keys+="Pw$c$i"}}
     foreach($k in $keys){$state[$k].Set('')}
 }
@@ -340,35 +368,38 @@ function Clear-PASUIPasswords {
 function Update-PASUIReadiness {
     $planOk=[bool]$work.Plan -and $work.PreviewHash -eq (Get-PASUIInputHash)
     $credOk=-not @(Get-PASUICredentialIssues).Count
-    $credDetail=if($work.RunId){'Handed to the controller'}elseif($state.LabMode.Value){'Lab mode: universal password'}elseif($credOk){'All passwords entered'}else{'Missing: '+((@(Get-PASUICredentialIssues)|ForEach-Object {$_ -replace '^Enter the (password for )?',''}) -join ', ')}
+    $credDetail=if($work.RunId){'Handed to the controller'}elseif(-not $credOk){'Missing: '+((@(Get-PASUICredentialIssues)|ForEach-Object {$_ -replace '^(Enter the|Password missing:) ',''}) -join ', ')}elseif($state.LabMode.Value){'Lab mode: universal password'}else{'All passwords entered'}
     $saved=[string]$state.ProjectPath.Value
     $rows=@(
         @{Label='Plan reviewed';Done=$planOk;Detail=$(if($planOk){$n=@($work.Plan.Items).Count;'{0} component{1} ready' -f $n,$(if($n -eq 1){''}else{'s'})}else{'Open Review plan and resolve any issues'})},
         @{Label='Project file';Done=[bool]$work.SavedFile;Detail=$(if($work.SavedFile){$work.SavedFile}else{$saved+' (saved on Install)'})},
         @{Label='Credentials';Done=($credOk -or [bool]$work.RunId);Detail=$credDetail},
-        @{Label='Deployment';Done=[bool]$work.RunId;Detail=$(if($work.RunId){'Run '+$work.RunId.Substring(0,8)+' launched'}else{'Not started'})}
+        @{Label='Installation';Done=[bool]$work.RunId;Detail=$(if($work.RunId){'Run '+$work.RunId+' launched'}else{'Not started'})}
     )
     Set-PASUIHtml $script:pasReadiness (ConvertTo-PASUIReadinessHtml -Rows $rows)
+    $ready=[bool]($planOk -and $credOk)
+    if([bool]$state.Ready.Value -ne $ready){$state.Ready.Set($ready)}
 }
 function Save-PASUIProject {
     if(-not (Invoke-PASUIReview)){throw 'The plan has problems; open Review plan to see them.'}
     # The project path is shown on step 1; replacing a project with the same name is intentional.
-    $work.SavedFile=Save-PASEnvironment -Configuration $work.Configuration -Path ([string]$state.ProjectPath.Value) -Force
+    $path=[string]$state.ProjectPath.Value
+    $null=Export-PASLabConfiguration -Configuration $work.Configuration -Path $path -Force
+    $work.SavedFile=$path
     Update-PASUIReadiness
 }
 function Start-PASUIInstall {
-    if($state.Busy.Value){throw 'A deployment is already running.'}
+    if($state.Busy.Value){throw 'An installation is already running.'}
     if(-not (Invoke-PASUIReview)){throw 'The plan has problems; open Review plan to see them.'}
     $maps=Get-PASUICredentialMaps
-    $media=Test-PASEnvironment -Configuration $work.Configuration -CheckMedia
+    $media=Test-PASLabConfiguration -Configuration $work.Configuration -CheckMedia
     if(-not $media.Valid){throw ('Media check failed: '+($media.Issues -join '; '))}
     Save-PASUIProject
-    $saved=Test-PASEnvironment -Config $work.SavedFile
-    if((Get-PASEnvironmentPlan -Configuration $saved.Configuration).ConfigDigest -cne $work.Plan.ConfigDigest){
-        throw 'The saved project differs from the reviewed plan. Review again.'}
-    $id=Start-PASEnvironment -Configuration $work.Configuration -CredentialMap $maps.Credentials -SecretMap $maps.Secrets -Confirm:$false
-    $maps=$null; if(-not $state.LabMode.Value){Clear-PASUIPasswords}
+    $id=Install-PASLab -Configuration $work.Configuration -CredentialMap $maps.Credentials -SecretMap $maps.Secrets -Confirm:$false
+    # The controller has the passwords now; the window keeps none of them.
+    $maps=$null
     $work.RunId=[string]$id; $work.LastRefresh=[datetime]::MinValue
+    Clear-PASUIPasswords
     $state.Busy.Set($true)
     Update-PASUIReadiness; Update-PASUIDashboard
     Write-PASUIMessage info 'Installation started. The controller runs independently of this window; progress below comes from its event log.'
@@ -378,15 +409,71 @@ function Update-PASUIDashboard {
     # First refresh of a run reads its whole history; later refreshes read only the newest events and merge them,
     # so completed stages stay completed however long the run gets.
     if(-not $work.EventHistory -or $work.EventHistoryRun -ne $work.RunId){$work.EventHistory=@{};$work.EventHistoryRun=$work.RunId;$tail=5000}else{$tail=300}
-    $snap=Get-PASEnvironmentSnapshot -RunId $work.RunId -Tail $tail
-    $all=Merge-PASUIEventHistory -History $work.EventHistory -Events @($snap.Events)
-    $snap=[pscustomobject]@{RunId=$snap.RunId;Status=$snap.Status;CurrentComponent=$snap.CurrentComponent;LastStep=$snap.LastStep;ErrorEvents=$snap.ErrorEvents;Events=$all}
-    Set-PASUIHtml $script:pasTimeline (ConvertTo-PASUIDashboardHtml -Snapshot $snap -PlanItems @($work.Plan.Items) -Catalog $work.Catalog)
-    if([string]$snap.Status -ne 'Running' -and $state.Busy.Value){
-        $state.Busy.Set($false)
-        if([string]$snap.Status -match 'Succeeded'){Write-PASUIMessage ok 'Installer workflow completed. Run the component health checks before production use.'}
-        else{Write-PASUIMessage error ('Deployment ended: '+[string]$snap.Status+'. Inspect the event log; resume only after the attempt state is reconciled.')}
+    $snap=Get-PASRun -RunId $work.RunId -Tail $tail
+    $all=@(Merge-PASUIEventHistory -History $work.EventHistory -Events @($snap.Events))
+    $view=[pscustomobject]@{
+        RunId=[string]$snap.RunId; Status=[string]$snap.Status; Message=[string]$snap.Message
+        CurrentComponent=[string]$snap.CurrentComponent; LastStep=[string]$snap.LastStep
+        ErrorEvents=@($all|Where-Object {$_.Status -eq 'Failed'}).Count
+        RunDirectory=[string]$snap.RunDirectory; Components=@($snap.Components); Events=$all
     }
+    Set-PASUIHtml $script:pasTimeline (ConvertTo-PASUIDashboardHtml -Snapshot $view -PlanItems @($work.Plan.Items) -Catalog $work.Catalog)
+    if(-not (Test-PASUIRunActive $view.Status) -and $state.Busy.Value){
+        $state.Busy.Set($false)
+        if($view.Status -eq 'Succeeded'){
+            Write-PASUIMessage ok 'Installer workflow completed. Run the component health checks before production use.'
+        }else{
+            Write-PASUIMessage error ('Installation stopped: '+$view.Status+'. The run id and the commands to resume it or to export its logs are shown under Progress.')
+        }
+    }
+}
+
+# ---- saved project
+function Import-PASUIProject {
+    <# Fills the wizard from a saved project file (-Config): name, Vault option, addresses, component
+       servers and default accounts. Media and passwords are not in a project file and are entered again;
+       per-server accounts and the PSMP licence acceptance are not taken over either. #>
+    param([string]$Path)
+    $cfg=Import-PASLabConfiguration -Path $Path
+    $plan=Get-PASLabPlan -Configuration $cfg
+    $items=@($plan.Items)
+    $work.Applying=$true
+    try{
+        if([string]$cfg.name){$state.Name.Set([string]$cfg.name)}
+        $state.ProjectDir.Set((Split-Path -Parent $Path))
+        if([string]$cfg.controllerAddress){$state.Controller.Set([string]$cfg.controllerAddress)}
+        if($cfg.security){$state.LabMode.Set(([string]$cfg.security.profile -eq 'Lab'))}
+        $vault=@($items|Where-Object {$_.Type -eq 'Vault'})
+        $dr=@($items|Where-Object {$_.Type -eq 'DRVault'})
+        if($vault.Count){
+            $state.VaultMode.Set($(if($dr.Count){'PrimaryDR'}else{'Primary'}))
+            $state.Primary.Set([string]$vault[0].Address)
+            if($dr.Count){$state.DR.Set([string]$dr[0].Address)}
+        }else{
+            $state.VaultMode.Set('Existing')
+            $state.ExistingVault.Set([string]$plan.ExistingVault)
+        }
+        foreach($c in $script:PASComponents){
+            $list=@($items|Where-Object {$_.Type -eq $c})
+            $n=[Math]::Min($list.Count,[int]$script:PASMaxInstances[$c])
+            for($i=1;$i -le $n;$i++){
+                $state["Name$c$i"].Set([string]$list[$i-1].Name)
+                $state["Addr$c$i"].Set([string]$list[$i-1].Address)
+            }
+            $state['Count'+$c].Set([string]$n)
+        }
+        # Default accounts: the first Windows and the first Linux account the configuration asks for.
+        $windowsUser='';$linuxUser=''
+        foreach($requirement in @(Get-PASCredentialRequirement -Configuration $cfg|Where-Object {$_.Kind -eq 'Credential' -and $_.HostId})){
+            if($requirement.Os -eq 'Linux'){if(-not $linuxUser){$linuxUser=[string]$requirement.User}}
+            elseif(-not $windowsUser){$windowsUser=[string]$requirement.User}
+        }
+        if($windowsUser){$state.User.Set($windowsUser)}
+        if($linuxUser){$state.LinuxUser.Set($linuxUser)}
+    }finally{$work.Applying=$false}
+    $work.ScopeAuto=$false   # media added later must not change what the project selects
+    Reset-PASUIReview
+    Write-PASUIMessage ok ('Opened '+[IO.Path]::GetFileName($Path)+'. Add the installer media and enter the passwords; they are never stored in a project file.')
 }
 
 # ---- navigation and dialogs
@@ -464,7 +551,7 @@ function Add-PASUIPassword {param([string]$Key,[string]$Label,$When)
 }
 
 # ---------------------------------------------------------------- layout
-$ui=New-NHKUi -Title 'PASeasyInstall' -Width 1220 -Height 880 -Theme $nhkTheme.Theme -Density $nhkTheme.Density -ExtraCss $css
+$ui=New-NHKUi -Title 'PASeasyInstall' -Width 1220 -Height 880 -Theme 'cobalt' -Density 'compact' -ExtraCss $css
 $backendLabel=if($backendKind -eq 'Mock'){'Mock backend · no servers are contacted'}else{'Live installer · servers are contacted only on Install'}
 $backendClass=if($backendKind -eq 'Mock'){'mock'}else{'live'}
 $null=Add-NHKUiHtml -UI $ui -Markup ('<header class="pas-top"><div class="pas-brand"><span class="pas-logo">PAS</span><div><div class="pas-brand-t">PASeasyInstall</div><div class="pas-brand-s">CyberArk PAM lab builder · for lab use, production use at your own risk</div></div></div><span class="pas-env '+$backendClass+'">'+(Get-PASUIEscaped $backendLabel)+'</span></header>')
@@ -541,15 +628,6 @@ $shell=Add-NHKUiRow -UI $ui -Content {
                     $null=Add-NHKUiText -UI $ui -Text 'The PSMP installer runs unattended and asks for this acceptance up front. The other installers include it in their silent setup.' -Muted
                 }
             }
-            $null=Add-NHKUiWhen -UI $ui -Bind $state.AnyComponent -Content {
-                Add-PASUISection 'Installation order' 'lavender' {
-                    $null=Add-PASUIClass (Add-NHKUiRow -UI $ui -Content {
-                        Add-PASUIChoice 'Sequential' 'One server at a time' 'Slower, simplest to follow and troubleshoot. Each server finishes before the next starts.' $state.ExecMode
-                        Add-PASUIChoice 'Parallel' 'Servers in parallel' 'Faster. The Vault installs first, then PVWA, then the other component servers at the same time.' $state.ExecMode
-                    }) 'pas-choices'
-                    $null=Add-NHKUiText -UI $ui -Text 'Either way, registering components with the Vault is coordinated by the installer, so registrations never collide.' -Muted
-                }
-            }
             $null=Add-PASUIClass (Add-NHKUiText -UI $ui -Bind $state.ScopeSummary) 'pas-summary'
         }
 
@@ -577,7 +655,7 @@ $shell=Add-NHKUiRow -UI $ui -Content {
                             $null=Add-NHKUiHeading -UI $ui -Text $c -Level 4
                             $null=Add-PASUIClass (Add-NHKUiGrid -UI $ui -Content {
                                 for($i=1;$i -le $script:PASMaxInstances[$c];$i++){
-                                    $ph=if($c -in @('PSMP','PTA')){"10.10.0.3$i"}else{"10.10.0.2$i"}
+                                    $ph=if($c -eq 'PSMP'){"10.10.0.3$i"}else{"10.10.0.2$i"}
                                     $null=Add-NHKUiWhen -UI $ui -Bind $state["Show$c$i"] -Content {
                                         $null=Add-PASUIClass (Add-NHKUiRow -UI $ui -Content {
                                             $null=Add-NHKUiInput -UI $ui -Bind $state["Name$c$i"] -Label 'Hostname' -Placeholder ('{0}{1:00}' -f $c,$i)
@@ -656,7 +734,7 @@ $shell=Add-NHKUiRow -UI $ui -Content {
             Add-PASUISection 'Ready to install' 'teal' {
                 $null=Add-PASUIClass (Add-NHKUiRow -UI $ui -Content {
                     $script:pasReadiness=Add-NHKUiHtml -UI $ui -Markup ''
-                    $null=Add-PASUIClass (Add-NHKUiButton -UI $ui -Text 'Install' -Variant primary -DisabledState $state.Busy -OnClick { param($e,$d) Invoke-PASUISafe { Start-PASUIInstall } }) 'pas-cta'
+                    $null=Add-PASUIClass (Add-NHKUiButton -UI $ui -Text 'Install' -Variant primary -DisabledState $state.InstallBlocked -OnClick { param($e,$d) Invoke-PASUISafe { Start-PASUIInstall } }) 'pas-cta'
                 }) 'pas-readyrow'
             }
             Add-PASUISection 'Progress' 'blue' {
@@ -690,49 +768,7 @@ try{
         $paths=@(); $prop=$evt.PSObject.Properties['paths']; if($prop){$paths=@($prop.Value)}
         if($paths.Count){Invoke-PASUISafe { Add-PASUIMedia ([string[]]$paths) }}
     }
-    if($Config){
-        Write-PASUIMessage warn 'Opening saved projects is not wired into the v0.4 flow yet; start a new one.'
-    }
-    # Dev-only switches for screenshots/UI work (no effect unless set):
-    #   PASUI_DEV_MEDIA='path|path'  PASUI_DEV_DEMO=1 (addresses)  PASUI_DEV_NAME  PASUI_DEV_MODE=Primary|PrimaryDR|Existing
-    #   PASUI_DEV_COMPONENTS='PVWA:2,CPM,PSMP'  PASUI_DEV_LAB=0  PASUI_DEV_STEP=1..6  PASUI_DEV_AUTOINSTALL=1
-    #   PASUI_DEV_CHOICE='PSMP=1'  (pick a non-recommended installer by index)  PASUI_DEV_EULA=1
-    #   PASUI_DEV_CONTROLLER=10.0.0.10  PASUI_DEV_ADDRESSES='Primary=..,DR=..,PVWA1=..,NamePVWA1=PAS-PVWA'
-    #   PASUI_DEV_REPORT=<file>  (write the review result as JSON, for windowless smoke tests)
-    if($env:PASUI_DEV_NAME){$state.Name.Set($env:PASUI_DEV_NAME)}
-    if($env:PASUI_DEV_MEDIA){Invoke-PASUISafe { Add-PASUIMedia ($env:PASUI_DEV_MEDIA -split '\|') }}
-    if($env:PASUI_DEV_CHOICE){foreach($kv in ($env:PASUI_DEV_CHOICE -split ',')){$k,$v=$kv -split '=';$state['Choice'+$k].Set($v);Set-NativeHTMLKitDocumentValue -Document $ui.Document -Element $script:pasChoiceNodes[$k].Id -Value $v}}
-    if($env:PASUI_DEV_MODE){$state.VaultMode.Set($env:PASUI_DEV_MODE)}
-    if($env:PASUI_DEV_ORDER){$state.ExecMode.Set($env:PASUI_DEV_ORDER)}
-    if($env:PASUI_DEV_COMPONENTS){
-        $want=@{}; foreach($p in ($env:PASUI_DEV_COMPONENTS -split ',')){$n,$cnt=$p -split ':'; $want[$n]=$(if($cnt){$cnt}else{'1'})}
-        foreach($c in $script:PASComponents){$state['Count'+$c].Set($(if($want.ContainsKey($c)){[string]$want[$c]}else{'0'}))}
-    }
-    if($env:PASUI_DEV_LAB -eq '0'){$state.LabMode.Set($false)}
-    if($env:PASUI_DEV_EULA -eq '1'){$state.AcceptEula.Set($true)}
-    if($env:PASUI_DEV_CONTROLLER){$state.Controller.Set($env:PASUI_DEV_CONTROLLER)}
-    if($env:PASUI_DEV_ADDRESSES){
-        # 'Primary=10.0.0.11,DR=10.0.0.12,PVWA1=10.0.0.21,...' and optional names 'NamePVWA1=PAS-PVWA'
-        foreach($kv in ($env:PASUI_DEV_ADDRESSES -split ',')){$k,$v=$kv -split '=',2; if($k -in @('Primary','DR','ExistingVault')){$state[$k].Set($v)}elseif($k -like 'Name*'){$state[$k].Set($v)}else{$state['Addr'+$k].Set($v)}}
-    }
-    if($env:PASUI_DEV_PERSERVER -eq '1'){$state.PerServerUser.Set($true); $state.UserPSMP1.Set('ec2-user')}
-    if($env:PASUI_DEV_DEMO -eq '1'){
-        if($state.Name.Value -eq 'MyPAM'){$state.Name.Set('Lab01')}
-        $state.Controller.Set('10.10.0.10');$state.Primary.Set('10.10.0.11');$state.DR.Set('10.10.0.12');$state.ExistingVault.Set('10.10.0.11')
-        $state.AddrPVWA1.Set('10.10.0.21');$state.AddrPVWA2.Set('10.10.0.22');$state.AddrCPM1.Set('10.10.0.21');$state.AddrCPM2.Set('10.10.0.22')
-        $state.AddrPSM1.Set('10.10.0.23');$state.AddrPSM2.Set('10.10.0.24');$state.AddrPSMP1.Set('10.10.0.31');$state.AddrPSMP2.Set('10.10.0.33');$state.AddrPTA1.Set('10.10.0.32')
-    }
-    if($env:PASUI_DEV_STEP){Invoke-PASUISafe {Set-PASUIStep ([int]$env:PASUI_DEV_STEP)}}
-    if($env:PASUI_DEV_AUTOINSTALL -eq '1' -and [int]$state.Step.Value -eq 6){Invoke-PASUISafe {Start-PASUIInstall}}
-    if($env:PASUI_DEV_REPORT){
-        # Windowless smoke evidence: what the review step produced (no secrets; plan facts only).
-        $rep=[ordered]@{Backend=$backendKind;Step=[int]$state.Step.Value;PowerShell=$PSVersionTable.PSVersion.ToString()
-            Media=@($work.Selection.Keys|Sort-Object);Valid=$(if($work.Validation){[bool]$work.Validation.Valid}else{$false})
-            Issues=$(if($work.Validation){@($work.Validation.Issues)}else{@()});CredIssues=@($work.CredIssues)
-            Digest=$(if($work.Plan){[string]$work.Plan.ConfigDigest}else{''});ExecutionMode=$(if($work.Plan){[string]$work.Plan.ExecutionMode}else{''})
-            Items=@(if($work.Plan){@($work.Plan.Items)|ForEach-Object {'{0} {1} {2} {3} {4}' -f $_.Id,$_.Type,$_.Host,$_.Address,$_.Media}})}
-        [IO.File]::WriteAllText($env:PASUI_DEV_REPORT,($rep|ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
-    }
+    if($Config){Invoke-PASUISafe { Import-PASUIProject $Config }}
     while($script:pasAlive){
         $null=Wait-NativeHTMLKit -Application $pasApp -TimeoutMilliseconds 250
         if($work.RunId -and $state.Busy.Value -and ([datetime]::UtcNow-$work.LastRefresh).TotalSeconds -ge 1){
