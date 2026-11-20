@@ -1,6 +1,6 @@
 # 2 What to install
 
-![Step 2: Vault option, components, license agreement and order](../assets/screenshots/2-what-to-install.png)
+![Step 2: Vault option, components and license agreement](../assets/screenshots/2-what-to-install.png)
 
 ## Vault
 
@@ -26,10 +26,8 @@ up front. The other installers include it in their silent setup.
 
 ## Installation order
 
-| Order | Behaviour |
-|---|---|
-| **One server at a time** | Slower, and simplest to follow and troubleshoot. Each server finishes before the next starts. |
-| **Servers in parallel** | Faster. The Vault (and DR) installs first, then PVWA, then the other component servers (CPM, PSM, PSMP) at the same time. PVWA comes first because its registration creates the Vault objects the other components register against. |
+Components are installed **one after the other**: the Vault (and DR) first, then PVWA, then CPM, PSM and PSMP. PVWA
+comes first because its registration creates the Vault objects the other components register against. There is no
+parallel mode in 2.0.
 
-Either way, registering components with the Vault is coordinated, so registrations never collide. CPM waits for the
-PVWA whose certificate it trusts.
+CPM waits for the PVWA whose certificate it trusts.

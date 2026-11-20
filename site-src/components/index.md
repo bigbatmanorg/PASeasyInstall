@@ -20,4 +20,4 @@ Typical durations in the reference lab (2 vCPU / 4 GB targets): Vault 8 minutes,
 CPM 3–4, PSM 15 (with three vendor reboots), PSMP 2, and AD 5.
 
 !!! info "PTA"
-    Privileged Threat Analytics is not part of this release. Its code is kept for future work.
+    Privileged Threat Analytics (PTA) is not included.

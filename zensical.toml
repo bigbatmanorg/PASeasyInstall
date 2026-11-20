@@ -1,6 +1,6 @@
 [project]
 site_name = "PASeasyInstall"
-site_description = "Build CyberArk PAM self-hosted labs from one PowerShell controller with a native desktop UI. For labs; production use at your own risk."
+site_description = "Build CyberArk PAM self-hosted labs from one PowerShell controller, with plain commands or a native desktop UI. For labs; production use at your own risk."
 site_url = "https://bigbatmanorg.github.io/PASeasyInstall/"
 docs_dir = "site-src"
 site_dir = "site"
@@ -49,21 +49,12 @@ nav = [
   ] },
   { "Commands" = [
     "commands/index.md",
-    { "Start-PASeasyInstall" = "commands/start-paseasyinstall.md" },
-    { "Invoke-PASeasyInstall" = "commands/invoke-paseasyinstall.md" },
-    { "Media: Get-PASMediaInventory / Selection" = "commands/media.md" },
-    { "New-PASDeploymentConfiguration" = "commands/new-deploymentconfiguration.md" },
-    { "Test-PASEnvironment" = "commands/test-environment.md" },
-    { "Get-PASEnvironmentPlan" = "commands/environment-plan.md" },
-    { "Save-PASEnvironment" = "commands/save-environment.md" },
-    { "Start-PASEnvironment" = "commands/start-environment.md" },
-    { "Snapshot and events" = "commands/snapshot-events.md" },
-    { "Resume-PASeasyDeployment" = "commands/resume.md" },
-    { "Get-PASStageCatalog" = "commands/stage-catalog.md" },
-    { "Test-PASEnvironmentHealth" = "commands/health.md" },
-    { "Export-PASRunData" = "commands/export-rundata.md" },
-    { "Close-PASDeployment" = "commands/close-deployment.md" },
-    { "Single-component builders" = "commands/builders.md" },
+    { "Install: Install-PAS*" = "commands/install.md" },
+    { "Lab configuration" = "commands/configuration.md" },
+    { "Media" = "commands/media.md" },
+    { "Runs: Get, Wait, Resume, Stop" = "commands/runs.md" },
+    { "Checks and diagnostics" = "commands/checks.md" },
+    { "Desktop: Start-PASeasyInstall" = "commands/start-paseasyinstall.md" },
   ] },
   { "Concepts" = [
     "concepts/index.md",

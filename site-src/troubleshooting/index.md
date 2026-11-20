@@ -1,7 +1,24 @@
 # Troubleshooting
 
-Real problems met while building labs, and their fixes. Start with the event log on [step 6](../gui/install.md) or
-`Get-PASEnvironmentEvents -RunId <id>`. The failing stage and its message are usually enough.
+Real problems met while building labs, and their fixes. Start with the event log on [step 6](../gui/install.md) or with
+these commands. The failing step and its message are usually enough.
+
+```powershell
+Get-PASRun                                # all runs, newest first
+Get-PASRun -RunId <id>                    # one run: status, components, latest events
+Get-PASRunEvent -RunId <id> -Failed       # what failed
+Get-PASRunLog -RunId <id>                 # the controller journal of the run
+Test-PASPreflight -Path .\Lab01.json      # are the servers reachable and ready?
+```
+
+After you corrected the cause, continue the same run. A step that failed is not repeated on its own; name it:
+
+```powershell
+Resume-PASRun -RunId <id>                           # check finished components, install the rest
+Resume-PASRun -RunId <id> -RetryStep cpm01:install  # also execute this failed step again
+```
+
+More: [Durable runs and resume](../concepts/durable-runs.md).
 
 ## WinRM: "Access is denied" with `Administrator`
 
@@ -14,16 +31,34 @@ password works on the console.
 account names. Keep the plain name `Administrator` in the configuration, because the Vault's management endpoint
 requires an unqualified local account name.
 
-## "Unreconciled resource 'environment-…'", "… has unresolved deployment …" or "PAExecLocked"
+## "PAExecLocked: server … is locked by run …" (run status Blocked)
 
-**Cause:** an earlier run of this environment, or one that used the same servers, ended without a known outcome
-(Unknown/Interrupted) or failed while holding a claim. PASeasyInstall will not start another installation on those
-servers until that is resolved, so it never repeats an installer whose result is unknown.
+**Cause:** an earlier run started on this server and did not finish. It left its **target lock** there on purpose,
+so that no other run touches a half-installed server. The message names the run that holds the lock and the lock
+folder.
 
-**Fix:** if the earlier run can continue, resume it with `Resume-PASeasyDeployment -RunId <id>`. If you reset or
-rebuilt those servers instead, close the old record with
-[`Close-PASDeployment -RunId <id> -Reason '…'`](../commands/close-deployment.md), then install again. For
-`PAExecLocked` on a Linux server that was not reset, also remove `~/.paeasyinstall/locks/<host>` on that server.
+**Fix:** choose one:
+
+- The earlier run can continue: `Resume-PASRun -RunId <that run id>`.
+- You will not continue it (for example you reset or rebuilt the servers): give it up and release its locks with
+  `Stop-PASRun -RunId <that run id> -CredentialMap $creds`. Without `-CredentialMap` it lists the lock folders
+  instead.
+- That run no longer exists on this controller: delete the lock folder named in the message on that server
+  (Windows: `locks\<server>` under `C:\ProgramData\PASeasyInstall` or `C:\ProgramData\PAExec`; Linux:
+  `~/.paeasyinstall/locks/<server>`).
+
+Then resume the blocked run. See [Coordination and locks](../concepts/coordination.md).
+
+!!! note
+    The 1.0 message "Unreconciled resource 'environment-…'" no longer exists. A stopped run does not block a new
+    run on the controller any more; only the lock on the server does.
+
+## "Vault … is in use by another PASeasyInstall controller on this machine"
+
+**Cause:** another run on this controller holds the Vault lock: it is working with an authenticated Vault session
+(a registration, a PACLI step or a health check). The step waited three minutes.
+
+**Fix:** wait until the other run has finished that step, then `Resume-PASRun -RunId <id>`.
 
 ## "Vault media VCx86: Missing"
 
@@ -40,20 +75,20 @@ copy inside a subfolder). The Vault recipe needs exactly one of each.
 **Fix:** keep one copy next to the Vault installers. Separate media folders for different product versions side by
 side are fine: add only the folder of the version you install.
 
-## "Credentials could not be protected with Windows DPAPI in this session"
+## "The controller could not be started … Windows DPAPI"
 
 **Cause:** the deployment was started from a remote PowerShell session (`Enter-PSSession` / `Invoke-Command`). The
 background installer receives credentials encrypted with Windows DPAPI, which is not available in such sessions.
 
-**Fix:** start `Start-PASeasyInstall` or `Invoke-PASeasyInstall` in a local session on the controller (console or
+**Fix:** start `Start-PASeasyInstall` or the `Install-PAS*` command in a local session on the controller (console or
 RDP). A scheduled task that runs as the user with a stored password also works.
 
-## "Environment '…' already has deployment … running"
+## "Environment '…' is being deployed right now by run …"
 
-**Cause:** another deployment of the same environment is in progress on this controller.
+**Cause:** another run of the same environment has a live controller process on this controller.
 
-**Fix:** wait for it, or follow it with `Get-PASEnvironmentSnapshot`. A record whose controller never started or is no
-longer running is detected automatically and no longer blocks a new start.
+**Fix:** wait for it (`Wait-PASRun -RunId <id>`), or stop it with `Stop-PASRun -RunId <id> -Force`. A run whose
+controller never started or is no longer running is detected automatically and does not block a new start.
 
 ## PVWA: "PASWS383E Vault is currently under maintenance mode"
 
@@ -92,7 +127,7 @@ services and `/opt/paeasyinstall`, so it runs as root.
 automatically when they are reachable).
 
 **Fix:** make the OS repositories reachable (or `apt-get install -y unzip` on the PSMP server), then resume the run
-with `-RetryFailedPreflight`.
+with `Resume-PASRun -RunId <id> -RetryFailedPreflight`.
 
 ## PSMP register: "User [PSMPApp_<host>] already exists in the Vault"
 
@@ -110,12 +145,13 @@ recorded session.
 
 **Fix:** sign in as the built-in `Auditor` user, or add your reviewer to the Auditors group.
 
-## PSMP install: "Options.acceptEula=true required"
+## PSMP: "Accept the CyberArk license agreement (EULA) for the PSMP installer"
 
 **Cause:** the CyberArk EULA for PSMP was not accepted.
 
 **Fix:** tick the license checkbox on [step 2](../gui/what-to-install.md), or use `-AcceptEula` with
-`New-PASDeploymentConfiguration`. Resume reuses the frozen configuration, so start a new run.
+`New-PASLabConfiguration` or `Install-PASPSMP`. The rule is checked when the configuration is validated, before
+anything is installed.
 
 ## A component shows "not logged on" in the health check
 
@@ -124,11 +160,11 @@ component's service, then the network. For PVWA, see the maintenance-mode entry 
 
 ## The controller closed or rebooted during an installation
 
-Nothing to do in a hurry. The stage keeps running on the target. Reopen the desktop or check
-`Get-PASEnvironmentSnapshot`, and resume the run if it stopped. The finished and running attempts are reconciled and
-never repeated.
+Nothing to do in a hurry. The stage keeps running on the target. Check the run with
+`Get-PASRun -RunId <id>`. If its status is Interrupted, resume it with `Resume-PASRun -RunId <id>`. The finished and
+running attempts are reconciled and never repeated.
 
 ## Getting help
 
-Export the run with [`Export-PASRunData`](../commands/export-rundata.md) and attach it to an issue on
+Export the run with [`Export-PASDiagnostics -RunId <id>`](../commands/checks.md#export-pasdiagnostics) and attach it to an issue on
 [GitHub](https://github.com/bigbatmanorg/PASeasyInstall/issues). It contains no passwords.

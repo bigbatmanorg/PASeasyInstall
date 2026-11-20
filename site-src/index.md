@@ -6,10 +6,15 @@ hide:
 
 # PASeasyInstall
 
-**Build a complete CyberArk PAM self-hosted lab from one Windows controller, in one sitting.** Point the desktop
-at your installer media, name your servers, choose a password, and click **Install**. You get a Vault (or a
+**Build a complete CyberArk PAM self-hosted lab from one Windows controller, in one sitting.** Use plain
+PowerShell commands, or point the desktop at your installer media, name your servers, choose a password, and click
+**Install**. You get a Vault (or a
 replicated Primary + DR pair), PVWA, CPM, PSM, PSMP and an optional Active Directory forest. Each component is
 installed, registered, hardened and verified on its own server.
+
+!!! note "Version 2.0.0"
+    2.0.0 has a new, simpler command set and module layout. It has **not yet been tested end to end in a lab**.
+    The 1.0 command names are gone: see the [release notes](release-notes.md).
 
 !!! warning "Made for labs"
     PASeasyInstall is built to stand up **CyberArk PAM labs** quickly: training, demos, proof-of-concepts,
@@ -28,18 +33,19 @@ installed, registered, hardened and verified on its own server.
 
 -   **[PowerShell Gallery](getting-started/gallery.md)**
 
-    `Install-Module PASeasyInstall`, then `Start-PASeasyInstall`. Updates come with `Update-Module`.
+    Two modules: `Install-Module PASeasyInstall` for the commands, `Install-Module PASeasyInstall.UI` for the
+    desktop (`Start-PASeasyInstall`). Updates come with `Update-Module`.
 
 -   **[Command line](commands/index.md)**
 
-    Every step the desktop takes is a documented command. Save a project once, then rebuild the same lab
-    from a script with `Invoke-PASeasyInstall -Config .\Lab01.json`.
+    One command per component, for example `Install-PASVault -ComputerName 10.10.0.11 -MediaPath C:\CyberArk\media -Wait`.
+    Or save a lab configuration once and rebuild the same lab with `Install-PASLab -Path .\Lab01.json -Wait`.
 
 </div>
 
 ## What it looks like
 
-![The Review plan step: six servers, 69 stages, parallel execution, the lab-mode security deviations listed](assets/screenshots/5-review.png)
+![The Review plan step: six servers, their stages and the lab-mode security deviations listed](assets/screenshots/5-review.png)
 
 *Review plan: everything that will happen, in order, before anything is sent to a server.*
 
@@ -54,14 +60,15 @@ installed, registered, hardened and verified on its own server.
 | **PSMP** | PSM for SSH on Ubuntu 22.04/24.04 or RHEL/Rocky 8/9 (lab-tested on Ubuntu 24.04). The SSH key setup comes from a password you type once. |
 | **Active Directory** | A new forest with DNS on its own domain controller, for domain-joined lab scenarios. |
 
-Several instances of each component (up to four), co-located components, and **one-server-at-a-time** or
-**parallel** installation are all chosen in the desktop. [Components in detail](components/index.md)
+Several instances of each component (up to four) and co-located components are chosen in the desktop or in the
+configuration. Components are installed one after the other.
+[Components in detail](components/index.md)
 
 ## Built to be trusted with your lab
 
 - **Nothing happens until Install.** Planning, validation and media checks are read-only.
-- **Durable runs.** Every stage is a recorded attempt on the target. If the controller closes, reboots or loses the
-  network, the run resumes from the last confirmed stage and never blindly reruns an installer.
+- **Durable runs.** Every step is a recorded attempt on the target. If the controller closes, reboots or loses the
+  network, the run resumes from the last confirmed step and never blindly reruns an installer.
   [How it works](concepts/durable-runs.md)
 - **No secrets on disk.** Passwords live only in memory. They never go into project files, logs or journals.
   [Security model](concepts/security.md)

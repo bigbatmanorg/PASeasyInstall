@@ -21,7 +21,7 @@ Three things to have ready, and two ways to get PASeasyInstall.
 
 -   **[PowerShell Gallery](gallery.md)**
 
-    `Install-Module PASeasyInstall`, then `Start-PASeasyInstall`.
+    `Install-Module PASeasyInstall` for the commands, `Install-Module PASeasyInstall.UI` for the desktop.
 
 -   **[Your first lab](first-lab.md)**
 

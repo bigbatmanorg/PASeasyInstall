@@ -8,8 +8,8 @@
   this lab's runs and locks separate from other labs on the same controller.
 - **Project file.** Shown live as `PASeasyInstall-<name>.json`. It defaults to the folder you started from;
   **Change folder…** moves it. It holds addresses, paths and choices. **Passwords are never saved.** The file is
-  written when you click Install, and it can be replayed later with
-  [`Invoke-PASeasyInstall`](../commands/invoke-paseasyinstall.md).
+  written when you click Install. Reopen it later with `Start-PASeasyInstall -Config <file>`, or install it from
+  the prompt with [`Install-PASLab -Path <file>`](../commands/install.md#install-paslab).
 
 ## Installer media, license and keys
 

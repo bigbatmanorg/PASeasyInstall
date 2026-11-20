@@ -1,18 +1,19 @@
 # Start-PASeasyInstall
 
-Opens the [desktop](../gui/index.md).
+Opens the [desktop](../gui/index.md). The command is in the separate module **PASeasyInstall.UI**:
 
 ```powershell
-Start-PASeasyInstall [-Config <path>] [-Advanced] [-Backend Orchestrator|Mock] [-Theme v2|v1]
+Install-Module PASeasyInstall.UI -Scope CurrentUser
+Start-PASeasyInstall [-Config <path>] [-Backend Live|Mock]
 ```
 
 | Parameter | Description |
 |---|---|
-| `-Backend` | `Orchestrator` (default) drives the real installer. `Mock` simulates plans and installations and never contacts a server. |
-| `-Theme` | `v2` (default, dark and compact) or `v1` (light). |
-| `-Advanced` | Shows advanced options. |
-| `-Config` | Reserved. Reopening a saved project in the desktop is not part of 1.0; run a saved project with [`Invoke-PASeasyInstall`](invoke-paseasyinstall.md). |
+| `-Config` | A project file (JSON) written by the desktop or by `Export-PASLabConfiguration`. Its name, Vault option, addresses and component servers are filled in. Media and passwords are entered again; they are never in a project file. |
+| `-Backend` | `Live` (default) runs real installations. `Mock` simulates the installation and never contacts a server. |
 
-The desktop runs in its own process. Closing it never stops an installation that is already running.
+The desktop only calls the [commands](index.md) of the PASeasyInstall module, so everything it does can also be done
+from the prompt. An installation runs in its own process: closing the window never stops it.
 
-From the portable folder, use `Start-PASeasyInstall.cmd` (double-click) or `.\Start-PASeasyInstall.ps1`.
+From the portable folder, use `Start-PASeasyInstall.cmd` (double-click). From a source checkout, use
+`.\Start-PASeasyInstall.ps1`.

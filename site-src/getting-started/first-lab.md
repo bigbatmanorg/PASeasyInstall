@@ -39,13 +39,12 @@ redistributables into one folder, for example `C:\CyberArk\media`.
 === "PowerShell Gallery"
 
     ```powershell
-    Install-Module PASeasyInstall -Scope CurrentUser
+    Install-Module PASeasyInstall, PASeasyInstall.UI -Scope CurrentUser
     Start-PASeasyInstall
     ```
 
 1. **Project & media:** name `Lab01`; add `C:\CyberArk\media`. All components show green chips.
-2. **What to install:** *Primary + DR Vault*; one each of PVWA, CPM, PSM and PSMP; accept the PSMP EULA;
-   *Servers in parallel*.
+2. **What to install:** *Primary + DR Vault*; one each of PVWA, CPM, PSM and PSMP; accept the PSMP EULA.
 3. **Servers:** check the controller address (`10.10.0.10`); enter the Vault, DR and component addresses.
 4. **Credentials:** keep `Administrator` / `root`; tick **Lab mode** and enter one password.
 5. **Review plan:** six servers. The Lab-mode deviations are listed. There must be no issues.
@@ -53,8 +52,9 @@ redistributables into one folder, for example `C:\CyberArk\media`.
 
 ## 4. Watch it run
 
-The Vault installs first, then the DR Vault, then PVWA, and then CPM, PSM and PSMP in parallel. PSM reboots several
-times; that is expected. Measured in the 1.0 test labs (PAM 15.0 and 15.2, 2–4 vCPU servers):
+The Vault installs first, then the DR Vault, then PVWA, CPM, PSM and PSMP, one after the other. PSM reboots several
+times; that is expected. The run id is shown above the progress cards. Times measured in the 1.0 test labs (PAM 15.0
+and 15.2, 2–4 vCPU servers); 2.0.0 has not been timed yet:
 
 | Step | Time |
 |---|---|
@@ -65,16 +65,32 @@ times; that is expected. Measured in the 1.0 test labs (PAM 15.0 and 15.2, 2–4
 | PSM (several reboots) | 13–15 minutes |
 | PSMP | 3–6 minutes |
 
-With **Servers in parallel** selected, a full lab (Vault + DR, PVWA, CPM, PSM, PSMP) takes about 40 minutes plus
-media upload; one server at a time takes about an hour.
+A full lab (Vault + DR, PVWA, CPM, PSM, PSMP) takes about an hour plus media upload.
 
 ## 5. Check the result
 
 ```powershell
-$h = Test-PASEnvironmentHealth -Config .\PASeasyInstall-Lab01.json -VaultCredential (Get-Credential Administrator)
+$h = Test-PASHealth -Path .\PASeasyInstall-Lab01.json -VaultCredential (Get-Credential Administrator)
 $h.Healthy
 $h.Components | Format-Table Component,User,Address,LoggedOn,Version
 ```
 
 Then sign in to PVWA at `https://PAS-PVWA/PasswordVault` as `Administrator`. In Lab mode the PVWA uses a
 self-signed certificate, so accept it in the browser or import it.
+
+## The same lab from the prompt
+
+```powershell
+$media = Get-PASMediaSelection -Inventory (Get-PASMediaInventory -Path C:\CyberArk\media)
+$cfg = New-PASLabConfiguration -Environment Lab01 -VaultMode PrimaryDR `
+        -PrimaryAddress 10.10.0.11 -DRAddress 10.10.0.12 -ControllerAddress 10.10.0.10 `
+        -Instances @(@{ Type = 'PVWA'; Name = 'PAS-PVWA'; Address = '10.10.0.21' },
+                     @{ Type = 'CPM';  Name = 'PAS-CPM';  Address = '10.10.0.22' },
+                     @{ Type = 'PSM';  Name = 'PAS-PSM';  Address = '10.10.0.23' },
+                     @{ Type = 'PSMP'; Name = 'PAS-PSMP'; Address = '10.10.0.31' }) `
+        -Media $media -SecurityProfile Lab -AcceptEula
+Export-PASLabConfiguration -Configuration $cfg -Path .\Lab01.json
+Install-PASLab -Path .\Lab01.json -Wait
+```
+
+If a step fails, see [Troubleshooting](../troubleshooting/index.md).

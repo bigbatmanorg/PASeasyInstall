@@ -4,7 +4,7 @@
 
 Everything that will happen, in order, prepared **without contacting any server**.
 
-- **Totals:** components, target servers, planned stages and the execution order.
+- **Totals:** components, target servers and planned stages.
 - **One row per instance:** server name, address, the installer file that will be used, the number of stages, and
   what it depends on (components depend on the Vault; CPM also on its PVWA).
 - **Warnings:** every security deviation of the selected profile (`SECURITY DEVIATION: …`) and recipe notes.

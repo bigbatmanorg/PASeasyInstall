@@ -1,54 +1,65 @@
-# Get-PASMediaInventory / Get-PASMediaSelection
+# Media commands
+
+Find the CyberArk installers, the license and the recovery key in files, folders and bundle ZIPs. Read-only.
+
+Generated from the command help.
+
+| Command | Purpose |
+|---|---|
+| [`Get-PASMediaInventory`](#get-pasmediainventory) | Finds CyberArk installer media in files, folders and ZIP bundles. Read-only. |
+| [`Get-PASMediaSelection`](#get-pasmediaselection) | Picks one installer per component from the output of Get-PASMediaInventory. |
 
 ## Get-PASMediaInventory
 
-Classifies installer media in files, folders (recursively, up to four levels) and ZIP bundles. It is read-only:
-bundles are listed without being extracted.
+Finds CyberArk installer media in files, folders and ZIP bundles. Read-only.
+
+Recognises the installers by file name. Folders are searched four levels deep. A ZIP bundle (the
+CyberArk distribution ZIP that contains the installer ZIPs) is looked into through its directory
+only; nothing is extracted.
+
+Returns one object per installer with Component, Name, Version, Variant, Path, Entry, Source and
+Container. Component is Vault, PACLI, DR, KeyGen, PVWA, CPM, PSM, PSMP, License, RecoveryKey,
+Prerequisite, Unknown, or Missing for a path that does not exist. Entry is the path inside a
+bundle and empty for a plain file. Variant is the Linux distribution of a PSMP package.
+
+| Parameter | Meaning |
+|---|---|
+| `-Path` | One or more files or folders to look at. |
 
 ```powershell
-Get-PASMediaInventory -Path <string[]>
+Get-PASMediaInventory -Path D:\CyberArkMedia | Format-Table Component, Version, Variant, Name
 ```
-
-Each item has `Component` (`Vault`, `PACLI`, `DR`, `KeyGen`, `PVWA`, `CPM`, `PSM`, `PSMP`, `License`,
-`RecoveryKey`, `Prerequisite` or `Unknown`), `Name`, `Version`, `Variant` (for example the PSMP distribution), `Path`,
-`Entry` (the path inside a bundle) and `Source`.
-
-Captured with 1.0 against the PAM 15.2 bundle (`Privileged Access Manager Self-Hosted-15.2.zip`, not extracted)
-plus the license, recovery key and VC++ runtimes in the same folder:
 
 ```powershell
-PS> Get-PASMediaInventory -Path C:\Media152 | Format-Table Component,Version,Variant,Name
-
-Component    Version    Variant   Name
----------    -------    -------   ----
-License                           license.xml
-PVWA         15.2.3               Password Vault Web Access-Rls-v15.2.3.zip
-PSMP         15.2.1     Ubuntu22  PrivilegedSessionManagerSSHProxy-Ubuntu22-Intel64-Rls-v15.2.1.zip
-CPM          15.2.3               Central Policy Manager-Rls-v15.2.3.zip
-Vault        15.2.5.158           Server-Rls-v15.2.5.158.zip
-KeyGen       15.2                 PA Key Gen-Rls-v15.2.zip
-PSM          15.2.2.45            Privileged Session Manager-Rls-v15.2.2.45.zip
-PSMP         15.2.1     SLES15    PrivilegedSessionManagerSSHProxy-SLES15-Intel64-Rls-v15.2.1.zip
-DR           15.2.5.158           Disaster Recovery-Rls-v15.2.5.158.zip
-PSMP         15.2.1     RHELinux8 PrivilegedSessionManagerSSHProxy-RHELinux8-Intel64-Rls-v15.2.1.zip
-PACLI        15.2.5.158           PACLI-Rls-v15.2.5.158.zip
-PSMP         15.2.1     Ubuntu24  PrivilegedSessionManagerSSHProxy-Ubuntu24-Intel64-Rls-v15.2.1.zip
-PSMP         15.2.1     RHELinux9 PrivilegedSessionManagerSSHProxy-RHELinux9-Intel64-Rls-v15.2.1.zip
-RecoveryKey                       recpub.key
-Prerequisite                      VC_redist.x64.exe
-Prerequisite                      VC_redist.x86.exe
+'D:\CyberArkMedia', 'D:\Licenses\license.xml' | Get-PASMediaInventory | Where-Object Component -eq 'Unknown'
 ```
+
+Shows the files that were not recognised.
 
 ## Get-PASMediaSelection
 
-Picks one item per component: the highest version; for PSMP, Ubuntu 24 first, then RHEL 9. At equal version, a plain
-file beats the same installer inside a bundle. The PSMP choice is only the starting point: each PSMP server gets the
-package for its own distribution from the same bundle or folder (see [PSMP](../components/psmp.md)).
+Picks one installer per component from the output of Get-PASMediaInventory.
+
+Returns a hashtable @{ &lt;Component&gt; = &lt;inventory item&gt; } with one entry for each of Vault, PACLI, DR,
+KeyGen, PVWA, CPM, PSM, PSMP, License and RecoveryKey that was found. It is the form the -Media
+parameter of New-PASLabConfiguration expects.
+
+Per component the highest version wins. PSMP prefers the Ubuntu 24 package, then RHEL 9, then
+RHEL 8 (at install time the package that matches the server is used if it lies next to it). A
+plain PAM license is preferred to a Conjur license. At equal versions a plain file is preferred
+to the same installer inside a bundle, which would have to be extracted first.
+
+| Parameter | Meaning |
+|---|---|
+| `-Inventory` | Objects returned by Get-PASMediaInventory. |
 
 ```powershell
-$media = Get-PASMediaSelection -Inventory (Get-PASMediaInventory -Path C:\CyberArk\media)
-$media.PSMP.Name    # PrivilegedSessionManagerSSHProxy-Ubuntu24-Intel64-Rls-v15.0.zip
+$media = Get-PASMediaSelection -Inventory (Get-PASMediaInventory -Path D:\CyberArkMedia)
 ```
 
-Pass the result as `-Media` to [`New-PASDeploymentConfiguration`](new-deploymentconfiguration.md). You can replace any
-entry with your own choice: `$media.PSMP = <item>`.
+```powershell
+$media = Get-PASMediaInventory -Path D:\CyberArkMedia | Get-PASMediaSelection
+$media.GetEnumerator() | ForEach-Object { '{0,-12} {1}' -f $_.Key, $_.Value.Name }
+```
+
+Shows which file was chosen for each component.
