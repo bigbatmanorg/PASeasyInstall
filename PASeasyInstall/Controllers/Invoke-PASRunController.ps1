@@ -13,7 +13,7 @@ try {
     & $module {
         param($id,$root,$credentialEnvelope,$resumeRun,$retryPreflight,$steps)
         Invoke-PASRunController -RunId $id -DataRoot $root -Envelope $credentialEnvelope -Resume:$resumeRun -RetryFailedPreflight:$retryPreflight -RetryStep $steps
-    } $RunId $DataRoot $Envelope ([bool]$Resume) ([bool]$RetryFailedPreflight) (,$retrySteps)
+    } $RunId $DataRoot $Envelope ([bool]$Resume) ([bool]$RetryFailedPreflight) $retrySteps
 } catch {
     $message = [string]$_.Exception.Message
     # The controller normally records its own outcome. If it could not (for example the module failed to
