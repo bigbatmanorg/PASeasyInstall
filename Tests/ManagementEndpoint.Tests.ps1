@@ -1,5 +1,5 @@
 BeforeAll {
-    . (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/Recipes/WindowsComponent/PrepareManagement.ps1') -Settings @{}
+    . (Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Recipes/WindowsComponent/PrepareManagement.ps1') -Settings @{}
     $sid=([Security.Principal.NTAccount]::new($env:COMPUTERNAME,'Administrator')).Translate([Security.Principal.SecurityIdentifier]).Value
 }
 Describe 'Explicit restricted management endpoint' {

@@ -1,5 +1,5 @@
 BeforeAll {
-    $hostPath=Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/Private/Engine/Assets/TaskHost.ps1'
+    $hostPath=Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Private/Engine/Assets/TaskHost.ps1'
     Add-Type -AssemblyName System.Security
 }
 Describe 'Windows detached machine-bound inputs' {

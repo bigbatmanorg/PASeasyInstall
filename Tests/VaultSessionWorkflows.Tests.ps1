@@ -1,8 +1,8 @@
 ﻿BeforeDiscovery {
-    Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1') -Force
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule
 }
 Describe 'Vault installation credential admission' {
-    InModuleScope PASeasyInstall.Core {
+    InModuleScope PASeasyInstall {
         BeforeEach {
             $config=@{components=@(@{type='Vault'},@{type='DRVault'})}
             $secrets=@{VaultAdmin=(ConvertTo-SecureString 'synthetic-admin' -AsPlainText -Force);DRPassword=(ConvertTo-SecureString 'synthetic-dr' -AsPlainText -Force);VaultMaster=(ConvertTo-SecureString 'synthetic-master' -AsPlainText -Force)}
@@ -42,10 +42,10 @@ Describe 'Vault installation credential admission' {
             Mock Test-PASConfiguration {return @{Valid=$true;Configuration=@{name='synthetic-early-admission';components=@(@{type='AD'},@{type='Vault'})}}}
             Mock Get-PASDeploymentPlan {return @{Items=@()}}
             Mock Assert-PASWindowsController {}
-            Mock Test-PASActiveEnvironment {throw 'Unexpected environment admission'}
+            Mock Assert-PASEnvironmentNotRunning {throw 'Unexpected environment admission'}
             Mock Invoke-PASRunController {throw 'Unexpected target dispatch'}
             {Start-PASDeployment -Configuration $config -SecretMap $secrets -Foreground}|Should -Throw '*VaultMaster*'
-            Should -Invoke Test-PASActiveEnvironment -Times 0 -Exactly
+            Should -Invoke Assert-PASEnvironmentNotRunning -Times 0 -Exactly
             Should -Invoke Invoke-PASRunController -Times 0 -Exactly
         }
         It 'returns the WhatIf plan without credentials or environment/controller dispatch' {
@@ -53,12 +53,12 @@ Describe 'Vault installation credential admission' {
             Mock Get-PASDeploymentPlan {return @{Items=@(@{Type='Vault'})}}
             Mock Assert-PASWindowsController {}
             Mock Assert-PASVaultInstallationSecrets {throw 'Unexpected credential admission'}
-            Mock Test-PASActiveEnvironment {throw 'Unexpected environment admission'}
+            Mock Assert-PASEnvironmentNotRunning {throw 'Unexpected environment admission'}
             Mock Invoke-PASRunController {throw 'Unexpected target dispatch'}
             $plan=Start-PASDeployment -Configuration $config -WhatIf
             $plan.Items.Count|Should -Be 1
             Should -Invoke Assert-PASVaultInstallationSecrets -Times 0 -Exactly
-            Should -Invoke Test-PASActiveEnvironment -Times 0 -Exactly
+            Should -Invoke Assert-PASEnvironmentNotRunning -Times 0 -Exactly
             Should -Invoke Invoke-PASRunController -Times 0 -Exactly
         }
         It 'leaves existing-Vault component credentials to their own REST contract' {
@@ -71,7 +71,7 @@ Describe 'Vault installation credential admission' {
     }
 }
 Describe 'All authenticated Vault recipe paths use durable session coordination' {
-    BeforeAll {$workflowRoot=Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Vault/Recipes/Vault/Workflows'}
+    BeforeAll {$workflowRoot=Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Recipes/Vault/Workflows'}
     It 'declares detached authenticated actions and independent check sessions in every workflow' {
         $actions=0;$checks=0
         foreach($file in Get-ChildItem $workflowRoot -Recurse -Filter *.psd1){
@@ -86,7 +86,7 @@ Describe 'All authenticated Vault recipe paths use durable session coordination'
                 }
             }
         }
-        $actions|Should -Be 5
-        $checks|Should -Be 10
+        $actions|Should -Be 4
+        $checks|Should -Be 8
     }
 }

@@ -1,5 +1,5 @@
 BeforeAll {
-    $helper=Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Vault/Recipes/Vault/Tasks/Common/PacliTransport.ps1'
+    $helper=Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Recipes/Vault/Tasks/Common/PacliTransport.ps1'
     . $helper
 }
 Describe 'PACLI authenticated session proof and cleanup' {

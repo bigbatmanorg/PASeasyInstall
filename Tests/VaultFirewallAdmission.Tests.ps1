@@ -1,7 +1,7 @@
 BeforeAll {
     # Isolate the actual pure predicate from a target-side verifier without running
     # its OS inspection body in the Pester process.
-    $path=Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Vault/Recipes/Vault/Tasks/Verify/Verify-Hardening.ps1'
+    $path=Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Recipes/Vault/Tasks/Verify/Verify-Hardening.ps1'
     $tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
     if($errors){throw 'Target verifier does not parse'}
     $definition=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Test-PASeasyVaultNativeInboundPort'},$true)

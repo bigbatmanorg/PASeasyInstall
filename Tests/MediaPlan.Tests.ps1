@@ -1,5 +1,5 @@
 BeforeAll {
-    Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1') -Force
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule; . (Get-PASTestPrivateProxy)
 }
 Describe 'Frozen installer media identity' {
     It 'detects changed bytes at an unchanged installer path' {
@@ -19,16 +19,4 @@ Describe 'Frozen installer media identity' {
         $c.components[0].media=Join-Path $TestDrive 'absent.zip'
         {Get-PASDeploymentPlan -Configuration $c -ResolveMedia} | Should -Throw '*Missing media*'
     }
-    It 'freezes the PTA vendor signing key as well as the installer archive' {
-        $c=New-PASConfigurationTemplate -Template ExistingVault -Path (Join-Path $TestDrive 'pta.json') -WhatIf
-        $archive=Join-Path $TestDrive 'pta.zip';Set-Content $archive 'fixture installer'
-        $key=Join-Path $TestDrive 'vendor.key';Set-Content $key 'first fixture public key'
-        $part=$c.components[0];$part.id='pta';$part.type='PTA';$part.host='pta01';$part.media=$archive
-        $part.options=@{signingKeyFile=$key;signingKeyFingerprint=('A'*40)}
-        $first=Get-PASDeploymentPlan -Configuration $c -ResolveMedia
-        @($first.Media).Count | Should -Be 2
-        Set-Content $key 'changed fixture public key'
-        (Get-PASDeploymentPlan -Configuration $c -ResolveMedia).MediaDigest | Should -Not -Be $first.MediaDigest
-    }
-
 }

@@ -6,7 +6,7 @@ import re
 import subprocess
 import tempfile
 
-runner = pathlib.Path(__file__).resolve().parents[1] / 'Modules/PASeasyInstall.Core/Private/Engine/Assets/LinuxDetachedRunner.sh'
+runner = pathlib.Path(__file__).resolve().parents[2] / 'PASeasyInstall/Private/Engine/Assets/LinuxDetachedRunner.sh'
 source = runner.read_text()
 filters = re.findall(r"jq(?: --unbuffered)? -Rr(s)? --slurpfile args \"\$input\" '(.*?)'", source, re.S)
 assert len(filters) == 2, 'Expected actual cleanup and pre-write runner filters'

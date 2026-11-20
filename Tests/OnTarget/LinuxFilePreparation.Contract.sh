@@ -2,14 +2,14 @@
 # Real filesystem admission tests; run as root on a disposable Linux controller.
 set -euo pipefail
 if [ "$(id -u)" != 0 ]; then echo 'NotTested: root filesystem contract requires root'; exit 77; fi
-repo=$(cd "$(dirname "$0")/.." && pwd)
+repo=$(cd "$(dirname "$0")/../.." && pwd)
 fixture=$(mktemp -d /opt/paeasy-transfer-test-XXXXXXXX)
 trap 'rm -rf -- "$fixture"' EXIT
 chmod 700 "$fixture"
 export PAEASY_TEST_REPO="$repo" PAEASY_TEST_FIXTURE="$fixture"
 pwsh -NoProfile -Command '
-  Import-Module (Join-Path $env:PAEASY_TEST_REPO "Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1") -Force
-  $body=& (Get-Module PASeasyInstall.Core) {Get-PSLinuxFilePreparation "/opt/paeasyinstall/media/input.zip"}
+  Import-Module (Join-Path $env:PAEASY_TEST_REPO "PASeasyInstall/PASeasyInstall.psd1") -Force
+  $body=& (Get-Module PASeasyInstall) {Get-PASLinuxFilePreparation "/opt/paeasyinstall/media/input.zip"}
   [IO.File]::WriteAllText(($env:PAEASY_TEST_FIXTURE+"/guard.sh"),$body.Replace("/opt/paeasyinstall",$env:PAEASY_TEST_FIXTURE),[Text.UTF8Encoding]::new($false))
 '
 guard="$fixture/guard.sh"

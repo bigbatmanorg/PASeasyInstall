@@ -1,5 +1,5 @@
 BeforeAll {
-    $join=Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.AD/Recipes/ActiveDirectory/Join-Task.ps1'
+    $join=Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Recipes/ActiveDirectory/Join-Task.ps1'
 }
 Describe 'Domain join target eligibility and independent trust validation' {
     BeforeEach {
@@ -41,8 +41,8 @@ Describe 'Domain join target eligibility and independent trust validation' {
 
 Describe 'Explicit domain DNS and durable join submission' {
     BeforeAll {
-        $joinState=Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.AD/Recipes/ActiveDirectory/Join-State.ps1'
-        $joinVerify=Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.AD/Recipes/ActiveDirectory/Join-Verify.ps1'
+        $joinState=Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Recipes/ActiveDirectory/Join-State.ps1'
+        $joinVerify=Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Recipes/ActiveDirectory/Join-Verify.ps1'
         . $joinState
     }
     BeforeEach {

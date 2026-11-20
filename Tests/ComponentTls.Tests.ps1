@@ -1,7 +1,7 @@
 BeforeAll {
     $root=Split-Path -Parent $PSScriptRoot
-    . (Join-Path $root 'Modules/PASeasyInstall.PVWA/Recipes/WindowsComponent/PvwaTls.ps1')
-    . (Join-Path $root 'Modules/PASeasyInstall.CPM/Recipes/WindowsComponent/CpmTls.ps1')
+    . (Join-Path $root 'PASeasyInstall/Recipes/WindowsComponent/PvwaTls.ps1')
+    . (Join-Path $root 'PASeasyInstall/Recipes/WindowsComponent/CpmTls.ps1')
     function Get-WebBinding {param($Name,$Protocol)}
     function New-WebBinding {param($Name,$Protocol,$Port,$HostHeader,$SslFlags)}
     function Get-WebConfigurationProperty {param($PSPath,$Location,$Filter,$Name)}
@@ -149,8 +149,8 @@ Describe 'CPM frozen public trust certificates' {
 
 Describe 'Actual TaskHost ConfigureTLS terminal contract' {
     It 'accepts the PVWA ConfigureTLS helper through materialized TaskHost code' {
-        $helper=Join-Path $root 'Modules/PASeasyInstall.PVWA/Recipes/WindowsComponent/PvwaTls.ps1'
-        $hostFile=Join-Path $root 'Modules/PASeasyInstall.Core/Private/Engine/Assets/TaskHost.ps1'
+        $helper=Join-Path $root 'PASeasyInstall/Recipes/WindowsComponent/PvwaTls.ps1'
+        $hostFile=Join-Path $root 'PASeasyInstall/Private/Engine/Assets/TaskHost.ps1'
         $code=@'
 [CmdletBinding()]param([hashtable]$Settings,[string]$Helper)
 . $Helper
@@ -173,8 +173,8 @@ Invoke-PASeasyPvwaTls -Settings $Settings
         $r.Terminal.Data.Hash|Should -Match '^[A-F0-9]{64}$'
     }
     It 'accepts the CPM ConfigureTLS helper through materialized TaskHost code' {
-        $helper=Join-Path $root 'Modules/PASeasyInstall.CPM/Recipes/WindowsComponent/CpmTls.ps1'
-        $hostFile=Join-Path $root 'Modules/PASeasyInstall.Core/Private/Engine/Assets/TaskHost.ps1'
+        $helper=Join-Path $root 'PASeasyInstall/Recipes/WindowsComponent/CpmTls.ps1'
+        $hostFile=Join-Path $root 'PASeasyInstall/Private/Engine/Assets/TaskHost.ps1'
         $file=Join-Path $TestDrive 'host-ca.cer';$null=Export-Certificate -Cert $ca -FilePath $file
         $settings=@{SecurityProfile='Secure';PVWATrustCertificateTarget=$file;PVWATrustCertificateSHA256=(Get-FileHash $file).Hash}
         $code=@'
@@ -190,7 +190,7 @@ Invoke-PASeasyCpmTls -Settings $Settings
         $r.Terminal.Data.Hash|Should -BeExactly $settings.PVWATrustCertificateSHA256
     }
     It 'still rejects an arbitrary nested Data structure through actual TaskHost' {
-        $hostFile=Join-Path $root 'Modules/PASeasyInstall.Core/Private/Engine/Assets/TaskHost.ps1'
+        $hostFile=Join-Path $root 'PASeasyInstall/Private/Engine/Assets/TaskHost.ps1'
         $r=& $hostFile -Code "[pscustomobject]@{Changed=`$true;Message='fixture';Data=@{Nested=@{Token='SYNTHETIC_UNSUPPORTED'}}}" -Parameters @{} -Contract Object
         $r.Ok|Should -BeFalse
         $r.Error|Should -BeExactly 'Task returned unsupported Data payload'

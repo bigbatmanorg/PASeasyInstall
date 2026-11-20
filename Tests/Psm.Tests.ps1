@@ -1,5 +1,5 @@
 BeforeAll {
-    . (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.PSM/Recipes/WindowsComponent/Psm.ps1')
+    . (Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Recipes/WindowsComponent/Psm.ps1')
     function Invoke-VendorScript { param($ScriptPath,$Parameters,[switch]$AllowEmptyNativeStderr,[switch]$AllowPinnedRegImportSuccess) }
 }
 Describe 'PSM controller-owned reboot continuation contract' {

@@ -1,7 +1,7 @@
 BeforeAll {
-    Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1') -Force
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule
 }
-InModuleScope PASeasyInstall.Core {
+InModuleScope PASeasyInstall {
     Describe 'Explicit AD credential transition' {
         BeforeEach {$script:PSConnections=@{}}
         It 'uses the provided post-promotion identity after the local identity is rejected' {

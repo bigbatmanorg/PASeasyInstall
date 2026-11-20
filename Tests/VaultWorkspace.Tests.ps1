@@ -1,7 +1,7 @@
 BeforeAll {
     $repo=Split-Path -Parent $PSScriptRoot
-    $common=Join-Path $repo 'Modules/PASeasyInstall.Vault/Recipes/Vault/Tasks/Common'
-    $ownership=Get-Content (Join-Path $repo 'Modules/PASeasyInstall.Core/Recipes/WindowsComponent/Ownership.ps1') -Raw
+    $common=Join-Path $repo 'PASeasyInstall/Recipes/Vault/Tasks/Common'
+    $ownership=Get-Content (Join-Path $repo 'PASeasyInstall/Recipes/WindowsComponent/Ownership.ps1') -Raw
     $workspace=Get-Content (Join-Path $common 'VaultWorkspace.ps1') -Raw
     . ([scriptblock]::Create($ownership))
     . ([scriptblock]::Create($workspace))

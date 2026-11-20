@@ -1,8 +1,8 @@
 BeforeAll {
- Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1') -Force
+ . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule
 }
 Describe 'Explicit known-failed Linux preflight retry admission' {
- InModuleScope PASeasyInstall.Core {
+ InModuleScope PASeasyInstall {
   BeforeEach {
    $script:retryState=@{digest='unchanged';steps=@{preflight=@{status='Unknown';attemptId=('c'*32)}}}
    $script:retryPlan=[pscustomobject]@{Digest='unchanged';Runtime='Bash';Target=@{Protocol='SSH';Runtime='Bash'};Steps=@(@{Id='preflight';Inputs=@{Stage='Preflight'}})}
@@ -40,7 +40,13 @@ Describe 'Explicit known-failed Linux preflight retry admission' {
   }
  }
  It 'exposes an explicit preflight option while retaining refusal of blind unknown retries' {
-  (Get-Command Resume-PASDeployment).Parameters.ContainsKey('RetryFailedPreflight')|Should -BeTrue
-  {Resume-PASDeployment -RunId ('a'*32) -DataRoot $TestDrive -AllowUnknownRetry}|Should -Throw
+  (Get-Command Resume-PASRun).Parameters.ContainsKey('RetryFailedPreflight')|Should -BeTrue
+  (Get-Command Resume-PASRun).Parameters.ContainsKey('RetryStep')|Should -BeTrue
+  (Get-Command Resume-PASRun).Parameters.ContainsKey('AllowUnknownRetry')|Should -BeFalse
+  InModuleScope PASeasyInstall -Parameters @{Root=$TestDrive} {
+   param($Root)
+   (Get-Command Resume-PASDeployment).Parameters.ContainsKey('RetryFailedPreflight')|Should -BeTrue
+   {Resume-PASDeployment -RunId ('a'*32) -DataRoot $Root -AllowUnknownRetry}|Should -Throw
+  }
  }
 }

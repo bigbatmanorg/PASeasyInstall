@@ -1,7 +1,7 @@
 # Install progress in the desktop: a completed stage must stay completed when its event is no longer among the
 # newest events the dashboard polls (long or parallel runs produce more events than one refresh reads).
 BeforeAll {
-    . (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.UI/Presentation.ps1')
+    . (Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall.UI/Presentation.ps1')
     function New-Evt([int]$Second, [string]$Component, [string]$Stage, [string]$Status, [string]$Message = '') {
         [pscustomobject]@{ TimestampUtc = ([datetime]'2026-11-18T10:00:00Z').AddSeconds($Second).ToString('o')
             Component = $Component; Stage = $Stage; Event = 'Step'; Level = 'Information'; Status = $Status; Message = $Message }

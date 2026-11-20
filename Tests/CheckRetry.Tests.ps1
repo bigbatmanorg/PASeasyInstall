@@ -1,7 +1,7 @@
 # Checks are read-only: a transient observation failure (sshd reloading after PSMP hardening) is retried a bounded
 # number of times instead of turning the run Unknown; other failures are reported at once.
 BeforeAll {
-    Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1') -Force
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule
 }
 Describe 'Check evaluation retry' {
     BeforeEach {
@@ -9,7 +9,7 @@ Describe 'Check evaluation retry' {
         [IO.File]::WriteAllText((Join-Path $script:dir 'verify.ps1'), 'param() [pscustomobject]@{Passed=$true}')
     }
     It 'retries a timed-out observation and returns the check result' {
-        InModuleScope PASeasyInstall.Core -Parameters @{ Dir = $script:dir } {
+        InModuleScope PASeasyInstall -Parameters @{ Dir = $script:dir } {
             param($Dir)
             $script:PSCheckRetryDelaySeconds = 0; $global:PAeasyCheckCalls = 0
             Mock Invoke-PASAdapterScript { $global:PAeasyCheckCalls++; if ($global:PAeasyCheckCalls -lt 3) { throw 'PAExecUnknown: SSH observation timed out; target work was not stopped' }; [pscustomobject]@{ Ok = $true; Terminal = [pscustomobject]@{ Passed = $true } } }
@@ -19,7 +19,7 @@ Describe 'Check evaluation retry' {
         }
     }
     It 'gives up after the bounded attempts' {
-        InModuleScope PASeasyInstall.Core -Parameters @{ Dir = $script:dir } {
+        InModuleScope PASeasyInstall -Parameters @{ Dir = $script:dir } {
             param($Dir)
             $script:PSCheckRetryDelaySeconds = 0; $global:PAeasyCheckCalls = 0
             Mock Invoke-PASAdapterScript { $global:PAeasyCheckCalls++; throw 'SSH observation timed out' }
@@ -28,7 +28,7 @@ Describe 'Check evaluation retry' {
         }
     }
     It 'does not retry other failures' {
-        InModuleScope PASeasyInstall.Core -Parameters @{ Dir = $script:dir } {
+        InModuleScope PASeasyInstall -Parameters @{ Dir = $script:dir } {
             param($Dir)
             $script:PSCheckRetryDelaySeconds = 0; $global:PAeasyCheckCalls = 0
             Mock Invoke-PASAdapterScript { $global:PAeasyCheckCalls++; throw 'Permission denied (publickey)' }

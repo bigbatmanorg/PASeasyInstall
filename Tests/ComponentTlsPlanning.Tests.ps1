@@ -1,6 +1,6 @@
 BeforeAll {
     $root=Split-Path -Parent $PSScriptRoot
-    Import-Module (Join-Path $root 'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1') -Force
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule; . (Get-PASTestPrivateProxy)
 }
 Describe 'Component HTTPS planning and frozen public trust' {
     BeforeEach {
@@ -16,7 +16,7 @@ Describe 'Component HTTPS planning and frozen public trust' {
     }
     It 'places recoverable TLS after MSI and before authentication and includes both reviewed helpers' {
         foreach($part in $config.components){
-            $path=& (Get-Module PASeasyInstall.Core) {param($p,$c,$d) New-PASComponentWorkflow $p $c $d} $part $config $TestDrive
+            $path=& (Get-Module PASeasyInstall) {param($p,$c,$d) New-PASComponentWorkflow $p $c $d} $part $config $TestDrive
             $workflow=Import-PowerShellDataFile $path
             $ids=@($workflow.Steps|ForEach-Object {$_.Id})
             [array]::IndexOf($ids,'install')|Should -BeLessThan ([array]::IndexOf($ids,'configuretls'))
@@ -46,7 +46,7 @@ Describe 'Component HTTPS planning and frozen public trust' {
         $validated=Test-PASConfiguration -Configuration $config
         $validated.Valid|Should -BeTrue
         ($validated.Warnings -join ';')|Should -Match 'CPM.AllowPinnedLeafTrust'
-        $inventory=& (Get-Module PASeasyInstall.Core) {param($c) New-PASRuntimeInventory -Config $c -RunDirectory '' -SkipMediaHash} $config
+        $inventory=& (Get-Module PASeasyInstall) {param($c) New-PASRuntimeInventory -Config $c -RunDirectory '' -SkipMediaHash} $config
         $inventory.Values.Components.cpm.AllowPinnedLeafTrust|Should -BeTrue
         $inventory.Values.Components.cpm.PVWATrustCertificateSHA256|Should -BeExactly $cpm.options.pvwaTrustCertificateSHA256
         $config.security.overrides['CPM.AllowPinnedLeafTrust']='true'

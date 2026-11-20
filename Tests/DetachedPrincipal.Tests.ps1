@@ -1,8 +1,8 @@
 BeforeDiscovery {
-    Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1') -Force -Scope Global
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule -Scope Global
 }
 Describe 'Detached task identity credential boundary' {
-    InModuleScope PASeasyInstall.Core {
+    InModuleScope PASeasyInstall {
         It 'uses SYSTEM when no alternate principal was explicitly requested' {
             Resolve-PASDetachedPrincipalCredential -Credentials @{} | Should -BeNullOrEmpty
         }

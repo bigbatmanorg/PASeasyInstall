@@ -1,11 +1,11 @@
 # The plan shown before installing must match the composed deployment's real order: CPM, PSM and PSMP wait for
 # the first PVWA (its registration creates the Vault objects they register against).
 BeforeAll {
-    Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Orchestrator/PASeasyInstall.Orchestrator.psd1') -Force
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule
 }
 Describe 'Plan dependencies' {
     It 'shows the first PVWA as a dependency of CPM, PSM and PSMP' {
-        InModuleScope PASeasyInstall.Orchestrator {
+        InModuleScope PASeasyInstall {
             $cfg = [ordered]@{ name = 'Lab01'; vault = @{ existing = $false; address = '192.0.2.11' }; media = @{}; mediaRoot = ''; execution = @{ mode = 'Parallel' }
                 hosts = [ordered]@{ v = @{ address = '192.0.2.11'; os = 'Windows' }; p = @{ address = '192.0.2.21'; os = 'Windows' }; c = @{ address = '192.0.2.22'; os = 'Windows' }; s = @{ address = '192.0.2.31'; os = 'Linux' } }
                 components = @([ordered]@{ id = 'vault'; type = 'Vault'; host = 'v' }, [ordered]@{ id = 'pvwa01'; type = 'PVWA'; host = 'p'; options = @{} },

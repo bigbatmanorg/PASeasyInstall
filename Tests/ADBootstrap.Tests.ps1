@@ -1,5 +1,5 @@
 BeforeAll {
-    . (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.AD/Recipes/ActiveDirectory/AD-Task.ps1') -Settings @{Domain='paeasy.test'}
+    . (Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Recipes/ActiveDirectory/AD-Task.ps1') -Settings @{Domain='paeasy.test'}
     $bootstrap=[scriptblock]::Create((Get-PASeasyADPromotionRebootScript))
 }
 Describe 'AD promotion reboot bootstrap authority' {

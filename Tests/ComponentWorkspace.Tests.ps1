@@ -1,5 +1,5 @@
 BeforeAll {
-    . (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/Recipes/WindowsComponent/Workspace.ps1')
+    . (Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Recipes/WindowsComponent/Workspace.ps1')
 }
 Describe 'Component workspace ownership and content boundary' {
     BeforeEach {

@@ -1,9 +1,9 @@
 BeforeDiscovery {
-    Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1') -Force
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule
 }
 Describe 'Typed independent check task transport' {
     BeforeAll {
-        $hostPath=Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/Private/Engine/Assets/TaskHost.ps1'
+        $hostPath=Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Private/Engine/Assets/TaskHost.ps1'
         $savedTemp=$env:TEMP;if(-not $env:TEMP){$env:TEMP=[IO.Path]::GetTempPath()}
     }
     AfterAll {$env:TEMP=$savedTemp}
@@ -30,14 +30,14 @@ Describe 'Typed independent check task transport' {
     }
 }
 Describe 'Durable verifier attempt generations' {
-    InModuleScope PASeasyInstall.Core {
+    InModuleScope PASeasyInstall {
         BeforeEach {
             $base=Join-Path $TestDrive ([guid]::NewGuid().ToString('N'));New-Item $base -ItemType Directory|Out-Null
             [IO.File]::WriteAllText((Join-Path $base 'verify.ps1'),'param($AdminPassword) [pscustomobject]@{Passed=$true;SessionClosed=$true;Evidence=@()}')
             $plan=[pscustomobject]@{Root=$base;Target=@{Protocol='WinRM';Runtime='WindowsPowerShell';ComputerName='192.0.2.18'}}
             $step=@{Id='health';Verify='verify.ps1';VerifyMode='Detached';VerifyRequiresVaultSession=$true}
             $current=@{status='Verifying';actionAcknowledged=$true}
-            $context=@{RunDirectory=$base;State=@{steps=@{health=$current}};Redactions=@('synthetic-check-password');VaultAdmitted=$true;Seq=0;Echo=$false;RunId='check001';TargetName='fixture'}
+            $context=@{RunDirectory=$base;State=@{steps=@{health=$current}};Redactions=@('synthetic-check-password');VaultLocked=$true;Seq=0;Echo=$false;RunId='check001';TargetName='fixture'}
             $script:CheckFixture=@{Events=[Collections.Generic.List[string]]::new();FailStage=$false;RemoteState='Succeeded';Passed=$true;Closed=$true;Active=$false}
             Mock Finish-PASDetached {}
             Mock Initialize-PASDetached {
@@ -99,10 +99,10 @@ Describe 'Durable verifier attempt generations' {
             Should -Invoke Initialize-PASDetached -Times 1 -Exactly
         }
         It 'refuses an unauthorised verifier before staging and preserves helper drift as uncertainty' {
-            $context.VaultAdmitted=$false
-            {Get-PASDurableCheck $plan $step @{} @{} $current $context}|Should -Throw '*no admitted Vault lease*'
+            $context.VaultLocked=$false
+            {Get-PASDurableCheck $plan $step @{} @{} $current $context}|Should -Throw '*without the Vault lock*'
             Should -Invoke Initialize-PASDetached -Times 0
-            $context.VaultAdmitted=$true
+            $context.VaultLocked=$true
             $null=Get-PASDurableCheck $plan $step @{} @{} $current $context
             [IO.File]::AppendAllText((Join-Path $base 'verify.ps1'),' # changed')
             {Get-PASDurableCheck $plan $step @{} @{} $current $context}|Should -Throw '*script changed*'
@@ -124,49 +124,46 @@ Describe 'Engine durable verifier recovery without action replay' {
         [IO.File]::WriteAllText((Join-Path $base 'verify.ps1'),'param(); [pscustomobject]@{Passed=$true;SessionClosed=$true}')
         [IO.File]::WriteAllText($wf,"@{SchemaVersion=1;Name='fixture';Target='fixture';Steps=@(@{Id='install';Script='task.ps1';Verify='verify.ps1';VerifyMode='Detached';VerifyRequiresVaultSession=`$true;TimeoutSeconds=23})}")
         [IO.File]::WriteAllText($inv,"@{SchemaVersion=1;Targets=@{fixture=@{Protocol='WinRM';Runtime='WindowsPowerShell';ComputerName='192.0.2.18'}}}")
-        $global:PAEasyDurableEngine=@{Passed=$false;FailObserve=$false;ActionCount=0;CheckIds=[Collections.Generic.List[string]]::new();Timeouts=[Collections.Generic.List[int]]::new();Gates=[Collections.Generic.List[object]]::new()}
-        Mock Invoke-PASRemoteLock -ModuleName PASeasyInstall.Core {$false}
-        Mock Clear-PASConnections -ModuleName PASeasyInstall.Core {}
-        Mock Clear-PASRecoveryTasks -ModuleName PASeasyInstall.Core {}
-        Mock Finish-PASDetached -ModuleName PASeasyInstall.Core {}
-        Mock Wait-PASDetachedSessionQuiescence -ModuleName PASeasyInstall.Core {}
-        Mock Enter-PASVaultOperation -ModuleName PASeasyInstall.Core {
-            $gate=[pscustomobject]@{Completed=$false;Disposed=$false;PreexistingClaim=$false}
-            $gate|Add-Member ScriptMethod Complete {$this.Completed=$true}
-            $gate|Add-Member ScriptMethod Dispose {$this.Disposed=$true}
-            $global:PAEasyDurableEngine.Gates.Add($gate);return $gate
-        }
-        Mock Invoke-PASAdapterScript -ModuleName PASeasyInstall.Core {$global:PAEasyDurableEngine.ActionCount++;return @{Ok=$true;Terminal=@{Changed=$false};Output=''}}
-        Mock Initialize-PASDetached -ModuleName PASeasyInstall.Core {param($AttemptId,$TimeoutSeconds) $global:PAEasyDurableEngine.CheckIds.Add($AttemptId);$global:PAEasyDurableEngine.Timeouts.Add($TimeoutSeconds)}
-        Mock Wait-PASDetached -ModuleName PASeasyInstall.Core {param($AttemptId,$TimeoutSeconds) $global:PAEasyDurableEngine.Timeouts.Add($TimeoutSeconds);if($global:PAEasyDurableEngine.FailObserve){throw 'fixture observation loss'};return @{state='Succeeded';attemptId=$AttemptId;check=@{schemaVersion=1;passed=$global:PAEasyDurableEngine.Passed;sessionClosed=$true;evidence=@();message='independent check'}}}
+        $global:PAEasyDurableEngine=@{Passed=$false;FailObserve=$false;ActionCount=0;CheckIds=[Collections.Generic.List[string]]::new();Timeouts=[Collections.Generic.List[int]]::new();Locks=0;Releases=0}
+        Mock Invoke-PASRemoteLock -ModuleName PASeasyInstall {$false}
+        Mock Clear-PASConnections -ModuleName PASeasyInstall {}
+        Mock Clear-PASRecoveryTasks -ModuleName PASeasyInstall {}
+        Mock Finish-PASDetached -ModuleName PASeasyInstall {}
+        Mock Wait-PASDetachedSessionQuiescence -ModuleName PASeasyInstall {}
+        Mock Enter-PASVaultLock -ModuleName PASeasyInstall {$global:PAEasyDurableEngine.Locks++;return [pscustomobject]@{Address=$Address}}
+        Mock Exit-PASVaultLock -ModuleName PASeasyInstall {if($null -ne $Lock){$global:PAEasyDurableEngine.Releases++}}
+        Mock Invoke-PASAdapterScript -ModuleName PASeasyInstall {$global:PAEasyDurableEngine.ActionCount++;return @{Ok=$true;Terminal=@{Changed=$false};Output=''}}
+        Mock Initialize-PASDetached -ModuleName PASeasyInstall {param($AttemptId,$TimeoutSeconds) $global:PAEasyDurableEngine.CheckIds.Add($AttemptId);$global:PAEasyDurableEngine.Timeouts.Add($TimeoutSeconds)}
+        Mock Wait-PASDetached -ModuleName PASeasyInstall {param($AttemptId,$TimeoutSeconds) $global:PAEasyDurableEngine.Timeouts.Add($TimeoutSeconds);if($global:PAEasyDurableEngine.FailObserve){throw 'fixture observation loss'};return @{state='Succeeded';attemptId=$AttemptId;check=@{schemaVersion=1;passed=$global:PAEasyDurableEngine.Passed;sessionClosed=$true;evidence=@();message='independent check'}}}
     }
     AfterEach {Remove-Variable PAEasyDurableEngine -Scope Global -ErrorAction SilentlyContinue}
     It 'commits a negative check with the acknowledged action, then only reruns independent verification' {
-        {& (Get-Module PASeasyInstall.Core) {param($w,$i,$s) Invoke-PASWorkflow $w $i -StateRoot $s -RunId durable001 -VaultSessionAddress 192.0.2.99 -CoordinationDataRoot $s -Quiet} $wf $inv $state}|Should -Throw '*Verification failed*'
+        {& (Get-Module PASeasyInstall) {param($w,$i,$s) Invoke-PASWorkflow $w $i -StateRoot $s -RunId durable001 -VaultAddress 192.0.2.99 -Quiet} $wf $inv $state}|Should -Throw '*Verification failed*'
         $journal=Get-Content (Join-Path $state 'durable001/fixture/state.json') -Raw|ConvertFrom-Json
         $journal.steps.install.actionAcknowledged|Should -BeTrue
         $journal.steps.install.status|Should -BeExactly Failed
         $journal.steps.install.check.consumed|Should -BeTrue
         $actionId=$journal.steps.install.attemptId
         $oldCheck=$journal.steps.install.check.attemptId
-        $global:PAEasyDurableEngine.Gates[0].Completed|Should -BeFalse
+        # The Vault lock is never kept after a failed step.
+        $global:PAEasyDurableEngine.Releases|Should -Be $global:PAEasyDurableEngine.Locks
         $global:PAEasyDurableEngine.Passed=$true
-        $result=& (Get-Module PASeasyInstall.Core) {param($w,$i,$s) Invoke-PASWorkflow $w $i -StateRoot $s -RunId durable001 -VaultSessionAddress 192.0.2.99 -CoordinationDataRoot $s -Resume -Quiet} $wf $inv $state
+        $result=& (Get-Module PASeasyInstall) {param($w,$i,$s) Invoke-PASWorkflow $w $i -StateRoot $s -RunId durable001 -VaultAddress 192.0.2.99 -Resume -Quiet} $wf $inv $state
         $result.Status|Should -BeExactly Succeeded
         $global:PAEasyDurableEngine.ActionCount|Should -Be 1
         $journal=Get-Content (Join-Path $state 'durable001/fixture/state.json') -Raw|ConvertFrom-Json
         $journal.steps.install.attemptId|Should -BeExactly $actionId
         $journal.steps.install.check.attemptId|Should -Not -Be $oldCheck
-        $global:PAEasyDurableEngine.Gates[1].Completed|Should -BeTrue
-        $null=& (Get-Module PASeasyInstall.Core) {param($w,$i,$s) Invoke-PASWorkflow $w $i -StateRoot $s -RunId durable001 -VaultSessionAddress 192.0.2.99 -CoordinationDataRoot $s -Resume -Quiet} $wf $inv $state
+        $global:PAEasyDurableEngine.Releases|Should -Be $global:PAEasyDurableEngine.Locks
+        $null=& (Get-Module PASeasyInstall) {param($w,$i,$s) Invoke-PASWorkflow $w $i -StateRoot $s -RunId durable001 -VaultAddress 192.0.2.99 -Resume -Quiet} $wf $inv $state
         $global:PAEasyDurableEngine.ActionCount|Should -Be 1
         @($global:PAEasyDurableEngine.Timeouts)|Should -Be @(23,23,23,23,23,23)
     }
     It 'does not let explicit Retry bypass an outstanding verifier and relaunch its action' {
         $global:PAEasyDurableEngine.FailObserve=$true
-        {& (Get-Module PASeasyInstall.Core) {param($w,$i,$s) Invoke-PASWorkflow $w $i -StateRoot $s -RunId durable002 -VaultSessionAddress 192.0.2.99 -CoordinationDataRoot $s -Quiet} $wf $inv $state}|Should -Throw '*observation loss*'
+        {& (Get-Module PASeasyInstall) {param($w,$i,$s) Invoke-PASWorkflow $w $i -StateRoot $s -RunId durable002 -VaultAddress 192.0.2.99 -Quiet} $wf $inv $state}|Should -Throw '*observation loss*'
         $before=Get-Content (Join-Path $state 'durable002/fixture/state.json') -Raw|ConvertFrom-Json
-        {& (Get-Module PASeasyInstall.Core) {param($w,$i,$s) Invoke-PASWorkflow $w $i -StateRoot $s -RunId durable002 -VaultSessionAddress 192.0.2.99 -CoordinationDataRoot $s -Resume -Retry install -Quiet} $wf $inv $state}|Should -Throw '*unconsumed durable verifier*'
+        {& (Get-Module PASeasyInstall) {param($w,$i,$s) Invoke-PASWorkflow $w $i -StateRoot $s -RunId durable002 -VaultAddress 192.0.2.99 -Resume -Retry install -Quiet} $wf $inv $state}|Should -Throw '*unconsumed durable verifier*'
         $after=Get-Content (Join-Path $state 'durable002/fixture/state.json') -Raw|ConvertFrom-Json
         $after.steps.install.check.attemptId|Should -BeExactly $before.steps.install.check.attemptId
         $global:PAEasyDurableEngine.ActionCount|Should -Be 1
@@ -174,38 +171,8 @@ Describe 'Engine durable verifier recovery without action replay' {
     }
     It 'rejects a skipping probe on an authenticated action before dispatch' {
         [IO.File]::WriteAllText($wf,"@{SchemaVersion=1;Name='unsafe';Target='fixture';Steps=@(@{Id='register';Script='task.ps1';Mode='Detached';RequiresVaultSession=`$true;Verify='verify.ps1';Probe='verify.ps1'})}")
-        {& (Get-Module PASeasyInstall.Core) {param($w,$i) Get-PASWorkflowPlan $w $i} $wf $inv}|Should -Throw '*cannot use a skipping direct probe*'
+        {& (Get-Module PASeasyInstall) {param($w,$i) Get-PASWorkflowPlan $w $i} $wf $inv}|Should -Throw '*cannot use a skipping direct probe*'
         $global:PAEasyDurableEngine.ActionCount|Should -Be 0
         $global:PAEasyDurableEngine.CheckIds.Count|Should -Be 0
-    }
-}
-Describe 'Borrowed parent Vault lease ownership' {
-    InModuleScope PASeasyInstall.Core {
-        It 'retains a real parent claim after a child check and rejects nested admission' -Skip:($env:OS -ne 'Windows_NT') {
-            $base=Join-Path $TestDrive 'borrowed';New-Item -ItemType Directory $base|Out-Null
-            $wf=Join-Path $base 'workflow.psd1';$inv=Join-Path $base 'inventory.psd1'
-            [IO.File]::WriteAllText((Join-Path $base 'verify.ps1'),'param();[pscustomobject]@{Passed=$true;SessionClosed=$true}')
-            [IO.File]::WriteAllText($wf,"@{SchemaVersion=1;Name='borrowed';Target='fixture';Steps=@(@{Id='health';Kind='Verify';Verify='verify.ps1';VerifyMode='Detached';VerifyRequiresVaultSession=`$true})}")
-            [IO.File]::WriteAllText($inv,"@{SchemaVersion=1;Targets=@{fixture=@{Protocol='WinRM';Runtime='WindowsPowerShell';ComputerName='192.0.2.18'}}}")
-            Mock Invoke-PASRemoteLock {$false}
-            Mock Clear-PASConnections {}
-            Mock Clear-PASRecoveryTasks {}
-            Mock Initialize-PASDetached {}
-            Mock Finish-PASDetached {}
-            Mock Wait-PASDetachedSessionQuiescence {}
-            Mock Wait-PASDetached {param($AttemptId) return @{state='Succeeded';attemptId=$AttemptId;check=@{schemaVersion=1;passed=$true;sessionClosed=$true;evidence=@();message='fixture'}}}
-            $gates=@(Enter-PASVaultOperation -Address 192.0.2.201 -DataRoot $base -RunId borrowed001)
-            try{
-                $lease=New-PASBorrowedVaultLease -Address 192.0.2.201 -RunId borrowed001 -DataRoot $base -Gates $gates
-                (Invoke-PASWorkflow $wf $inv -StateRoot (Join-Path $base 'Runs') -RunId borrowed001 -BorrowedVaultLease $lease -Quiet).Status|Should -BeExactly Succeeded
-                $gates[0].Completed|Should -BeFalse
-                $gates[0].Disposed|Should -BeFalse
-                Test-Path -LiteralPath $gates[0].Path|Should -BeTrue
-                {Invoke-PASWorkflow $wf $inv -StateRoot (Join-Path $base 'Runs') -RunId borrowed001 -BorrowedVaultLease $lease -VaultSessionAddress 192.0.2.201 -CoordinationDataRoot $base -Resume -Quiet}|Should -Throw '*cannot be nested*'
-                {Assert-PASBorrowedVaultLease $lease another001}|Should -Throw '*does not belong*'
-                $gates[0].Disposed|Should -BeFalse
-            }finally{Exit-PASVaultOperation -Gates $gates -Succeeded $true}
-            Test-Path -LiteralPath $gates[0].Path|Should -BeFalse
-        }
     }
 }

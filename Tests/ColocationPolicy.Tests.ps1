@@ -1,4 +1,4 @@
-BeforeAll {Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1') -Force}
+BeforeAll {. (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule; . (Get-PASTestPrivateProxy)}
 Describe 'Hashtable host grouping on Windows PowerShell' {
     It 'names the actual shared host in the co-location warning' {
         $c=New-PASConfigurationTemplate -Template FullLab -Path (Join-Path $TestDrive 'shared.json') -WhatIf

@@ -3,7 +3,7 @@
 BeforeAll {
     $repo = Split-Path -Parent $PSScriptRoot
     $env:PAS_EASY_DATA_ROOT = Join-Path $TestDrive 'data'
-    Import-Module (Join-Path $repo 'Modules/PASeasyInstall.Orchestrator/PASeasyInstall.Orchestrator.psd1') -Force
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule; . (Get-PASTestPrivateProxy)
     Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
     function New-TestZip([string]$Path, [string[]]$Entries) {
         $dir = [IO.Path]::GetDirectoryName($Path); if (-not (Test-Path $dir)) { New-Item -ItemType Directory $dir -Force | Out-Null }

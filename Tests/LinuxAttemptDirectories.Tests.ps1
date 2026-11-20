@@ -1,8 +1,8 @@
 BeforeDiscovery {
-    Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1') -Force
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule
 }
 Describe 'Linux durable attempt directory admission' {
-    InModuleScope PASeasyInstall.Core {
+    InModuleScope PASeasyInstall {
         It 'validates every OS-owned ancestor without creating or repairing it' {
             $code=Get-PASLinuxInfrastructureGuard
             foreach($path in @('/','/opt','/run','/run/systemd','/run/systemd/system','/etc','/etc/systemd','/etc/systemd/system')){($code -split ';')[1]|Should -Match ([regex]::Escape($path)+'(?: |$)')}

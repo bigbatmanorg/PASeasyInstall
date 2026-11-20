@@ -1,83 +1,75 @@
-# Release packaging: Gallery stage content, forbidden-content scan, umbrella command surface and the
-# credential requirements Invoke-PASInstall prompts for. No servers and no network.
+# Release packaging: the two Gallery package stages, the forbidden-content scan, the credentials a
+# configuration asks for, and the diagnostics export. No servers and no network.
 BeforeAll {
-    $script:repo = Split-Path -Parent $PSScriptRoot
-    $script:expected = @('Start-PASInstall','Invoke-PASInstall','New-PASDeploymentConfiguration','Get-PASMediaInventory',
-        'Get-PASMediaSelection','Test-PASEnvironment','Get-PASEnvironmentPlan','Save-PASEnvironment','Start-PASEnvironment',
-        'Get-PASEnvironmentSnapshot','Get-PASEnvironmentEvents','Get-PASStageCatalog','Resume-PASDeployment',
-        'Test-PASEnvironmentHealth','Export-PASRunData','Close-PASDeployment')
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1')
+    $script:repo = $PASRepoRoot
     function Copy-RepoForBuild([string]$To) {
-        New-Item -ItemType Directory -Path $To -Force | Out-Null
-        foreach ($item in 'PASeasyInstall.psd1','PASeasyInstall.psm1','en-US','Modules','Tools','Docs') {
-            $src = Join-Path $script:repo $item
-            if ($item -eq 'Docs') { New-Item -ItemType Directory -Path (Join-Path $To 'Docs') -Force | Out-Null
-                Get-ChildItem -LiteralPath $src -Filter 'THIRD_PARTY_*.txt' | Copy-Item -Destination (Join-Path $To 'Docs'); continue }
-            if ($item -eq 'Tools') { New-Item -ItemType Directory -Path (Join-Path $To 'Tools') -Force | Out-Null
-                Copy-Item -LiteralPath (Join-Path $src 'Build-GalleryPackage.ps1') -Destination (Join-Path $To 'Tools'); continue }
-            Copy-Item -LiteralPath $src -Destination $To -Recurse -Force
+        New-Item -ItemType Directory -Path (Join-Path $To 'Tools') -Force | Out-Null
+        foreach ($item in 'PASeasyInstall', 'PASeasyInstall.UI') {
+            Copy-Item -LiteralPath (Join-Path $script:repo $item) -Destination $To -Recurse -Force
         }
+        Copy-Item -LiteralPath (Join-Path $script:repo 'Tools/Build-GalleryPackage.ps1') -Destination (Join-Path $To 'Tools')
     }
-    $script:stageInfo = & (Join-Path $script:repo 'Tools/Build-GalleryPackage.ps1') -Output (Join-Path $TestDrive 'dist') -AllowMissingLicense
-    Import-Module (Join-Path $script:repo 'PASeasyInstall.psd1') -Force 3>$null
-}
-AfterAll {
-    # The umbrella loads NativeHTMLKit.UI as a required module; unload it so later suites start clean.
-    Remove-Module PASeasyInstall,PASeasyInstall.UI,NativeHTMLKit.UI,NativeHTMLKit -Force -ErrorAction SilentlyContinue
+    $script:build = & (Join-Path $script:repo 'Tools/Build-GalleryPackage.ps1') -Output (Join-Path $TestDrive 'dist') -AllowMissingLicense 3>$null
+    $script:core = @($script:build.Packages | Where-Object Module -eq 'PASeasyInstall')[0]
+    $script:ui = @($script:build.Packages | Where-Object Module -eq 'PASeasyInstall.UI')[0]
+    Import-PASTestModule
 }
 
-Describe 'Gallery package stage' {
-    It 'contains the umbrella module, engine, orchestrator, UI and the kept PTA module' {
-        $s = $script:stageInfo.Stage
-        foreach ($rel in 'PASeasyInstall.psd1','PASeasyInstall.psm1','en-US/about_PASeasyInstall.help.txt',
-                         'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1','Modules/PASeasyInstall.Orchestrator/PASeasyInstall.Orchestrator.psd1',
-                         'Modules/PASeasyInstall.UI/App.ps1','Modules/PASeasyInstall.PTA/PASeasyInstall.PTA.psd1') {
-            Test-Path -LiteralPath (Join-Path $s $rel) | Should -BeTrue -Because $rel
-        }
-        Test-Path -LiteralPath $script:stageInfo.Inventory | Should -BeTrue
-        $script:stageInfo.Version | Should -Match '^\d+\.\d+\.\d+(-[A-Za-z0-9]+)?$'
+Describe 'Gallery package stages' {
+    It 'stages the core module first and the UI module second, with one version' {
+        @($script:build.Packages | ForEach-Object Module) | Should -Be @('PASeasyInstall', 'PASeasyInstall.UI')
+        $script:build.Version | Should -Match '^\d+\.\d+\.\d+(-[A-Za-z0-9]+)?$'
+        (Import-PowerShellDataFile (Join-Path $script:ui.Stage 'PASeasyInstall.UI.psd1')).ModuleVersion |
+            Should -Be (Import-PowerShellDataFile (Join-Path $script:core.Stage 'PASeasyInstall.psd1')).ModuleVersion
     }
-    It 'leaves out tests, tools, docs and UI test helpers' {
-        $files = @(Get-ChildItem -LiteralPath $script:stageInfo.Stage -Recurse -File)
-        @($files | Where-Object { $_.Name -like '*.Tests.ps1' }).Count | Should -Be 0
-        @($files | Where-Object { $_.FullName -match '[\\/]Legacy[\\/]' }).Count | Should -Be 0
-        Test-Path -LiteralPath (Join-Path $script:stageInfo.Stage 'Tools') | Should -BeFalse
-        Test-Path -LiteralPath (Join-Path $script:stageInfo.Stage 'Tests') | Should -BeFalse
+    It 'puts the commands, recipes, help and license into the core package' {
+        foreach ($rel in 'PASeasyInstall.psd1', 'PASeasyInstall.psm1', 'en-US/about_PASeasyInstall.help.txt', 'LICENSE.txt',
+                         'Public/Install-PASVault.ps1', 'Private/Run/Run.ps1', 'Controllers/Invoke-PASRunController.ps1',
+                         'Recipes/Vault/Workflows/VaultPrimaryOnly.psd1', 'Recipes/LinuxComponent/Task.sh') {
+            Test-Path -LiteralPath (Join-Path $script:core.Stage $rel) | Should -BeTrue -Because $rel
+        }
+        Test-Path -LiteralPath $script:core.Inventory | Should -BeTrue
+    }
+    It 'puts the desktop and its Mock backend into the UI package' {
+        foreach ($rel in 'PASeasyInstall.UI.psd1', 'PASeasyInstall.UI.psm1', 'App.ps1', 'Presentation.ps1', 'Theme.css',
+                         'Backend/Backend.Contract.ps1', 'Backend/Mock/PASeasyInstall.Mock.psd1') {
+            Test-Path -LiteralPath (Join-Path $script:ui.Stage $rel) | Should -BeTrue -Because $rel
+        }
+        Test-Path -LiteralPath $script:ui.Inventory | Should -BeTrue
+    }
+    It 'keeps the core package free of any module dependency' {
+        $data = Import-PowerShellDataFile (Join-Path $script:core.Stage 'PASeasyInstall.psd1')
+        $required = @()
+        if ($data.ContainsKey('RequiredModules')) { $required = @($data.RequiredModules) }
+        $required.Count | Should -Be 0
+        $loads = @(Get-ChildItem -LiteralPath $script:core.Stage -Recurse -File -Include '*.ps1', '*.psm1' |
+            Select-String -Pattern 'Import-Module\s+NativeHTMLKit')
+        $loads.Count | Should -Be 0
+    }
+    It 'leaves out tests, tools and docs' {
+        foreach ($stage in $script:core.Stage, $script:ui.Stage) {
+            $files = @(Get-ChildItem -LiteralPath $stage -Recurse -File)
+            @($files | Where-Object { $_.Name -like '*.Tests.ps1' }).Count | Should -Be 0
+            Test-Path -LiteralPath (Join-Path $stage 'Tools') | Should -BeFalse
+            Test-Path -LiteralPath (Join-Path $stage 'Tests') | Should -BeFalse
+        }
     }
     It 'refuses a lab address planted in the module source' {
         $copy = Join-Path $TestDrive 'planted'
         Copy-RepoForBuild $copy
-        Add-Content -LiteralPath (Join-Path $copy 'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psm1') ("`n# " + '10.0.' + '110.5')
-        { & (Join-Path $copy 'Tools/Build-GalleryPackage.ps1') -Output (Join-Path $TestDrive 'planted-dist') -AllowMissingLicense } | Should -Throw '*lab address*'
+        Add-Content -LiteralPath (Join-Path $copy 'PASeasyInstall/PASeasyInstall.psm1') ("`n# " + '10.0.' + '110.5')
+        { & (Join-Path $copy 'Tools/Build-GalleryPackage.ps1') -Output (Join-Path $TestDrive 'planted-dist') -AllowMissingLicense 3>$null } | Should -Throw '*lab address*'
     }
-    It 'refuses vendor media in the module tree' {
+    It 'refuses vendor media in a module folder' {
         $copy = Join-Path $TestDrive 'media'
         Copy-RepoForBuild $copy
-        [IO.File]::WriteAllBytes((Join-Path $copy 'Modules/PASeasyInstall.Core/installer.zip'), [byte[]](80,75,3,4))
-        { & (Join-Path $copy 'Tools/Build-GalleryPackage.ps1') -Output (Join-Path $TestDrive 'media-dist') -AllowMissingLicense } | Should -Throw '*forbidden file type*'
+        [IO.File]::WriteAllBytes((Join-Path $copy 'PASeasyInstall.UI/installer.zip'), [byte[]](80, 75, 3, 4))
+        { & (Join-Path $copy 'Tools/Build-GalleryPackage.ps1') -Output (Join-Path $TestDrive 'media-dist') -AllowMissingLicense 3>$null } | Should -Throw '*forbidden file type*'
     }
 }
 
-Describe 'Umbrella command surface' {
-    It 'exports exactly the public commands and nothing PTA-related' {
-        $names = @((Get-Command -Module PASeasyInstall).Name | Sort-Object)
-        ($names -join ',') | Should -Be (($script:expected | Sort-Object) -join ',')
-        @($names | Where-Object { $_ -match 'PTA' }).Count | Should -Be 0
-    }
-    It 'documents every public command with a synopsis and an example' {
-        foreach ($name in $script:expected) {
-            $h = Get-Help $name -Full
-            ([string]$h.Synopsis).Trim() | Should -Not -BeNullOrEmpty -Because $name
-            $examples = @(); if ($h.PSObject.Properties['examples'] -and $h.examples) { $examples = @($h.examples.example | Where-Object { $_ }) }
-            $examples.Count | Should -BeGreaterThan 0 -Because $name
-            ([string]$h.Synopsis).Trim() | Should -Not -BeLike "$name *" -Because "$name needs a real synopsis, not its syntax"
-        }
-    }
-    It 'refuses PTA in the stage catalog' {
-        { Get-PASStageCatalog -Component PTA } | Should -Throw
-    }
-}
-
-Describe 'Invoke-PASInstall credential requirements' {
+Describe 'Credential requirements of a configuration' {
     BeforeAll {
         function New-Cfg([switch]$Composed, [string]$Profile = 'Lab') {
             $c = [ordered]@{ name = 'T'; security = [ordered]@{ profile = $Profile; overrides = [ordered]@{} }
@@ -99,14 +91,15 @@ Describe 'Invoke-PASInstall credential requirements' {
         @($req | Where-Object Kind -eq 'Credential' | ForEach-Object Key) | Should -Be @('vault01','dr01','psm01','PSMDomainInstaller')
         @($req | Where-Object Kind -eq 'Secret' | ForEach-Object Key) | Should -Be @('VaultAdmin','VaultMaster','DRPassword','DomainJoinPassword')
     }
-    It 'asks for the Linux password only for composed deployments (one-time key authorisation)' {
+    It 'asks for the Linux password only for composed configurations (one-time key authorisation)' {
         $req = & (Get-Module PASeasyInstall) { param($c) Get-PASInstallRequirement $c } (New-Cfg -Composed)
         @($req | Where-Object Key -eq 'psmp01').Count | Should -Be 1
     }
-    It 'uses one lab password for everything and maps Windows accounts to .\user for WinRM' {
+    It 'uses one lab password for everything and keeps the user names as entered' {
         $pw = ConvertTo-SecureString 'Example-Passw0rd!' -AsPlainText -Force
         $auth = & (Get-Module PASeasyInstall) { param($c, $p) Resolve-PASInstallCredential $c @{} @{} $p } (New-Cfg -Composed) $pw
-        $auth.Credentials['vault01'].UserName | Should -Be '.\Administrator'
+        # The '.\Administrator' form for WinRM is applied later, in ConvertTo-PASControllerCredentialMap.
+        $auth.Credentials['vault01'].UserName | Should -Be 'Administrator'
         $auth.Credentials['psmp01'].UserName | Should -Be 'root'
         $auth.Credentials['PSMDomainInstaller'].UserName | Should -Be 'LAB\Administrator'
         $auth.Secrets.Keys.Count | Should -Be 4
@@ -117,19 +110,23 @@ Describe 'Invoke-PASInstall credential requirements' {
     }
 }
 
-Describe 'Export-PASRunData' {
+Describe 'Export-PASDiagnostics' {
+    BeforeAll {
+        $script:SavedDataRoot = $env:PAS_EASY_DATA_ROOT
+        $env:PAS_EASY_DATA_ROOT = Join-Path $TestDrive 'data'
+    }
+    AfterAll { $env:PAS_EASY_DATA_ROOT = $script:SavedDataRoot }
     It 'exports journals, leaves out envelopes and refuses files with secrets' {
-        $root = Join-Path $TestDrive 'data'
         $id = 'a' * 32
-        $run = Join-Path $root "Runs/$id"
+        $run = Join-Path $env:PAS_EASY_DATA_ROOT "Runs/$id"
         New-Item -ItemType Directory -Path (Join-Path $run 'primary') -Force | Out-Null
-        '{"status":"Succeeded"}' | Set-Content (Join-Path $run 'run-v2.json')
+        '{"id":"' + $id + '","status":"Succeeded"}' | Set-Content (Join-Path $run 'run.json')
         '{"name":"T"}' | Set-Content (Join-Path $run 'config.json')
         '{"event":"x"}' | Set-Content (Join-Path $run 'primary/events.jsonl')
         '{"credentials":{"vault01":{"user":"a","cipher":"01000000d08c9ddf0115d1118c7a00c04fc297eb0100000000"}}}' | Set-Content (Join-Path $run 'credentials-1.json')
         '{"password":"Example-Passw0rd!"}' | Set-Content (Join-Path $run 'leak.json')
         $zip = Join-Path $TestDrive 'out.zip'
-        $r = Export-PASRunData -RunId $id -Path $zip -DataRoot $root
+        $r = Export-PASDiagnostics -RunId $id -Path $zip
         $r.Files | Should -Be 3
         @($r.Excluded | ForEach-Object File) | Should -Contain "runs/$id/leak.json"
         Add-Type -AssemblyName System.IO.Compression.FileSystem

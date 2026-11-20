@@ -1,5 +1,5 @@
 BeforeAll {
-    Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1') -Force
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule; . (Get-PASTestPrivateProxy)
 }
 Describe 'Public join-only configuration' {
     BeforeEach {$config=New-PASConfigurationTemplate -Template DomainJoin -Path (Join-Path $TestDrive 'join.json') -WhatIf}

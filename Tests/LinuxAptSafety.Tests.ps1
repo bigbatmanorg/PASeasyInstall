@@ -1,6 +1,6 @@
 # The Linux recipe must never upgrade installed OS packages or let needrestart restart its own attempt
 # units: a libc6 upgrade during PSMP prerequisites made needrestart kill the running attempt (exit 143).
-BeforeAll { $script:task = Get-Content (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/Recipes/LinuxComponent/Task.sh') -Raw }
+BeforeAll { $script:task = Get-Content (Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Recipes/LinuxComponent/Task.sh') -Raw }
 
 Describe 'Linux recipe package installs' {
     It 'never runs apt-get install without --no-upgrade and NEEDRESTART_SUSPEND' {

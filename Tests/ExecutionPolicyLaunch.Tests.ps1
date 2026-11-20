@@ -3,13 +3,13 @@
 # A user's process-scoped Bypass does not reach processes started through Win32_Process.Create or a scheduled task.
 BeforeAll {
     $root = Split-Path -Parent $PSScriptRoot
-    Import-Module (Join-Path $root 'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1') -Force -ErrorAction Stop
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule
     $script:IsWindowsDesktop = ($env:OS -eq 'Windows_NT')
 }
 
 Describe 'Execution policy on every toolkit-started PowerShell process' {
     It 'passes -ExecutionPolicy Bypass on every launch line in the modules' {
-        $files = Get-ChildItem -Path (Join-Path $root 'Modules') -Recurse -File -Include '*.ps1','*.psm1'
+        $files = @('PASeasyInstall','PASeasyInstall.UI') | ForEach-Object { Get-ChildItem -Path (Join-Path $root $_) -Recurse -File -Include '*.ps1','*.psm1' }
         $launches = @($files | Select-String -Pattern '-NoProfile -NonInteractive' -SimpleMatch)
         $launches.Count | Should -BeGreaterThan 4
         $missing = @($launches | Where-Object { $_.Line -notmatch '-ExecutionPolicy Bypass' } |
@@ -19,11 +19,10 @@ Describe 'Execution policy on every toolkit-started PowerShell process' {
 
     It 'covers the controller start and resume, target task, recovery and AD reboot launches' {
         $expect = @{
-            'Modules/PASeasyInstall.Core/Private/V2/Run.ps1'                           = 2
-            'Modules/PASeasyInstall.Core/Private/Engine/Detached.ps1'                  = 1
-            'Modules/PASeasyInstall.Core/Private/Engine/Assets/WindowsDetachedRunner.ps1' = 1
-            'Modules/PASeasyInstall.AD/Recipes/ActiveDirectory/AD-Task.ps1'            = 1
-            'Modules/PASeasyInstall.Orchestrator/Private/Fleet.ps1'                    = 2
+            'PASeasyInstall/Private/Run/Run.ps1'                           = 2
+            'PASeasyInstall/Private/Engine/Detached.ps1'                  = 1
+            'PASeasyInstall/Private/Engine/Assets/WindowsDetachedRunner.ps1' = 1
+            'PASeasyInstall/Recipes/ActiveDirectory/AD-Task.ps1'            = 1
         }
         foreach ($rel in $expect.Keys) {
             $hits = @(Select-String -Path (Join-Path $root $rel) -Pattern '-NonInteractive -ExecutionPolicy Bypass' -SimpleMatch)
@@ -35,7 +34,7 @@ Describe 'Execution policy on every toolkit-started PowerShell process' {
         $hashes = @{ 'runner.ps1' = ('A' * 64); 'recovery.ps1' = ('B' * 64) }
         $dir = 'C:\ProgramData\PAExec\attempts\0123456789abcdef0123456789abcdef'
         foreach ($entry in 'runner.ps1','recovery.ps1') {
-            $arguments = & (Get-Module PASeasyInstall.Core) { param($d, $h, $e) New-PASDetachedLaunchArguments -Directory $d -ExpectedHashes $h -Entry $e } $dir $hashes $entry
+            $arguments = & (Get-Module PASeasyInstall) { param($d, $h, $e) New-PASDetachedLaunchArguments -Directory $d -ExpectedHashes $h -Entry $e } $dir $hashes $entry
             $arguments | Should -Match '^-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "'
             $arguments | Should -Match ([regex]::Escape($entry))
         }

@@ -1,4 +1,4 @@
-BeforeAll {. (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/Recipes/WindowsComponent/Ownership.ps1')}
+BeforeAll {. (Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Recipes/WindowsComponent/Ownership.ps1')}
 Describe 'Bounded existing token restore privilege' {
     It 'restores the exact token attributes after success, nesting and an exception' {
         $before=Get-PASeasyRestorePrivilegeState

@@ -1,8 +1,8 @@
 BeforeDiscovery {
-    Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1') -Force
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule
 }
 Describe 'Linux terminal evidence reconstruction' {
-    InModuleScope PASeasyInstall.Core {
+    InModuleScope PASeasyInstall {
         BeforeEach {
             $script:ObserverFixtureContract='Object'
             $script:ObserverFixtureTail='PAEASY_RESULT:{"Changed":false,"Message":"fixture","Data":{"Hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","TrustBundleSHA256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}'

@@ -1,5 +1,5 @@
 BeforeAll {
-    . (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/Private/V2/Health.ps1')
+    . (Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Private/Diagnostics/Health.ps1')
     $credential=[pscredential]::new('Administrator',(ConvertTo-SecureString 'SYNTHETIC_HEALTH_PASSWORD_672' -AsPlainText -Force))
     $uri='https://pvwa.test/PasswordVault/API'
 }

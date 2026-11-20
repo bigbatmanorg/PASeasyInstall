@@ -1,5 +1,5 @@
 BeforeAll {
-    . (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/Recipes/WindowsComponent/Vendor.ps1')
+    . (Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Recipes/WindowsComponent/Vendor.ps1')
     $previousWorkerAttempt=$env:PAEASY_DETACHED_ATTEMPT;$previousWorkerProcess=$env:PAEASY_DETACHED_PROCESS_ID
     $env:PAEASY_DETACHED_ATTEMPT=[guid]::NewGuid().ToString('N');$env:PAEASY_DETACHED_PROCESS_ID=[string]$PID
 }
@@ -104,7 +104,7 @@ Import-Module (Join-Path $PSScriptRoot 'nested.psm1') -Force
 Invoke-NestedVendor
 '{"isSucceeded":0}'
 '@|Set-Content (Join-Path $dir 'entry.ps1')
-        $vendor=Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/Recipes/WindowsComponent/Vendor.ps1'
+        $vendor=Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Recipes/WindowsComponent/Vendor.ps1'
         $harness=@'
 $ErrorActionPreference='Stop'
 $env:PAEASY_DETACHED_ATTEMPT=[guid]::NewGuid().ToString('N');$env:PAEASY_DETACHED_PROCESS_ID=[string]$PID
@@ -137,8 +137,8 @@ Import-Module (Join-Path $PSScriptRoot 'nested.psm1') -Force
 Invoke-NestedVendor
 '{"isSucceeded":0}'
 '@|Set-Content (Join-Path $dir 'entry.ps1')
-        $vendor=Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/Recipes/WindowsComponent/Vendor.ps1'
-        $hostFile=Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/Private/Engine/Assets/TaskHost.ps1'
+        $vendor=Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Recipes/WindowsComponent/Vendor.ps1'
+        $hostFile=Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Private/Engine/Assets/TaskHost.ps1'
         $code=@'
 [CmdletBinding()]param()
 $ErrorActionPreference='Stop'

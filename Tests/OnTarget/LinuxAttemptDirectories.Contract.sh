@@ -2,7 +2,7 @@
 # Real directory security checks in root-owned isolated fixtures, never global modes.
 set -euo pipefail
 if [ "$(id -u)" != 0 ]; then echo 'NotTested: directory contract requires root'; exit 77; fi
-repo=$(cd "$(dirname "$0")/.." && pwd)
+repo=$(cd "$(dirname "$0")/../.." && pwd)
 fixture=$(mktemp -d /opt/paeasy-attempt-guard-test-XXXXXXXX)
 trap 'rm -rf -- "$fixture"' EXIT
 chmod 700 "$fixture"
@@ -10,9 +10,9 @@ mkdir -p "$fixture/opt" "$fixture/run/systemd/system" "$fixture/etc/systemd/syst
 chmod -R go-rwx "$fixture"
 export PAEASY_TEST_REPO="$repo" PAEASY_TEST_FIXTURE="$fixture"
 pwsh -NoProfile -Command '
-  Import-Module (Join-Path $env:PAEASY_TEST_REPO "Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1") -Force
+  Import-Module (Join-Path $env:PAEASY_TEST_REPO "PASeasyInstall/PASeasyInstall.psd1") -Force
   $paths=@("/","/opt",$env:PAEASY_TEST_FIXTURE)+@(@("/opt","/run","/run/systemd","/run/systemd/system","/etc","/etc/systemd","/etc/systemd/system")|ForEach-Object {$env:PAEASY_TEST_FIXTURE+$_})
-  $code=& (Get-Module PASeasyInstall.Core) {param($paths) Get-PSLinuxDirectoryGuard $paths} $paths
+  $code=& (Get-Module PASeasyInstall) {param($paths) Get-PASLinuxDirectoryGuard $paths} $paths
   [IO.File]::WriteAllText(($env:PAEASY_TEST_FIXTURE+"/guard.sh"),$code,[Text.UTF8Encoding]::new($false))
 '
 bash "$fixture/guard.sh"

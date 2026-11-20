@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Isolated source/NTFS-equivalent POSIX/real-sshd parser checks; NO PSMP install/auth.
-Run sudo -n python3 Tests/LinuxUbuntuPSMPBaseline.Contract.py. Never changes OS policy.
+Run sudo -n python3 Tests/OnTarget/LinuxUbuntuPSMPBaseline.Contract.py. Never changes OS policy.
 """
 import os, pathlib, subprocess, tempfile
-repo=pathlib.Path(__file__).resolve().parents[1]
-task=(repo/'Modules/PASeasyInstall.Core/Recipes/LinuxComponent/Task.sh').read_text()
-verify=(repo/'Modules/PASeasyInstall.Core/Recipes/LinuxComponent/Verify.sh').read_text()
+repo=pathlib.Path(__file__).resolve().parents[2]
+task=(repo/'PASeasyInstall/Recipes/LinuxComponent/Task.sh').read_text()
+verify=(repo/'PASeasyInstall/Recipes/LinuxComponent/Verify.sh').read_text()
 def block(s): return s.split('# BEGIN PAEASY_UBUNTU24_PSMP_BASELINE')[1].split('\n',1)[1].split('# END PAEASY_UBUNTU24_PSMP_BASELINE')[0]
 assert block(task)==block(verify), 'independent payload closure differs'
 assert os.geteuid()==0, 'isolated root-owned /run fixture requires sudo'

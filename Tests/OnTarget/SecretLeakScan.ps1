@@ -4,8 +4,8 @@
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$CredentialPath,[string[]]$Path=@(),[string]$Report='')
 $ErrorActionPreference='Stop'
-$root=Split-Path -Parent $PSScriptRoot
-Import-Module (Join-Path $root 'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1') -Force
+$root=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+Import-Module (Join-Path $root 'PASeasyInstall/PASeasyInstall.psd1') -Force
 $secret=(Import-Clixml -LiteralPath $CredentialPath).GetNetworkCredential().Password
 if ($secret.Length -lt 6) { throw 'Refusing to scan for a secret shorter than 6 characters (too many false positives)' }
 $data=Get-PASDataRoot

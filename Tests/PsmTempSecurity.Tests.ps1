@@ -1,5 +1,5 @@
 BeforeAll {
- . (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.PSM/Recipes/WindowsComponent/Psm.ps1')
+ . (Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Recipes/WindowsComponent/Psm.ps1')
 }
 Describe 'PSM fixed vendor backup directory isolation' {
  BeforeEach {

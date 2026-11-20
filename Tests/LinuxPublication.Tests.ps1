@@ -1,8 +1,8 @@
 BeforeDiscovery {
-    Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1') -Force
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule
 }
 Describe 'Linux same-boot durable publication' {
-    InModuleScope PASeasyInstall.Core {
+    InModuleScope PASeasyInstall {
         It 'publishes staged boot and flushes filesystems before first start' {
             $script:PublicationCalls=New-Object Collections.ArrayList
             Mock Invoke-PASRawSSH {return @{ExitCode=0;Output=''}}

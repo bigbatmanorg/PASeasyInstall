@@ -1,8 +1,8 @@
 BeforeAll {
     $root=Split-Path -Parent $PSScriptRoot
-    Import-Module (Join-Path $root 'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1') -Force
-    $runner=Join-Path $root 'Modules/PASeasyInstall.Core/Private/Engine/Assets/WindowsDetachedRunner.ps1'
-    $ownership=Join-Path $root 'Modules/PASeasyInstall.Core/Recipes/WindowsComponent/Ownership.ps1'
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule
+    $runner=Join-Path $root 'PASeasyInstall/Private/Engine/Assets/WindowsDetachedRunner.ps1'
+    $ownership=Join-Path $root 'PASeasyInstall/Recipes/WindowsComponent/Ownership.ps1'
     function New-PublicationFixture {
         param([string]$Base,[string]$Boot,[switch]$OmitBoot)
         $dir=Join-Path $Base ([guid]::NewGuid().ToString('N'));New-Item $dir -ItemType Directory|Out-Null
@@ -24,7 +24,7 @@ if(-not $RequireProtectedInputs){throw 'Protected-input contract absent'}
         param([string]$Directory)
         $hashes=@{};foreach($name in @('runner.ps1','ownership.ps1','host.ps1')){$hashes[$name]=(Get-FileHash (Join-Path $Directory $name)).Hash}
         if(Test-Path (Join-Path $Directory 'recovery.ps1')){$hashes['recovery.ps1']=(Get-FileHash (Join-Path $Directory 'recovery.ps1')).Hash}
-        $arguments=& (Get-Module PASeasyInstall.Core) {param($d,$h) New-PASDetachedLaunchArguments $d $h} $Directory $hashes
+        $arguments=& (Get-Module PASeasyInstall) {param($d,$h) New-PASDetachedLaunchArguments $d $h} $Directory $hashes
         $start=[Diagnostics.ProcessStartInfo]::new();$start.FileName=Join-Path $PSHOME 'powershell.exe';$start.Arguments=$arguments
         $start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardError=$true
         $child=[Diagnostics.Process]::new();$child.StartInfo=$start
@@ -54,7 +54,7 @@ Describe 'Actual Windows runner staged-boot admission (synthetic bodies only)' {
         foreach($corrupt in @($false,$true)){
             $dir=New-PublicationFixture $TestDrive $boot
             $hashes=@{};foreach($name in @('runner.ps1','ownership.ps1','host.ps1')){$hashes[$name]=(Get-FileHash (Join-Path $dir $name)).Hash}
-            $arguments=& (Get-Module PASeasyInstall.Core) {param($d,$h) New-PASDetachedLaunchArguments $d $h} $dir $hashes
+            $arguments=& (Get-Module PASeasyInstall) {param($d,$h) New-PASDetachedLaunchArguments $d $h} $dir $hashes
             $arguments|Should -Match ([regex]::Escape((Split-Path $dir -Leaf)))
             if($corrupt){[IO.File]::WriteAllText((Join-Path $dir 'host.ps1'),'throw "Synthetic corrupted dependency must not execute"')}
             $errorLog=Join-Path $dir 'launch-error.txt'

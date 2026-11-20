@@ -1,6 +1,6 @@
 BeforeAll {
     $repo=Split-Path -Parent $PSScriptRoot
-    $root=Join-Path $repo 'Modules/PASeasyInstall.Vault/Recipes/Vault/Tasks'
+    $root=Join-Path $repo 'PASeasyInstall/Recipes/Vault/Tasks'
     . (Join-Path $root 'Common/PacliTransport.ps1')
     $global:PAeasyPacliRecipeFixture=@{}
     function Invoke-PacliRecipe([string]$Name,[hashtable]$Parameters){& (Join-Path $root $Name) @Parameters}
@@ -204,7 +204,7 @@ return @{ExitCode=0;Out='';Err=''}
 '@
         $stubs=$stubs.Replace('__MODE__',$Mode)
         $text=(Get-Content (Join-Path $root 'Verify/Verify-Primary.ps1') -Raw).Replace('# PAEASY_INCLUDE_VAULT_PACLI',($helper+[char]10+$stubs))
-        $hostPath=Join-Path $repo 'Modules/PASeasyInstall.Core/Private/Engine/Assets/TaskHost.ps1'
+        $hostPath=Join-Path $repo 'PASeasyInstall/Private/Engine/Assets/TaskHost.ps1'
         $result=& $hostPath -Code $text -Parameters @{Settings=@{PackagesRoot='C:\fixture\packages';InstallRoot='C:\fixture\PrivateArk'};AdminPassword='synthetic-hosted';ReadinessTimeoutSeconds=0} -Contract Check
         $result.Ok|Should -Be $ExpectedOk
         if($ExpectedOk){$result.Check.passed|Should -Be $ExpectedPassed;$result.Check.sessionClosed|Should -BeTrue}

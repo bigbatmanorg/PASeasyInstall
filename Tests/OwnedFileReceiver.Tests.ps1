@@ -1,6 +1,6 @@
 BeforeAll {
-    . (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/Recipes/WindowsComponent/Workspace.ps1')
-    $receiver=Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/Recipes/WindowsComponent/OwnedFileReceiver.ps1'
+    . (Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Recipes/WindowsComponent/Workspace.ps1')
+    $receiver=Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Recipes/WindowsComponent/OwnedFileReceiver.ps1'
 }
 Describe 'Existing stable-file streaming receiver' {
     BeforeEach {

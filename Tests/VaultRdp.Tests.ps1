@@ -1,7 +1,7 @@
 BeforeAll {
     $repo=Split-Path -Parent $PSScriptRoot
-    . (Join-Path $repo 'Modules/PASeasyInstall.Vault/Recipes/Vault/Tasks/Common/VaultRdp.ps1')
-    $hardenCode=Get-Content (Join-Path $repo 'Modules/PASeasyInstall.Vault/Recipes/Vault/Tasks/Vault/Harden-Vault.ps1') -Raw
+    . (Join-Path $repo 'PASeasyInstall/Recipes/Vault/Tasks/Common/VaultRdp.ps1')
+    $hardenCode=Get-Content (Join-Path $repo 'PASeasyInstall/Recipes/Vault/Tasks/Vault/Harden-Vault.ps1') -Raw
     # Dummy command definitions ensure no native NetSecurity call can escape fixtures.
     function Get-NetFirewallProfile {param($PolicyStore)}
     function Get-NetFirewallRule {param($PolicyStore,$Direction,$Action,$Name,[switch]$TracePolicyStore)}

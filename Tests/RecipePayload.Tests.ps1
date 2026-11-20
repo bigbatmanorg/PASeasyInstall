@@ -1,8 +1,8 @@
 BeforeDiscovery {
-    Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PASeasyInstall.Core/PASeasyInstall.Core.psd1') -Force
+    . (Join-Path $PSScriptRoot 'TestHelpers.ps1'); Import-PASTestModule
 }
 Describe 'Static Vault task helper dispatch' {
-    InModuleScope PASeasyInstall.Core {
+    InModuleScope PASeasyInstall {
         BeforeEach {
             $script:OriginalPayloadRoot=$script:PASRoot
             $script:PASRoot=Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))

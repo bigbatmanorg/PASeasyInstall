@@ -1,6 +1,6 @@
 BeforeAll {
     $repo=Split-Path -Parent $PSScriptRoot
-    $helperPath=Join-Path $repo 'Modules/PASeasyInstall.Vault/Recipes/Vault/Tasks/Common/VaultPadr.ps1'
+    $helperPath=Join-Path $repo 'PASeasyInstall/Recipes/Vault/Tasks/Common/VaultPadr.ps1'
     $helper=[IO.File]::ReadAllText($helperPath)
     . $helperPath
     function Get-Service {param($Name,$DisplayName)}
@@ -9,12 +9,12 @@ BeforeAll {
     function Start-Service {param($Name)}
     function icacls.exe {param([Parameter(ValueFromRemainingArguments)]$Arguments) $global:LASTEXITCODE=0}
     function Restart-Service {param($Name,[switch]$Force)}
-    $taskRoot=Join-Path $repo 'Modules/PASeasyInstall.Vault/Recipes/Vault/Tasks'
+    $taskRoot=Join-Path $repo 'PASeasyInstall/Recipes/Vault/Tasks'
     $wait=[IO.File]::ReadAllText((Join-Path $taskRoot 'VaultDR/Wait-Replication.ps1')).Replace('# PAEASY_INCLUDE_VAULT_PADR',$helper)
     $verify=[IO.File]::ReadAllText((Join-Path $taskRoot 'Verify/Verify-DR.ps1')).Replace('# PAEASY_INCLUDE_VAULT_PADR',$helper)
     $installed=[IO.File]::ReadAllText((Join-Path $taskRoot 'Verify/Verify-PADRInstalled.ps1')).Replace('# PAEASY_INCLUDE_VAULT_PADR',$helper)
     $install=[IO.File]::ReadAllText((Join-Path $taskRoot 'VaultDR/Install-PADR.ps1')).Replace('# PAEASY_INCLUDE_VAULT_PADR',$helper)
-    $configure=[IO.File]::ReadAllText((Join-Path $repo 'Modules/PASeasyInstall.Vault/Recipes/Vault/Tasks/VaultDR/Configure-PADR.ps1')).Replace('# PAEASY_INCLUDE_VAULT_PADR',$helper)
+    $configure=[IO.File]::ReadAllText((Join-Path $repo 'PASeasyInstall/Recipes/Vault/Tasks/VaultDR/Configure-PADR.ps1')).Replace('# PAEASY_INCLUDE_VAULT_PADR',$helper)
 }
 Describe 'PADR manual standby guards (isolated service and real temporary INI fixtures)' {
     BeforeEach {
@@ -202,6 +202,8 @@ Describe 'PADR static recipe helper inclusion (root-owned payload allowlist prer
     BeforeAll {
         $script:PASRoot=Join-Path $repo PASeasyInstall
         function Test-PASWindows {return $env:OS -eq 'Windows_NT'}
+        # Get-PASRecipePayload resolves its helpers with Get-PASModuleRoot / Get-PASRecipePath.
+        . (Join-Path $script:PASRoot 'Private/Common/ModulePaths.ps1')
         . (Join-Path $script:PASRoot 'Private/Engine/RecipePayload.ps1')
     }
     It 'ships the immutable manual-standby guard to every PADR start and independent verification task' {
