@@ -42,34 +42,6 @@ function Read-PASEnvelope {
     foreach($p in $raw.secrets.PSObject.Properties){$secrets[$p.Name]=$p.Value|ConvertTo-SecureString}
     return @{Credentials=$credentials;Secrets=$secrets}
 }
-function Add-PASPTACertificateSecrets {
-    param([hashtable]$Configuration,[hashtable]$Secrets,[hashtable]$FrozenMedia)
-    foreach($component in @($Configuration.components|Where-Object {$_.type -eq 'PTA'})){
-        $path=[string](Get-PASValue $component.options 'certificatePfxFile' '')
-        if(-not $path){continue}
-        $path=[IO.Path]::GetFullPath($path)
-        if(-not $FrozenMedia.ContainsKey($path)){throw 'PTA PFX was not frozen in the approved plan'}
-        $asset=Get-Item -LiteralPath $path -ErrorAction Stop
-        if($asset.PSIsContainer -or ($asset.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $asset.Length -le 0 -or $asset.Length -gt 32768){throw 'PTA PFX file is unsafe or exceeds 32768 bytes'}
-        if(-not $Secrets.ContainsKey('PTACertificatePassword') -or $Secrets.PTACertificatePassword -isnot [Security.SecureString] -or $Secrets.PTACertificatePassword.Length -eq 0){throw 'PTACertificatePassword SecureString is required'}
-        $bytes=$null;$hasher=$null;$encoded=$null
-        try{
-            $bytes=[IO.File]::ReadAllBytes($path)
-            if($bytes.Length -le 0 -or $bytes.Length -gt 32768){throw 'PTA PFX changed size before secret resolution'}
-            $hasher=[Security.Cryptography.SHA256]::Create()
-            $hash=([BitConverter]::ToString($hasher.ComputeHash($bytes))).Replace('-','')
-            if($hash -ine $FrozenMedia[$path] -or $hash -ine [string]$component.options.certificatePfxSHA256){throw 'PTA PFX changed after plan approval'}
-            $encoded=[Convert]::ToBase64String($bytes)
-            $secret=New-Object Security.SecureString
-            foreach($character in $encoded.ToCharArray()){$secret.AppendChar($character)}
-            $secret.MakeReadOnly()
-            $Secrets['PTACertificatePfxData_'+[string]$component.id]=$secret
-        }finally{
-            if($null -ne $bytes){[Array]::Clear($bytes,0,$bytes.Length)}
-            if($hasher){$hasher.Dispose()};$encoded=$null
-        }
-    }
-}
 function Get-PASRunRecord {
     [CmdletBinding()]param([Parameter(Mandatory)][string]$RunId,[string]$DataRoot=(Get-PASDataRoot))
     $dir=Get-PASRunDirectory $RunId $DataRoot
@@ -395,11 +367,6 @@ function Invoke-PASRunControllerCore {
         # One writer per environment/host. Vault admission is limited to authenticated operations.
         $lock=Enter-PASGate -Name ('environment-'+[string]$config.name) -DataRoot $DataRoot -RunId $RunId -TimeoutSeconds 1
         Assert-PASVaultInstallationSecrets -Configuration $config -Secrets $auth.Secrets -ReferencesResolved
-        $ptaManagement=Get-PASPTASyslogHost $config
-        if($ptaManagement -and (-not $auth.Credentials.ContainsKey($ptaManagement) -or $auth.Credentials[$ptaManagement] -isnot [pscredential])){throw "PTA syslog requires primary Windows credentials for '$ptaManagement' before installation"}
-        Add-PASPTACertificateSecrets -Configuration $config -Secrets $auth.Secrets -FrozenMedia $script:PASeasyFrozenMedia
-        # Include the existing primary changed by PTA syslog. Its outer claim is
-        # retained on failure and completed on successful Resume with all hosts.
         $allHosts=@(Get-PASDeploymentHostIds $config)
         $endpointOwners=@{}
         $addresses=@(foreach($hostId in $allHosts){
@@ -472,7 +439,6 @@ function Invoke-PASRunControllerCore {
             Invoke-PASWorkflow -WorkflowPath $wf -InventoryPath $inventoryPath -StateRoot (Join-Path $DataRoot 'Runs') `
                 -RunId $RunId -Credentials $auth.Credentials -Secrets $auth.Secrets -Resume:$existing `
                 -VaultSessionAddress ([string]$config.vault.address) -CoordinationDataRoot $DataRoot -Retry $retry | Out-Null
-            if($item.Type -eq 'PTA'){Invoke-PASeasyPTAVaultSyslog -Config $config -Component $component -ComponentInventory (Import-PowerShellDataFile -Path $inventoryPath) -RunId $RunId -DataRoot $DataRoot -Credentials $auth.Credentials -Secrets $auth.Secrets}
             Write-PASRunEvent $dir 'ComponentCompleted' "Verified $($item.Type)" $item.Id
         }
         $run.status='Succeeded';$run.message='All selected component workflows completed';$run.currentComponent=''

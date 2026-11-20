@@ -115,7 +115,7 @@ function Resolve-PASMediaPath {
         return [IO.Path]::GetDirectoryName($source)
     }
     $file=Get-Item -LiteralPath $source
-    # 'selective-v2': only Vault-relevant entries are written (not PTA/PSM/CPM/... payloads).
+    # 'selective-v2': only Vault-relevant entries are written (not PSM/CPM/... payloads).
     $sourceHash=(Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
     $identity='selective-v3|'+$source+'|'+$sourceHash
     $sha=[Security.Cryptography.SHA256]::Create()

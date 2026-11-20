@@ -3,9 +3,9 @@
 # work: no server is contacted. The only side effect is extracting a selected installer that lives
 # inside a ZIP bundle into the controller's media cache (read-only on the source).
 
-$script:PASComponentTypes=@('PVWA','CPM','PSM','PSMP')   # PTA: not part of this release; module kept for future tests
-$script:PASLinuxTypes=@('PSMP','PTA')
-$script:PASMaxInstances=@{PVWA=4;CPM=4;PSM=4;PSMP=4;PTA=1}
+$script:PASComponentTypes=@('PVWA','CPM','PSM','PSMP')
+$script:PASLinuxTypes=@('PSMP')
+$script:PASMaxInstances=@{PVWA=4;CPM=4;PSM=4;PSMP=4}
 # Engine/journal names that must never be used as instance ids (event mapping and credential aliases).
 $script:PASReservedIds=@('vault','dr','primary','primary_final','dr_final','vault01','dr01','primaryadmin','dradmin','controller')
 
@@ -238,7 +238,6 @@ function New-PASDeploymentConfiguration {
                 if(-not $firstPvwa){$firstPvwa=$id}
             }
             'PSMP'{if($AcceptEula){$options.acceptEula=$true}}
-            'PTA'{if($lab){$overrides['PTA.GenerateLabCA']=$true}}
         }
         $entry=[ordered]@{id=$id;name=$name;type=$type;host=$hostId;variant='Standard';media=$mediaPath;options=$options}
         if($mediaSource){$entry.mediaSource=$mediaSource}

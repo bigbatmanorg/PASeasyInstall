@@ -11,21 +11,9 @@ function Read-PASConfiguration {
     if($result -isnot [System.Collections.IDictionary]){throw 'Configuration root must be an object'}
     return $result
 }
-function Get-PASPTASyslogHost {
-    param([hashtable]$Configuration)
-    if(-not @($Configuration.components|Where-Object {$_.type -eq 'PTA'}).Count){return ''}
-    if($Configuration.security.profile -eq 'Lab' -and [bool](Get-PASValue $Configuration.security.overrides 'PTA.SkipVaultSyslog' $false)){return ''}
-    $selected=[string](Get-PASValue $Configuration.vault 'managementHost' '')
-    if($selected){return $selected}
-    $primary=@($Configuration.components|Where-Object {$_.type -eq 'Vault'})
-    if($primary.Count -eq 1){return [string]$primary[0].host}
-    $matching=@($Configuration.hosts.Keys|Where-Object {$Configuration.hosts[$_].os -eq 'Windows' -and $Configuration.hosts[$_].address -eq $Configuration.vault.address})
-    if($matching.Count -eq 1){return [string]$matching[0]}
-    return ''
-}
 function Get-PASDeploymentHostIds {
     param([hashtable]$Configuration)
-    return @(@($Configuration.components|ForEach-Object {[string]$_.host})+@($Configuration.activeDirectory.join)+@((Get-PASPTASyslogHost $Configuration))|Where-Object {$_}|Sort-Object -Unique)
+    return @(@($Configuration.components|ForEach-Object {[string]$_.host})+@($Configuration.activeDirectory.join)|Where-Object {$_}|Sort-Object -Unique)
 }
 function New-PASConfigurationTemplate {
     [CmdletBinding(SupportsShouldProcess=$true)]
@@ -37,7 +25,6 @@ function New-PASConfigurationTemplate {
         'pam01'=@{address='192.0.2.13';os='Windows';user='Administrator';credentialRef='pam01'}
         'psm01'=@{address='192.0.2.14';os='Windows';user='Administrator';credentialRef='psm01'}
         'psmp01'=@{address='192.0.2.15';os='Linux';user='root';credentialRef='psmp01'}
-        'pta01'=@{address='192.0.2.16';os='Linux';user='root';credentialRef='pta01'}
         'dc01'=@{address='192.0.2.10';os='Windows';user='Administrator';credentialRef='dc01'}
     }
     $comps=@()
@@ -48,7 +35,6 @@ function New-PASConfigurationTemplate {
         $comps+=@{id='cpm';type='CPM';host='pam01';variant='Standard';options=@{}}
         $comps+=@{id='psm';type='PSM';host='psm01';variant='Standard';options=@{}}
         $comps+=@{id='psmp';type='PSMP';host='psmp01';variant='Standard';options=@{}}
-        $comps+=@{id='pta';type='PTA';host='pta01';variant='Standard';options=@{}}
     }
     if($Template -eq 'ADOnly'){$comps+=@{id='ad';type='AD';host='dc01';variant='NewForest'}}
     if($Template -eq 'ExistingVault'){$comps+=@{id='pvwa';type='PVWA';host='pam01';variant='Standard';options=@{}}}
@@ -79,7 +65,7 @@ function Test-PASConfiguration {
     if([int]$c.schemaVersion -ne 2){$issues.Add('schemaVersion must be 2')}
     if([string]$c.name -notmatch '^[A-Za-z0-9_.-]{1,64}$'){$issues.Add('name must be 1-64 safe characters')}
     if($c.hosts -isnot [System.Collections.IDictionary]){$issues.Add('hosts must be an object')}
-    $ids=@{}; $windows=@('Vault','DRVault','PVWA','CPM','PSM','AD'); $linux=@('PSMP','PTA')
+    $ids=@{}; $windows=@('Vault','DRVault','PVWA','CPM','PSM','AD'); $linux=@('PSMP')
     if($c.vault -is [System.Collections.IDictionary]){
         foreach($field in @('secretRef','masterSecretRef','drSecretRef')){
             if($c.vault.Contains($field) -and ($c.vault[$field] -isnot [string] -or [string]::IsNullOrWhiteSpace($c.vault[$field]))){$issues.Add("Vault $field must be a nonempty string")}
@@ -98,29 +84,6 @@ function Test-PASConfiguration {
         if($type -in @('Vault','DRVault') -and @($c.activeDirectory.join) -contains $host){$issues.Add("Vault host $host must not be domain joined")}
         if($type -eq 'AD' -and $c.activeDirectory.mode -eq 'None'){$issues.Add('AD selected but activeDirectory.mode=None')}
         if($type -eq 'PSM'){$warnings.Add('PSM restricts untrusted creation at the Windows Temp root to protect the native TLS backup; existing child permissions are preserved. Connector compatibility requires functional qualification.')}
-        if($type -eq 'PTA' -and (Get-PASValue (Get-PASValue $entry 'options' @{}) 'ptaConfigurationTransport' 'VendorCLI') -notin @('VendorCLI','API')){$issues.Add('PTA configuration transport must be VendorCLI or API')}
-        if($type -eq 'PTA' -and (Get-PASValue (Get-PASValue $entry 'options' @{}) 'allowUndersizedMemory' $null) -ne $null){$issues.Add('PTA memory exception must use the audited Lab security override PTA.AllowUndersizedMemory')}
-        if($type -eq 'PTA' -and (Get-PASValue (Get-PASValue $entry 'options' @{}) 'allowUndersizedCPU' $null) -ne $null){$issues.Add('PTA CPU exception must use the audited Lab security override PTA.AllowUndersizedCPU')}
-        if($type -eq 'PTA'){
-            $options=Get-PASValue $entry 'options' @{}
-            $ptaIP=$null
-            if(-not [Net.IPAddress]::TryParse([string]$target.address,[ref]$ptaIP) -or $ptaIP.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork){$issues.Add('PTA TLS requires a literal target IPv4 address; use options.ptaName for its DNS certificate name')}
-            $pfx=[string](Get-PASValue $options 'certificatePfxFile' '')
-            $pfxHash=[string](Get-PASValue $options 'certificatePfxSHA256' '')
-            $name=[string](Get-PASValue $options 'ptaName' '')
-            $labCA=($c.security.profile -eq 'Lab' -and [bool](Get-PASValue $c.security.overrides 'PTA.GenerateLabCA' $false))
-            if(($pfx -or $pfxHash) -and (-not $pfx -or $pfxHash -notmatch '^[A-Fa-f0-9]{64}$')){$issues.Add('PTA PFX requires options.certificatePfxFile and certificatePfxSHA256')}
-            if($pfx -and $labCA){$issues.Add('PTA operator PFX and generated Lab CA are mutually exclusive')}
-            if($name -and ($name -notmatch '^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$' -or $name.Contains('..'))){$issues.Add('PTA ptaName must be a safe DNS name')}
-            if((Get-PASValue $options 'generateLabCA' $null) -ne $null){$issues.Add('PTA generated CA requires audited Lab security override PTA.GenerateLabCA')}
-            if($CheckMedia){
-                if(-not $pfx -and -not $labCA){$issues.Add('PTA requires an operator PFX or explicit Lab override PTA.GenerateLabCA')}
-                if($pfx){
-                    if(-not(Test-Path -LiteralPath $pfx -PathType Leaf)){$issues.Add('PTA PFX file is missing')}
-                    elseif((Get-Item -LiteralPath $pfx).Length -le 0 -or (Get-Item -LiteralPath $pfx).Length -gt 32768){$issues.Add('PTA PFX file must contain 1-32768 bytes')}
-                }
-            }elseif(-not $pfx -and -not $labCA){$warnings.Add('PTA TLS certificate source must be configured before installation')}
-        }
         if($type -eq 'CPM'){
             $options=Get-PASValue $entry 'options' @{}
             $trustFile=[string](Get-PASValue $options 'pvwaTrustCertificateFile' '')
@@ -129,17 +92,10 @@ function Test-PASConfiguration {
             if($CheckMedia -and $trustFile -and -not(Test-Path -LiteralPath $trustFile -PathType Leaf)){$issues.Add('CPM public trust certificate file is missing')}
             if((Get-PASValue $options 'allowPinnedLeafTrust' $null) -ne $null){$issues.Add('CPM leaf trust exception must use audited Lab security override CPM.AllowPinnedLeafTrust')}
         }
-        if($type -in @('PSMP','PTA')){$warnings.Add("$type Linux installation requires qualification on the selected target distribution and supplied media")}
+        if($type -eq 'PSMP'){$warnings.Add("$type Linux installation requires qualification on the selected target distribution and supplied media")}
         if($CheckMedia -and $type -notin @('Vault','DRVault','AD')){
             $mediaPath=[string](Get-PASValue $entry 'media' '')
             if(-not $mediaPath -or -not(Test-Path -LiteralPath $mediaPath -PathType Leaf)){$issues.Add("Media ZIP missing for component '$id' ($mediaPath)")}
-            if($type -eq 'PTA'){
-                $opts=Get-PASValue $entry 'options' @{}
-                $key=[string](Get-PASValue $opts 'signingKeyFile' '')
-                $fingerprint=[string](Get-PASValue $opts 'signingKeyFingerprint' '')
-                if(-not $key -or -not(Test-Path -LiteralPath $key -PathType Leaf)){$issues.Add('PTA requires options.signingKeyFile (reviewed vendor public RPM key)')}
-                if($fingerprint -notmatch '^[A-Fa-f0-9]{40}$'){$issues.Add('PTA requires reviewed options.signingKeyFingerprint')}
-            }
         }
     }
     # A public join-only run has no CyberArk media or Vault authentication dependency.
@@ -200,20 +156,9 @@ function Test-PASConfiguration {
     if($c.security.overrides){
         foreach($name in $c.security.overrides.Keys){
             if($c.security.overrides[$name] -isnot [bool]){$issues.Add("Security override $name must be a JSON boolean")}
-            if($name -notin @('PTA.SkipVaultSyslog','PTA.GenerateLabCA','PTA.AllowUndersizedCPU','PTA.AllowUndersizedMemory','Vault.AllowRDP','PVWA.ValidateTLS','CPM.ValidatePVWA','CPM.AllowPinnedLeafTrust','WinRM.RequireHTTPS','WinRM.SkipCACheck','WinRM.SkipCNCheck','PVWA.ApplyHardening','CPM.ApplyHardening','PSM.ApplyHardening','PSMP.ApplyHardening','PTA.ApplyHardening')){
+            if($name -notin @('Vault.AllowRDP','PVWA.ValidateTLS','CPM.ValidatePVWA','CPM.AllowPinnedLeafTrust','WinRM.RequireHTTPS','WinRM.SkipCACheck','WinRM.SkipCNCheck','PVWA.ApplyHardening','CPM.ApplyHardening','PSM.ApplyHardening','PSMP.ApplyHardening')){
                 $issues.Add("Unknown/unsupported lab override '$name'")
             }else{$warnings.Add("SECURITY DEVIATION: $name = $($c.security.overrides[$name])")}
-        }
-    }
-    if(@($c.components|Where-Object {$_.type -eq 'PTA'}).Count){
-        $skip=($c.security.profile -eq 'Lab' -and [bool](Get-PASValue $c.security.overrides 'PTA.SkipVaultSyslog' $false))
-        $management=Get-PASPTASyslogHost $c
-        if(-not $skip -and (-not $management -or -not $c.hosts.Contains($management) -or $c.hosts[$management].os -ne 'Windows')){$issues.Add('PTA TLS syslog requires vault.managementHost referencing the primary Windows host')}
-        $endpoint=[string](Get-PASValue $c.vault 'managementEndpoint' 'PAExec.Management')
-        if($endpoint -notmatch '^[A-Za-z][A-Za-z0-9_.-]{0,63}$'){$issues.Add('Invalid Vault management endpoint name')}
-        if(@($c.components|Where-Object {$_.type -eq 'PTA'}).Count -gt 1){$issues.Add('Only one PTA syslog receiver per Vault is supported by this installer')}
-        foreach($pta in @($c.components|Where-Object {$_.type -eq 'PTA'})){
-            if(@($c.components|Where-Object {$_.id -eq ([string]$pta.id+'-vault-syslog')}).Count){$issues.Add('Component id collides with the reserved PTA Vault syslog continuation')}
         }
     }
     foreach($key in @($c.hosts.Keys)){

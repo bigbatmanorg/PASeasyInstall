@@ -42,7 +42,7 @@ function Copy-PASConfiguration {param($Configuration) return (ConvertTo-PASOrder
 function Get-PASFleetUnits {
     <# Ordered units with dependencies. Plan order: Vault/DR, PVWA, CPM, PSM, PSMP. Non-PVWA components wait for the first PVWA. #>
     param($Configuration)
-    $priority=@{PVWA=30;CPM=40;PSM=50;PSMP=60;PTA=70}
+    $priority=@{PVWA=30;CPM=40;PSM=50;PSMP=60}
     $comps=@($Configuration.components|Where-Object {$_})
     $units=New-Object System.Collections.ArrayList
     $vault=@($comps|Where-Object {$_.type -in @('Vault','DRVault')})
@@ -81,8 +81,7 @@ function New-PASFleetChildConfiguration {
     $c.name=(([string]$Configuration.name)+'-'+[string]$e.id); if($c.name.Length -gt 64){$c.name=$c.name.Substring(0,64)}
     $c.vault.existing=$true; $c.mediaRoot=''; $c.media=[ordered]@{}
     $keepHosts=@([string]$e.host)
-    if($e.type -eq 'PTA' -and $c.vault.Contains('managementHost') -and $c.vault.managementHost){$keepHosts+=[string]$c.vault.managementHost}
-    elseif($c.vault.Contains('managementHost')){$c.vault.Remove('managementHost')}
+    if($c.vault.Contains('managementHost')){$c.vault.Remove('managementHost')}
     foreach($k in @($c.hosts.Keys)){if($k -notin $keepHosts){$c.hosts.Remove($k)}}
     if($e.Contains('options') -and $e.options.Contains('pvwaTrustFrom')){
         $src=[string]$e.options.pvwaTrustFrom

@@ -64,11 +64,5 @@
     "Name": "trace",
     "Path": "/var/opt/CARKpsmp/logs/PSMPTrace.log",
     "Qualified": false
-  },
-  {
-    "Component": "PTA",
-    "Name": "app",
-    "Path": "/opt/pta/logs/*.log",
-    "Qualified": false
   }
 ]

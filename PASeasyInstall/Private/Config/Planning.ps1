@@ -75,7 +75,7 @@ function Get-PASDeploymentPlan {
     $items=New-Object System.Collections.ArrayList
     $components=@($c.components | Where-Object { $null -ne $_ })
     # AD always precedes eligible joins; Vault precedes all registrations.
-    $priority=@{AD=0;Vault=10;DRVault=20;PVWA=30;CPM=40;PSM=50;PSMP=60;PTA=70}
+    $priority=@{AD=0;Vault=10;DRVault=20;PVWA=30;CPM=40;PSM=50;PSMP=60}
     $ordered=@($components | Sort-Object -Property @{Expression={ [int]$priority[[string]$_.type] }},id)
     $ids=@($ordered | ForEach-Object { [string]$_.id })
     $hasVault=(@($ordered | Where-Object {$_.type -eq 'Vault'}).Count -gt 0)
@@ -85,7 +85,6 @@ function Get-PASDeploymentPlan {
         $type=[string]$entry.type
         if($type -ne 'AD' -and $c.activeDirectory.mode -eq 'Create'){$deps+=@($ordered|Where-Object{$_.type -eq 'AD'}|ForEach-Object{$_.id})}
         if($type -notin @('AD','Vault') -and $hasVault){$deps+=@($ordered|Where-Object{$_.type -eq 'Vault'}|ForEach-Object{$_.id})}
-        if($type -eq 'PTA'){$deps+=@($ordered|Where-Object{$_.type -eq 'PVWA'}|ForEach-Object{$_.id})}
         $deployable=if($type -eq 'AD'){'ImplementationReadyForQualification'}elseif($type -in @('Vault','DRVault')){'MigratedNeedsRequalification'}else{'RecipePreparedNeedsVendorMediaQualification'}
         [void]$items.Add([pscustomobject]@{Id=[string]$entry.id;Type=$type;Host=[string]$entry.host;Variant=[string](Get-PASValue $entry 'variant' 'Standard');DependsOn=@($deps | Sort-Object -Unique);Readiness=$deployable})
     }
@@ -134,7 +133,7 @@ function New-PASComponentWorkflow {
     $basedir=Join-Path (Join-Path $RunDirectory 'Payloads') $id
     $workflowDir=Join-Path $basedir 'Workflows'
     New-Item -Path $workflowDir -ItemType Directory -Force | Out-Null
-    $mode='WindowsComponent'; if($type -in @('PSMP','PTA')){$mode='LinuxComponent'}
+    $mode='WindowsComponent'; if($type -eq 'PSMP'){$mode='LinuxComponent'}
     $source=Join-Path $script:PASRoot ('Recipes/'+$mode)
     foreach($file in @(Get-ChildItem -LiteralPath $source -File)){
         Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $basedir $file.Name) -Force
@@ -192,15 +191,12 @@ function New-PASComponentWorkflow {
             }
             $steps+=$transfer
         }else{throw "Component $id requires media ZIP"}
-        if($type -eq 'PTA'){
-            $steps+=@{Id='vendor-signing-key';Kind='Transfer';Source=@{ConfigRef=('Values.Components.'+$id+'.SigningKeyFile')};Destination=('/opt/paeasyinstall/media/'+$id+'/RPM-GPG-KEY-CyberArk');TimeoutSeconds=600}
-        }
         if($type -eq 'CPM' -and (Get-PASValue $Component.options 'pvwaTrustCertificateFile' '')){
             $steps+=@{Id='pvwa-trust-certificate';Kind='Transfer';Source=@{ConfigRef=('Values.Components.'+$id+'.PVWATrustCertificateFile')};Destination=('C:\ProgramData\PASeasyInstall\media\'+$id+'\pvwa-trust.cer');TimeoutSeconds=600}
         }
         $steps+=@{Id='preflight';Script=$scriptPath;Inputs=@{Stage='Preflight';Settings=@{ConfigRef=('Values.Components.'+$id)}};Verify=$verifyPath;TimeoutSeconds=600}
         $stages=@('Extract','Prerequisites','Install','Register','Harden','Verify')
-        if($type -in @('PVWA','CPM','PTA')){$stages=@('Extract','Prerequisites','Install','ConfigureTLS','Register','Harden','Verify')}
+        if($type -in @('PVWA','CPM')){$stages=@('Extract','Prerequisites','Install','ConfigureTLS','Register','Harden','Verify')}
         if($type -eq 'PSM'){$stages=@('Extract','Prerequisites','Install','Register','Harden','PostInstall','Verify')}
         foreach($stage in $stages){
             $step=@{Id=$stage.ToLowerInvariant();Script=$scriptPath;Inputs=@{Stage=$stage;Settings=@{ConfigRef=('Values.Components.'+$id)}};Verify=$verifyPath;TimeoutSeconds=3600}
@@ -208,11 +204,6 @@ function New-PASComponentWorkflow {
             if($stage -in @('Install','ConfigureTLS','Register','Harden')){$step['Critical']=$true}
             if($stage -in @('Extract','Prerequisites','Install','ConfigureTLS','Register','Harden','PostInstall') -and $mode -in @('WindowsComponent','LinuxComponent')){$step['Mode']='Detached'}
             if($stage -eq 'Register'){$step.Inputs['VaultPassword']=@{SecretRef='VaultAdmin'};$step.RequiresVaultSession=$true}
-            if($type -eq 'PTA' -and $stage -eq 'ConfigureTLS' -and (Get-PASValue $Component.options 'certificatePfxFile' '')){
-                $step.Inputs.CertificatePfxData=@{SecretRef=('PTACertificatePfxData_'+$id)}
-                $step.Inputs.CertificatePassword=@{SecretRef='PTACertificatePassword'}
-            }
-            if($type -eq 'PTA' -and $stage -eq 'Register' -and (Get-PASValue $Component.options 'ptaConfigurationTransport' 'VendorCLI') -eq 'API'){$step.Inputs['InstallerPassword']=@{SecretRef='PTAInstallerPassword'}}
             if($type -eq 'PSM' -and $stage -in @('Prerequisites','Install','Register','Harden','PostInstall')){
                 $principalRef=''
                 $psmOptions=Get-PASValue $Component 'options' $null
@@ -231,7 +222,6 @@ function New-PASComponentWorkflow {
                 }
             }else{
                 $steps+=$step
-                if($type -eq 'PTA' -and $stage -eq 'Install'){$steps+=@{Id='install-reboot';Kind='Reboot';TimeoutSeconds=1800}}
             }
         }
     }
@@ -291,19 +281,6 @@ function New-PASRuntimeInventory {
             $componentSettings.PVWATrustCertificateTarget=if($componentSettings.PVWATrustCertificateFile){'C:\ProgramData\PASeasyInstall\media\'+$id+'\pvwa-trust.cer'}else{''}
             $componentSettings.AllowPinnedLeafTrust=$false
             if($Config.security.profile -eq 'Lab' -and $Config.security.overrides.Contains('CPM.AllowPinnedLeafTrust')){$componentSettings.AllowPinnedLeafTrust=[bool]$Config.security.overrides['CPM.AllowPinnedLeafTrust']}
-        }
-        if($entry.type -eq 'PTA'){
-            $componentSettings.PolicyProfile=[string]$Config.security.profile
-            $componentSettings.PTAName=[string](Get-PASValue $componentSettings.Options 'ptaName' '')
-            $componentSettings.PTACertificatePfxSHA256=[string](Get-PASValue $componentSettings.Options 'certificatePfxSHA256' '')
-            $componentSettings.Options.generateLabCA=$false
-            if($Config.security.profile -eq 'Lab' -and $Config.security.overrides.Contains('PTA.GenerateLabCA')){$componentSettings.Options.generateLabCA=[bool]$Config.security.overrides['PTA.GenerateLabCA']}
-            $componentSettings.Options.allowUndersizedMemory=$false
-            $componentSettings.Options.allowUndersizedCPU=$false
-            if($Config.security.profile -eq 'Lab' -and $Config.security.overrides.Contains('PTA.AllowUndersizedMemory')){$componentSettings.Options.allowUndersizedMemory=[bool]$Config.security.overrides['PTA.AllowUndersizedMemory']}
-            if($Config.security.profile -eq 'Lab' -and $Config.security.overrides.Contains('PTA.AllowUndersizedCPU')){$componentSettings.Options.allowUndersizedCPU=[bool]$Config.security.overrides['PTA.AllowUndersizedCPU']}
-            $componentSettings.SigningKeyFile=[string](Get-PASValue $componentSettings.Options 'signingKeyFile' '')
-            $componentSettings.SigningKeyTarget='/opt/paeasyinstall/media/'+$id+'/RPM-GPG-KEY-CyberArk'
         }
         if($Config.security.profile -eq 'Lab' -and $Config.security.overrides){
             $ck=([string]$entry.type+'.ApplyHardening');if($Config.security.overrides.Contains($ck)){$componentSettings.ApplyHardening=[bool]$Config.security.overrides[$ck]}
@@ -382,7 +359,7 @@ function Get-PASSourceDigest {
             if($module -notin $names){$names+=@($module)}
         }
         if('DR' -in $names -and 'Vault' -notin $names){$names+=@('Vault')}
-    }else{$names+=@('Vault','DR','PVWA','CPM','PSM','PSMP','PTA','AD')}
+    }else{$names+=@('Vault','DR','PVWA','CPM','PSM','PSMP','AD')}
 
     $entries=@()
     foreach($name in $names){
@@ -407,18 +384,6 @@ function Get-PASFrozenMedia {
             $path=[string](Get-PASValue $component 'media' '')
             if(-not $path -or -not(Test-Path -LiteralPath $path -PathType Leaf)){throw "Missing media for component $($component.id)"}
             $files+=[IO.Path]::GetFullPath($path)
-            if($component.type -eq 'PTA'){
-                $key=[string](Get-PASValue $component.options 'signingKeyFile' '')
-                if(-not $key -or -not(Test-Path -LiteralPath $key -PathType Leaf)){throw 'PTA vendor signing key source missing'}
-                $files+=[IO.Path]::GetFullPath($key)
-                $pfx=[string](Get-PASValue $component.options 'certificatePfxFile' '')
-                if($pfx){
-                    $asset=Get-Item -LiteralPath $pfx -ErrorAction Stop
-                    if($asset.PSIsContainer -or $asset.Length -le 0 -or $asset.Length -gt 32768){throw 'PTA PFX must be a nonempty file no larger than 32768 bytes'}
-                    if((Get-FileHash -LiteralPath $pfx -Algorithm SHA256).Hash -ine [string]$component.options.certificatePfxSHA256){throw 'PTA PFX differs from its configured SHA256'}
-                    $files+=[IO.Path]::GetFullPath($pfx)
-                }
-            }
             if($component.type -eq 'CPM'){
                 $trust=[string](Get-PASValue $component.options 'pvwaTrustCertificateFile' '')
                 if($trust){

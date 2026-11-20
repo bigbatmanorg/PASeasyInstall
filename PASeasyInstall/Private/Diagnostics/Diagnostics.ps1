@@ -88,7 +88,7 @@ function Get-PASComponentStatus {
             }else{
                 $inventory=New-PASRuntimeInventory -Config $c -RunDirectory '' -SkipMediaHash
                 $target=$inventory.Targets[$id]
-                $service=if($type -eq 'PSMP'){'psmpsrv'}else{'appmgr'}
+                $service='psmpsrv'
                 $result=Invoke-PASRawSSH $target "systemctl is-active '$service'"
                 $entry.Reachable=($result.ExitCode -eq 0 -or -not [string]::IsNullOrWhiteSpace([string]$result.Output))
                 $entry.ServiceStatus=if($result.ExitCode -eq 0){'Running'}else{'NotRunning'}
