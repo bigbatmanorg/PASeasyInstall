@@ -1,4 +1,9 @@
 # Read-only normalized event stream. Engine stores structured JSONL; UI never scrapes a console.
+function ConvertTo-PASComponentId {
+    <# The Vault engine journals its two roles as primary/primary_final and dr/dr_final. #>
+    param([string]$Component)
+    switch -Regex ($Component){'^primary(_final)?$'{return 'vault'} '^dr(_final)?$'{return 'dr'} default{return $Component}}
+}
 function Get-PASDeploymentEvents {
     [CmdletBinding()]param([Parameter(Mandatory)][ValidatePattern('^[a-fA-F0-9]{32}$')][string]$RunId,
         [string]$DataRoot=(Get-PASDataRoot),[ValidateRange(1,1000)][int]$Tail=150)

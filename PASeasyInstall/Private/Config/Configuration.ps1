@@ -58,6 +58,9 @@ function New-PASConfigurationTemplate {
     return $config
 }
 function Test-PASConfiguration {
+    # The one validation of a deployment configuration: structure, topology and composition rules and,
+    # with -CheckMedia, the installer files. Accepts hand-written and composed (New-PASDeploymentConfiguration)
+    # configurations alike. Contacts no server. Returns Valid, Issues, Warnings and the normalized Configuration.
     [CmdletBinding()]param([string]$Config,$Configuration,[switch]$CheckMedia,[switch]$Strict)
     $c=Read-PASConfiguration -Path $Config -Configuration $Configuration
     $issues=New-Object 'System.Collections.Generic.List[string]'
@@ -78,6 +81,26 @@ function Test-PASConfiguration {
         if($type -notin @($windows+$linux)){$issues.Add("Unsupported component type: $type")}
         if(-not $c.hosts -or -not $c.hosts.Contains($host)){$issues.Add("Component $id references unknown host $host");continue}
         $target=$c.hosts[$host]
+        $entryOptions=Get-PASValue $entry 'options' $null
+        $label=[string](Get-PASValue $entry 'name' '')
+        if(-not $label){$label=$id}
+        if($type -eq 'PSMP' -and -not [bool](Get-PASValue $entryOptions 'acceptEula' $false)){
+            $issues.Add("Accept the CyberArk license agreement (EULA) for the PSMP installer ($label): options.acceptEula = true")
+        }
+        # pvwaTrustFrom: this CPM pins the HTTPS certificate of a PVWA of the same deployment. The run
+        # controller reads that certificate from the PVWA server right before the CPM is installed.
+        $trustFrom=[string](Get-PASValue $entryOptions 'pvwaTrustFrom' '')
+        if($trustFrom){
+            if($type -ne 'CPM'){$issues.Add("${label}: options.pvwaTrustFrom is only valid for a CPM")}
+            if(@($c.components|Where-Object {$_ -and [string]$_.id -eq $trustFrom -and $_.type -eq 'PVWA'}).Count -ne 1){
+                $issues.Add("$label trusts PVWA '$trustFrom', which is not part of this deployment")
+            }
+            if(Get-PASValue $entryOptions 'pvwaTrustCertificateFile' ''){$issues.Add("${label}: use either options.pvwaTrustFrom or options.pvwaTrustCertificateFile, not both")}
+        }
+        $entryUser=[string](Get-PASValue $entry 'user' '')
+        if($entryUser -and [string]$target.user -ne $entryUser){
+            $issues.Add("$label shares server $host with another component but uses account '$entryUser' instead of '$($target.user)'")
+        }
         if($type -in $windows -and $target.os -ne 'Windows'){$issues.Add("$type requires Windows ($host)")}
         if($type -in $linux -and $target.os -ne 'Linux'){$issues.Add("$type requires Linux ($host)")}
         if($type -in @('Vault','DRVault','AD') -and @($c.components | Where-Object {$_ -and $_.host -eq $host}).Count -gt 1){$issues.Add("$type must have its own dedicated host ($host)")}
@@ -107,6 +130,17 @@ function Test-PASConfiguration {
         }
     }
     if(@($c.components).Count -eq 0 -and -not $joinOnly){$issues.Add('At least one component or an explicit Existing AD Windows domain join is required')}
+    foreach($limited in @('PVWA','CPM','PSM','PSMP')){
+        if(@($c.components|Where-Object {$_ -and $_.type -eq $limited}).Count -gt 4){$issues.Add("At most 4 $limited server(s) are supported")}
+    }
+    # 'execution' is written by New-PASDeploymentConfiguration. A run always installs one component after
+    # the other; the key is accepted so that saved configurations keep loading.
+    $execution=Get-PASValue $c 'execution' $null
+    if($null -ne $execution){
+        $executionMode=[string](Get-PASValue $execution 'mode' 'Sequential')
+        if($executionMode -notin @('Sequential','Parallel')){$issues.Add('execution.mode must be Sequential or Parallel')}
+        elseif($executionMode -eq 'Parallel'){$warnings.Add('execution.mode Parallel is no longer supported; the components are installed one after the other')}
+    }
 
     if($c.activeDirectory.mode -notin @('None','Create','Existing')){$issues.Add('activeDirectory.mode must be None, Create or Existing')}
     if($c.activeDirectory.mode -eq 'Create' -and @($c.components | Where-Object {$_.type -eq 'AD'}).Count -ne 1){$issues.Add('AD mode Create requires one AD component')}
@@ -148,7 +182,7 @@ function Test-PASConfiguration {
     if($c.activeDirectory.mode -ne 'None' -and [string]$c.activeDirectory.domain -notmatch '^[a-zA-Z0-9][a-zA-Z0-9.-]{2,252}$'){$issues.Add('Invalid AD DNS domain name')}
     if($c.activeDirectory.mode -eq 'Create' -and $c.vault.existing -and @($c.components|Where-Object{$_.type -notin @('AD')}).Count -gt 0){$warnings.Add('Existing Vault configured; no new primary Vault will be installed')}
     if($ids.ContainsKey('dr') -and -not $ids.ContainsKey('vault')){$issues.Add('DR requires Primary Vault in the same new deployment')}
-    if(@($c.components | Where-Object {$_.type -eq 'DRVault'}).Count -gt 0 -and (@($c.components | Where-Object {$_.type -eq 'Vault'}).Count -ne 1 -or [bool]$c.vault.existing)){$issues.Add('DR may only be installed together with a fresh Primary Vault')}
+    if(@($c.components | Where-Object {$_.type -eq 'DRVault'}).Count -gt 0 -and (@($c.components | Where-Object {$_.type -eq 'Vault'}).Count -ne 1 -or [bool]$c.vault.existing)){$issues.Add('DR is only supported with a new Primary Vault in the same deployment; attaching DR to an existing Vault is not supported')}
     if(@($c.components | Where-Object {$_.type -eq 'Vault'}).Count -gt 1){$issues.Add('Only one new primary Vault is qualified in v2')}
     if(@($c.components | Where-Object {$_.type -eq 'DRVault'}).Count -gt 1){$issues.Add('Only one DR Vault is qualified in v2')}
     if($c.security.profile -notin @('Secure','Lab')){$issues.Add('security.profile must be Secure or Lab')}

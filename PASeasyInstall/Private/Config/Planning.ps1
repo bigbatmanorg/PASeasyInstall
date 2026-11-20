@@ -1,4 +1,8 @@
-﻿function Get-PASHostCredential {
+# Installer files approved by the plan of the running deployment: full path -> SHA-256.
+# $null outside a run. The run controller fills it; the Transfer step and the inventory read it.
+$script:PASFrozenMedia = $null
+
+function Get-PASHostCredential {
     param([hashtable]$Config,[hashtable]$CredentialMap,[string]$HostId,[string]$ComponentId='')
     $hostRecord=$Config.hosts[$HostId]
     $keys=@()
@@ -49,6 +53,31 @@ function Resolve-PASCredentialMap {
     }
     return $resolved
 }
+function ConvertTo-PASControllerCredentialMap {
+    <# WinRM from a workgroup controller needs an explicit local account: 'Administrator' becomes
+       '.\Administrator' (the target's own account), as the management endpoint expects.
+       Applied once, when a deployment is started or resumed. Linux and non-host credentials
+       (for example PSMDomainInstaller) pass through unchanged. #>
+    param($Configuration,[hashtable]$CredentialMap)
+    $out = @{}
+    foreach ($key in @($CredentialMap.Keys)) {
+        $cred = $CredentialMap[$key]
+        if ($cred -isnot [pscredential]) { throw "CredentialMap[$key] must be a PSCredential" }
+        $hostRecord = $null
+        if ($Configuration.hosts.Contains([string]$key)) {
+            $hostRecord = $Configuration.hosts[[string]$key]
+        } else {
+            $component = @($Configuration.components | Where-Object { $_.id -eq $key })
+            if ($component.Count) { $hostRecord = $Configuration.hosts[[string]$component[0].host] }
+        }
+        $user = [string]$cred.UserName
+        if ($hostRecord -and $hostRecord.os -eq 'Windows' -and $user -and $user -notmatch '[\\@]') {
+            $cred = [pscredential]::new('.\' + $user, $cred.Password)
+        }
+        $out[$key] = $cred
+    }
+    return $out
+}
 function Resolve-PASSecretMap {
     param([hashtable]$Config,[hashtable]$SecretMap)
     $resolved=$SecretMap.Clone()
@@ -74,17 +103,24 @@ function Get-PASDeploymentPlan {
     $c=$validated.Configuration
     $items=New-Object System.Collections.ArrayList
     $components=@($c.components | Where-Object { $null -ne $_ })
-    # AD always precedes eligible joins; Vault precedes all registrations.
+    # Order of a run: AD, domain joins, Vault (+DR), then PVWA, CPM, PSM, PSMP.
+    # PVWA registration creates the PVWA environment in the Vault (PVWAConfig safe, PVWAGWAccounts group)
+    # that CPM, PSM and PSMP registration need, so they all wait for the first PVWA of the deployment.
     $priority=@{AD=0;Vault=10;DRVault=20;PVWA=30;CPM=40;PSM=50;PSMP=60}
     $ordered=@($components | Sort-Object -Property @{Expression={ [int]$priority[[string]$_.type] }},id)
     $ids=@($ordered | ForEach-Object { [string]$_.id })
     $hasVault=(@($ordered | Where-Object {$_.type -eq 'Vault'}).Count -gt 0)
+    $firstPvwa=@($ordered | Where-Object {$_.type -eq 'PVWA'} | Select-Object -First 1)
     if($c.activeDirectory.mode -eq 'Create' -and @($ordered|Where-Object {$_.type -eq 'AD'}).Count -eq 0){throw 'Create AD requires an AD component in components[]'}
     foreach($entry in $ordered){
         $deps=@()
         $type=[string]$entry.type
         if($type -ne 'AD' -and $c.activeDirectory.mode -eq 'Create'){$deps+=@($ordered|Where-Object{$_.type -eq 'AD'}|ForEach-Object{$_.id})}
         if($type -notin @('AD','Vault') -and $hasVault){$deps+=@($ordered|Where-Object{$_.type -eq 'Vault'}|ForEach-Object{$_.id})}
+        if($type -in @('CPM','PSM','PSMP') -and $firstPvwa.Count){$deps+=@([string]$firstPvwa[0].id)}
+        # A CPM that pins the certificate of a PVWA of this deployment needs that PVWA installed first.
+        $trustFrom=[string](Get-PASValue (Get-PASValue $entry 'options' $null) 'pvwaTrustFrom' '')
+        if($trustFrom){$deps+=@($trustFrom)}
         $deployable=if($type -eq 'AD'){'ImplementationReadyForQualification'}elseif($type -in @('Vault','DRVault')){'MigratedNeedsRequalification'}else{'RecipePreparedNeedsVendorMediaQualification'}
         [void]$items.Add([pscustomobject]@{Id=[string]$entry.id;Type=$type;Host=[string]$entry.host;Variant=[string](Get-PASValue $entry 'variant' 'Standard');DependsOn=@($deps | Sort-Object -Unique);Readiness=$deployable})
     }
@@ -232,9 +268,12 @@ function New-PASComponentWorkflow {
     return $wfPath
 }
 function New-PASRuntimeInventory {
-    param([hashtable]$Config,[string]$RunDirectory,[switch]$SkipMediaHash,[hashtable]$CredentialMap=@{})
+    # -ComponentId limits the inventory to one component (its target and its values). The run controller
+    # writes one inventory per component, right before that component runs.
+    param([hashtable]$Config,[string]$RunDirectory,[switch]$SkipMediaHash,[hashtable]$CredentialMap=@{},[string]$ComponentId='')
     $targets=@{};$values=@{}
     foreach($entry in @($Config.components)){
+        if($ComponentId -and [string]$entry.id -ne $ComponentId){continue}
         $id=[string]$entry.id;$hostId=[string]$entry.host;$host=$Config.hosts[$hostId]
         $linux=($host.os -eq 'Linux')
         $targets[$id]=@{ComputerName=[string]$host.address;Protocol=$(if($linux){'SSH'}else{'WinRM'});
@@ -270,11 +309,13 @@ function New-PASRuntimeInventory {
         }
         if(-not $SkipMediaHash -and $componentSettings.MediaZip -and (Test-Path -LiteralPath $componentSettings.MediaZip -PathType Leaf)){
             $mediaPath=[IO.Path]::GetFullPath($componentSettings.MediaZip)
-            $frozen=Get-Variable -Name PASeasyFrozenMedia -Scope Script -ErrorAction SilentlyContinue
-            if($frozen -and $null -ne $frozen.Value -and $frozen.Value.ContainsKey($mediaPath)){$componentSettings.MediaSHA256=[string]$frozen.Value[$mediaPath]}
+            if($null -ne $script:PASFrozenMedia -and $script:PASFrozenMedia.ContainsKey($mediaPath)){$componentSettings.MediaSHA256=[string]$script:PASFrozenMedia[$mediaPath]}
             else{$componentSettings.MediaSHA256=(Get-FileHash -LiteralPath $mediaPath -Algorithm SHA256).Hash}
         }
-        if($entry.Contains('options')){$componentSettings.Options=$entry.options.Clone()}
+        if($entry.Contains('options') -and $entry.options){
+            # Copy: the inventory must not share (and later change) the configuration's own options.
+            foreach($optionName in @($entry.options.Keys)){$componentSettings.Options[[string]$optionName]=$entry.options[$optionName]}
+        }
         if($entry.type -eq 'CPM'){
             $componentSettings.PVWATrustCertificateFile=[string](Get-PASValue $componentSettings.Options 'pvwaTrustCertificateFile' '')
             $componentSettings.PVWATrustCertificateSHA256=[string](Get-PASValue $componentSettings.Options 'pvwaTrustCertificateSHA256' '')

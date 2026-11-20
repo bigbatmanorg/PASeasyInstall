@@ -5,7 +5,6 @@
 
 $script:PASComponentTypes=@('PVWA','CPM','PSM','PSMP')
 $script:PASLinuxTypes=@('PSMP')
-$script:PASMaxInstances=@{PVWA=4;CPM=4;PSM=4;PSMP=4}
 # Engine/journal names that must never be used as instance ids (event mapping and credential aliases).
 $script:PASReservedIds=@('vault','dr','primary','primary_final','dr_final','vault01','dr01','primaryadmin','dradmin','controller')
 
@@ -63,25 +62,16 @@ function Resolve-PASMediaItemPath {
     }finally{$zip.Dispose()}
     return $target
 }
-function Get-PASOwnCoreModule {
-    # The PASeasyInstall.Core instance that sits next to this Orchestrator (several versions may be loaded).
-    $modules=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-    $own=@(Get-Module PASeasyInstall.Core|Where-Object {$_.ModuleBase.StartsWith($modules,[StringComparison]::OrdinalIgnoreCase)})
-    if($own.Count){return $own[0]}
-    return (@(Get-Module PASeasyInstall.Core)|Select-Object -First 1)
-}
 function Select-PASVaultMediaRoot {
     <# The Vault recipe scans one media folder for the packages and the VC++ runtimes. Start at the folder that
        holds the Vault packages and walk up only while the runtimes are missing; stop at the first folder where
-       Core's own resolver finds them unambiguously, so sibling media trees (other versions) are never scanned. #>
+       the media resolver finds them unambiguously, so sibling media trees (other versions) are never scanned. #>
     param([string]$Start,[string]$Limit,[string]$Mode,[hashtable]$Overrides=@{})
     if(-not $Start){return $Limit}
     if(-not $Limit){$Limit=$Start}
-    $core=Get-PASOwnCoreModule
-    if(-not $core){return $Start}
     $dir=$Start
     while($dir){
-        $rows=@(& $core {param($p,$m,$o) Find-PASMedia -Path $p -Mode $m -Overrides $o} $dir $Mode $Overrides | Where-Object {$_.Key -in @('VCx86','VCx64')})
+        $rows=@(Find-PASMedia -Path $dir -Mode $Mode -Overrides $Overrides | Where-Object {$_.Key -in @('VCx86','VCx64')})
         $ambiguous=@($rows|Where-Object Status -eq 'Ambiguous')
         if($ambiguous.Count){throw ("Several copies of the VC++ runtime were found under $dir (" + (($ambiguous|ForEach-Object {$_.Candidates})-join ', ') + '). Keep one copy next to the Vault media, or add the media folder itself instead of its parent.')}
         if(@($rows|Where-Object Status -ne 'Ready').Count -eq 0){return $dir}
@@ -131,7 +121,7 @@ function New-PASDeploymentConfiguration {
     .EXAMPLE
     $sel = Get-PASMediaSelection -Inventory (Get-PASMediaInventory -Path D:\CyberArkMedia)
     $cfg = New-PASDeploymentConfiguration -Environment MyLab -VaultMode PrimaryDR -PrimaryAddress 192.0.2.11 -DRAddress 192.0.2.12 `
-             -ControllerAddress 192.0.2.10 -Media $sel -SecurityProfile Lab -ExecutionMode Parallel `
+             -ControllerAddress 192.0.2.10 -Media $sel -SecurityProfile Lab `
              -Instances @(@{Type='PVWA';Name='PVWA01';Address='192.0.2.21'},@{Type='CPM';Name='CPM01';Address='192.0.2.21'})
     Save-PASEnvironment -Configuration $cfg -Path .\MyLab.json
     #>
@@ -255,41 +245,9 @@ function New-PASDeploymentConfiguration {
     return $c
 }
 
-function Test-PASCompositionRules {
-    <# Composition rules on top of the engine validation. Returns @{Issues;Warnings}. #>
-    param($Configuration)
-    $issues=@();$warnings=@()
-    $comps=@($Configuration.components|Where-Object {$_})
-    foreach($t in $script:PASComponentTypes){
-        $n=@($comps|Where-Object {$_.type -eq $t}).Count
-        if($n -gt $script:PASMaxInstances[$t]){$issues+="At most $($script:PASMaxInstances[$t]) $t server(s) are supported"}
-    }
-    $ids=@{};foreach($e in $comps){$ids[[string]$e.id]=$e}
-    foreach($e in $comps){
-        $opts=$null;if($e -is [System.Collections.IDictionary] -and $e.Contains('options')){$opts=$e.options}
-        $label=if($e -is [System.Collections.IDictionary] -and $e.Contains('name') -and $e.name){[string]$e.name}else{[string]$e.id}
-        if($e.type -eq 'PSMP' -and -not ($opts -and $opts.Contains('acceptEula') -and [bool]$opts.acceptEula)){
-            $issues+="Accept the CyberArk license agreement (EULA) for the PSMP installer ($label)"
-        }
-        if($opts -and $opts.Contains('pvwaTrustFrom')){
-            $src=[string]$opts.pvwaTrustFrom
-            if(-not $ids.ContainsKey($src) -or $ids[$src].type -ne 'PVWA'){$issues+="$label trusts PVWA '$src', which is not part of this deployment"}
-            elseif(-not $Configuration.Contains('execution')){$issues+="$label pins a PVWA certificate captured at install time; start it with Start-PASEnvironment"}
-        }
-        if($e -is [System.Collections.IDictionary] -and $e.Contains('user') -and $e.user -and $Configuration.hosts.Contains([string]$e.host) -and [string]$Configuration.hosts[[string]$e.host].user -ne [string]$e.user){
-            $issues+="$label shares a server with $($e.host) but uses account '$($e.user)' instead of '$($Configuration.hosts[[string]$e.host].user)'"
-        }
-    }
-    if($Configuration.Contains('execution')){
-        $mode=[string]$Configuration.execution.mode
-        if($mode -notin @('Sequential','Parallel')){$issues+="execution.mode must be Sequential or Parallel"}
-    }
-    if(@($comps|Where-Object {$_.type -in @('Vault','DRVault')}).Count -eq 0 -and $comps.Count -eq 0){$issues+='Nothing selected to install'}
-    return @{Issues=@($issues);Warnings=@($warnings)}
-}
-
 function Add-PASPlanDetail {
-    <# Display fields the desktop needs (instance name, address, OS, installer file). #>
+    <# Display fields the desktop needs (instance name, address, OS, installer file). The order and the
+       dependencies of the items already come from Get-PASDeploymentPlan. #>
     param($Plan,$Configuration)
     foreach($item in @($Plan.Items)){
         $e=@($Configuration.components|Where-Object {$_.id -eq $item.Id})[0]
@@ -308,18 +266,5 @@ function Add-PASPlanDetail {
     }
     $existing=if($Configuration.vault.existing){[string]$Configuration.vault.address}else{''}
     $Plan|Add-Member -NotePropertyName ExistingVault -NotePropertyValue $existing -Force
-    if($Configuration.Contains('execution') -and $Configuration.execution.mode){$Plan.ExecutionMode=[string]$Configuration.execution.mode}
-    # Show the order the composed deployment really uses (e.g. CPM, PSM and PSMP wait for the first PVWA), not only
-    # the engine's per-component Vault dependency.
-    if($Configuration.Contains('execution')){
-        $byComponent=@{}
-        foreach($u in @(Get-PASFleetUnits -Configuration $Configuration)){
-            if($u.id -eq 'vault'){continue}
-            foreach($cid in @($u.components)){$byComponent[[string]$cid]=@($u.dependsOn)}
-        }
-        foreach($item in @($Plan.Items)){
-            if($byComponent.ContainsKey([string]$item.Id)){$item|Add-Member -NotePropertyName DependsOn -NotePropertyValue @($byComponent[[string]$item.Id]) -Force}
-        }
-    }
     return $Plan
 }
