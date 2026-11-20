@@ -3,7 +3,7 @@
 function Get-PASDurableCheck {
     param($Plan,$Step,[hashtable]$Credentials,[hashtable]$Inputs,[hashtable]$Current,[hashtable]$Context,[string]$Purpose='Initial',[int]$TimeoutSeconds=900)
     $authenticated=[bool](Get-PASValue $Step 'VerifyRequiresVaultSession' $false)
-    if($authenticated -and -not [bool](Get-PASValue $Context 'VaultAdmitted' $false)){throw 'PAExecUnknown: authenticated check has no admitted Vault lease'}
+    if($authenticated -and -not [bool](Get-PASValue $Context 'VaultLocked' $false)){throw 'PAExecUnknown: authenticated check runs without the Vault lock'}
     $path=Assert-PASProjectPath $Plan.Root ([string]$Step.Verify)
     $payload=Get-PASRecipePayload $path
     $digest=Get-PASFileSetDigest $payload.Files

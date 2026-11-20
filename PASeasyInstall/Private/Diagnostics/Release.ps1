@@ -1,6 +1,6 @@
 # Release-surface helpers: environment health check and sanitized run-data export.
 # Both are read-only towards the lab, except the health check's single PVWA REST session, which is
-# serialised with deployments through the engine's Vault gate and always logged off.
+# serialised with deployments through the Vault lock (Locks.ps1) and always logged off.
 
 function New-PASZipFromDirectory {
     # ZIP with forward-slash entry names. Windows PowerShell 5.1's ZipFile.CreateFromDirectory writes
@@ -115,7 +115,7 @@ function Test-PASEnvironmentHealth {
     With -DRCredential it also reads the DR server's last PADR replication cycle over WinRM. With DR
     configured, component password rotation fails while DR is not replicating (CASTM057E).
 
-    The session is serialised with deployments through the same Vault gate the installer uses, and is
+    The session is serialised with deployments through the same Vault lock the installer uses, and is
     always logged off. Credentials are used in memory only and are never written anywhere.
     .PARAMETER Config
     Path of the deployment configuration (JSON) that installed the lab.
@@ -150,17 +150,13 @@ function Test-PASEnvironmentHealth {
     $pin=''
     if($pinFile){$pin=(New-Object Security.Cryptography.X509Certificates.X509Certificate2($pinFile)).Thumbprint;$result.TlsValidation='PinnedCertificate+HostName'}
     else{$result.TlsValidation='SystemTrust+HostName'}
-    $core=Get-PASOwnCoreModule
-    $dataRoot=& $core {Get-PASDataRoot}
-    $healthRun=[guid]::NewGuid().ToString('N')
-    $gates=New-Object System.Collections.ArrayList
+    $vaultLock=$null
     $previousCallback=[Net.ServicePointManager]::ServerCertificateValidationCallback
     $previousProtocol=[Net.ServicePointManager]::SecurityProtocol
     $token=$null
     try{
-        $identities=@(& $core {param($a) Get-PASResourceIdentity -Address $a} ([string]$c.vault.address)|Sort-Object -Unique)
-        foreach($identity in $identities){[void]$gates.Add((& $core {param($n,$d,$r) Enter-PASGate -Name $n -DataRoot $d -RunId $r -TimeoutSeconds 60} ('vault-'+$identity) $dataRoot $healthRun))}
-        if(@($gates|Where-Object {$_.PreexistingClaim}).Count){throw 'An unreconciled Vault session claim exists on this controller (a failed deployment or health check). Reconcile it before opening a new session.'}
+        # One authenticated Vault session at a time on this controller: wait for a running deployment step.
+        $vaultLock=Enter-PASVaultLock -Address ([string]$c.vault.address) -TimeoutSeconds 60
         [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
         if($pin){
             $expected=$pin
@@ -208,7 +204,7 @@ function Test-PASEnvironmentHealth {
         $token=$null
         [Net.ServicePointManager]::ServerCertificateValidationCallback=$previousCallback
         [Net.ServicePointManager]::SecurityProtocol=$previousProtocol
-        foreach($g in @($gates)){try{$g.Complete()}catch{};try{$g.Dispose()}catch{}}
+        Exit-PASVaultLock $vaultLock
     }
     $dr=@($c.components|Where-Object {$_ -and $_.type -eq 'DRVault'})
     if($dr.Count -and $DRCredential){

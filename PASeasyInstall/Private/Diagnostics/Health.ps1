@@ -1,4 +1,4 @@
-# Caller owns controller-wide credential coordination. Unknown session state must retain its claim.
+# The caller holds the Vault lock (Enter-PASVaultLock) while this session is open.
 function Invoke-PASAuthenticatedWebHealth {
     [CmdletBinding()]
     param([Parameter(Mandatory)][uri]$ApiBaseUri,[Parameter(Mandatory)][pscredential]$Credential,

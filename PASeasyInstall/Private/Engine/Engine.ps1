@@ -79,7 +79,27 @@ function Save-PASState {
     $Context.State.updatedUtc=Get-PASNow
     Write-PASJournal (Join-Path $Context.RunDirectory 'state.json') $Context.State
 }
+function Get-PASRemoteLockFolder {
+    # The folder on the server that holds the target lock (its owner file names the RunId).
+    param([hashtable]$Target,[string]$LockKey)
+    if ([string](Get-PASValue $Target 'Runtime' '') -eq 'Bash') { return ('~/.paeasyinstall/locks/' + $LockKey) }
+    $root = [string](Get-PASValue $Target 'StageRoot' 'C:\ProgramData\PAExec')
+    return ($root.TrimEnd('\') + '\locks\' + $LockKey)
+}
+function Get-PASRemoteLockedMessage {
+    # What the operator can do when a server is locked by another run.
+    param([hashtable]$Target,[string]$LockKey,[string]$Answer)
+    $owner = ([string]$Answer).Trim() -replace '^locked:', ''
+    $folder = Get-PASRemoteLockFolder $Target $LockKey
+    $server = [string](Get-PASValue $Target 'ComputerName' $LockKey)
+    if ($owner -notmatch '^[A-Za-z0-9_-]{6,80}$') {
+        return "PAExecLocked: server $server ('$LockKey') is locked, but the lock does not name its run. Check that no installation is running there, then delete the lock folder $folder on $server."
+    }
+    return "PAExecLocked: server $server ('$LockKey') is locked by run $owner. Either resume that run (Resume-PASRun -RunId $owner), or release it (Stop-PASRun -RunId $owner), or, if that run no longer exists on this controller, delete the lock folder $folder on $server."
+}
 function Invoke-PASRemoteLock {
+    # Target lock: one run per server. Acquired when a workflow starts, released when it succeeds.
+    # It stays on the server after a failure and is taken again by the same RunId on resume.
     param($Plan,[hashtable]$Credentials,[string]$RunId,[switch]$Release)
     $protocol=[string]$Plan.Target.Protocol
     if($protocol -eq 'Local'){return $false}
@@ -90,7 +110,7 @@ function Invoke-PASRemoteLock {
         else{$cmd='mkdir -p ~/.paeasyinstall/locks && d=~/.paeasyinstall/locks/{0}; if mkdir "$d" 2>/dev/null; then echo {1} > "$d/owner"; echo acquired; elif [ "$(cat "$d/owner" 2>/dev/null)" = "{1}" ]; then echo acquired; else echo "locked:$(cat "$d/owner" 2>/dev/null)"; fi' -f $targetName,$RunId}
         $r=Invoke-PASRawSSH $Plan.Target $cmd
         if($r.ExitCode -ne 0){throw "Remote lock operation failed ($($r.ExitCode)): $($r.Output)"}
-        if(-not $Release -and $r.Output -notmatch 'acquired'){throw "PAExecLocked: target '$targetName' is locked by another run ($($r.Output.Trim())); inspect before any takeover"}
+        if(-not $Release -and $r.Output -notmatch 'acquired'){throw (Get-PASRemoteLockedMessage $Plan.Target $targetName ([string]$r.Output))}
         return $true
     }
     $root=[string](Get-PASValue $Plan.Target 'StageRoot' 'C:\ProgramData\PAExec')
@@ -99,7 +119,7 @@ function Invoke-PASRemoteLock {
     $user=if($reference -and $Credentials.ContainsKey($reference)){[string]$Credentials[$reference].UserName}else{''}
     $res=Invoke-Command -Session $session -ScriptBlock (Get-PASWindowsStagePreparation) -ArgumentList $root,$targetName,$RunId,([bool]$Release),$user -ErrorAction Stop
     $message=[string]$res.Message
-    if(-not $Release -and $message -ne 'acquired'){throw "PAExecLocked: target '$targetName' is locked by another run ($message); inspect the remote lock before any takeover"}
+    if(-not $Release -and $message -ne 'acquired'){throw (Get-PASRemoteLockedMessage $Plan.Target $targetName $message)}
     return $true
 }
 function Test-PASStepCompleted {
@@ -153,20 +173,19 @@ function Test-PASStepCompleted {
     }
     throw "PAExecUnknown: cannot trust checkpoint without a read-only Verify or Probe"
 }
-function Complete-PASVaultOperation {
-    param([object[]]$Gates,[hashtable]$Target,[hashtable]$Credentials,$StepState,[string]$Mode)
-    if(-not @($Gates).Count){return}
-    if($StepState.status -eq 'Skipped'){
-        if(@($Gates|Where-Object {$_.PreexistingClaim}).Count){throw 'PAExecUnknown: a preexisting Vault claim needs durable attempt reconciliation'}
-    }elseif($Mode -eq 'Detached' -and $StepState.attemptId){
+function Wait-PASVaultSessionEnd {
+    # Called before the Vault lock of a finished step is released: the remote worker that held the Vault
+    # session (the step's detached attempt, and the attempt of its detached check if it has one) must have
+    # exited, so the next holder of the lock never overlaps with a session that is still open.
+    param([hashtable]$Target,[hashtable]$Credentials,$StepState,[string]$Mode)
+    if ($StepState.status -eq 'Skipped') { return }
+    if ($Mode -eq 'Detached' -and (Get-PASValue $StepState 'attemptId' '')) {
         Wait-PASDetachedSessionQuiescence $Target $Credentials ([string]$StepState.attemptId)
-    }elseif(-not(Get-PASValue $StepState 'check' $null)){throw 'PAExecUnknown: authenticated operation has no durable worker-exit evidence'}
-    $check=Get-PASValue $StepState 'check' $null
-    if($check){
-        if($check.status -ne 'Completed' -or -not $check.consumed){throw 'PAExecUnknown: durable verifier result has not been consumed'}
+    }
+    $check = Get-PASValue $StepState 'check' $null
+    if ($check -and (Get-PASValue $check 'attemptId' '')) {
         Wait-PASDetachedSessionQuiescence $Target $Credentials ([string]$check.attemptId)
     }
-    Exit-PASVaultOperation -Gates $Gates -Succeeded $true
 }
 function Invoke-PASWorkflow {
     [CmdletBinding()]
@@ -176,9 +195,11 @@ function Invoke-PASWorkflow {
         [string]$StateRoot=(Join-Path (Get-Location) 'state'),
         [string]$RunId=([guid]::NewGuid().ToString('N')),
         [hashtable]$Credentials=@{},[hashtable]$Secrets=@{},
-        [string[]]$Retry=@(),[string]$VaultSessionAddress='',[string]$CoordinationDataRoot='',
-        [switch]$Resume,[switch]$PlanOnly,[switch]$Quiet,$BorrowedVaultLease
+        [string[]]$Retry=@(),[string]$VaultAddress='',
+        [switch]$Resume,[switch]$PlanOnly,[switch]$Quiet
     )
+    # -VaultAddress: steps marked RequiresVaultSession / VerifyRequiresVaultSession hold the Vault lock of
+    # this address (Locks.ps1) while they run.
     $plan=Get-PASWorkflowPlan -WorkflowPath $WorkflowPath -InventoryPath $InventoryPath
     if($PlanOnly){
         return [pscustomobject]@{Name=$plan.Name;Target=$plan.TargetName;Protocol=$plan.Target.Protocol;Runtime=$plan.Runtime;Digest=$plan.Digest;Steps=@($plan.Steps|ForEach-Object { [pscustomobject]@{Id=$_.Id;Kind=(Get-PASValue $_ 'Kind' 'Script');Mode=(Get-PASValue $_ 'Mode' 'Direct');Scope=(Get-PASValue $_ 'Scope' 'Target');Verify=(Get-PASValue $_ 'Verify' '');DependsOn=@(Get-PASValue $_ 'DependsOn' @());Publishes=@(Get-PASValue $_ 'Publishes' @())} });MutatesTargets=$false}
@@ -186,11 +207,6 @@ function Invoke-PASWorkflow {
     if($RunId -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_-]{5,79}$'){throw 'Invalid RunId'}
     foreach($r in $Retry){ if(-not (@($plan.Steps | ForEach-Object { [string]$_.Id }) -contains $r)){ throw "Retry names unknown step '$r'" } }
     if($Retry.Count -gt 0 -and -not $Resume){throw '-Retry is only meaningful with -Resume'}
-    if($VaultSessionAddress -and -not $CoordinationDataRoot){throw 'Authenticated steps require an explicit coordination data root'}
-    if($BorrowedVaultLease){
-        if($VaultSessionAddress){throw 'A borrowed Vault lease cannot be nested inside per-step admission'}
-        Assert-PASBorrowedVaultLease $BorrowedVaultLease $RunId
-    }
     $StateRoot=[IO.Path]::GetFullPath($StateRoot)
     $runDir=Join-Path (Join-Path $StateRoot $RunId) $plan.TargetName
     New-Item -Path $runDir -ItemType Directory -Force | Out-Null
@@ -200,7 +216,7 @@ function Invoke-PASWorkflow {
     $context=@{ State=$null;RunId=$RunId;TargetName=$plan.TargetName;RunDirectory=$runDir;Seq=0;Redactions=$redactions;Echo=(-not $Quiet) }
     $runtimeValues=@{ RunId=$RunId; TargetName=$plan.TargetName }
     $remoteLock=$false
-    $stepOperationGates=@()
+    $vaultLock=$null
     try {
         $statePath=Join-Path $runDir 'state.json'
         if($Resume){
@@ -223,7 +239,7 @@ function Invoke-PASWorkflow {
             Add-PASEvent $context 'RunStarted' '' "Workflow $($plan.Name) started on $($plan.Target.Protocol)/$($plan.Runtime) (PowerShell $($PSVersionTable.PSVersion))"
         }
         $remoteLock=Invoke-PASRemoteLock $plan $Credentials $RunId
-        if($remoteLock){Add-PASEvent $context 'TargetLocked' '' 'remote target lease acquired'}
+        if($remoteLock){Add-PASEvent $context 'TargetLocked' '' 'target lock acquired'}
         $outputs=@{}
         foreach($k in @($state.steps.Keys)){ $d=Get-PASValue $state.steps[$k] 'data' $null; if($null -ne $d){$outputs[$k]=$d} }
         foreach($step in $plan.Steps){
@@ -242,15 +258,14 @@ function Invoke-PASWorkflow {
                 $inputs['PAExecCredentials']=$Credentials
                 $inputs['PAExecRunId']=$RunId
             }
-            if(@($stepOperationGates).Count){throw 'Previous Vault operation was not reconciled'}
             $requiresVault=([bool](Get-PASValue $step 'RequiresVaultSession' $false) -or [bool](Get-PASValue $step 'VerifyRequiresVaultSession' $false))
-            $context.VaultAdmitted=$false
+            $context.VaultLocked=$false
             if($requiresVault){
-                if($BorrowedVaultLease){Assert-PASBorrowedVaultLease $BorrowedVaultLease $RunId}
-                elseif($VaultSessionAddress){$stepOperationGates=@(Enter-PASVaultOperation -Address $VaultSessionAddress -DataRoot $CoordinationDataRoot -RunId $RunId)}
-                else{throw 'PAExecUnknown: authenticated step requires an admitted Vault lease'}
-                $context.VaultAdmitted=$true
-                Add-PASEvent $context 'VaultOperationAdmitted' $id 'Exclusive authenticated operation admitted; independent OS installation holds no Vault session claim'
+                # Nothing has been dispatched yet, so a missing address or a busy Vault is a plain failure.
+                if(-not $VaultAddress){throw "Step '$id' opens a Vault session and needs -VaultAddress"}
+                $vaultLock=Enter-PASVaultLock -Address $VaultAddress
+                $context.VaultLocked=$true
+                Add-PASEvent $context 'VaultLockAcquired' $id "Vault lock held for this step ($VaultAddress)"
             }
             $retrying=($Retry -contains $id)
             if($retrying -and $current -and (Get-PASValue $current 'check' $null)){
@@ -284,8 +299,11 @@ function Invoke-PASWorkflow {
                 Save-PASState $context
                 Add-PASEvent $context 'TaskRevalidated' $id $how
                 if($step.Contains('Publishes')){foreach($milestone in @($step.Publishes)){Write-PASMilestone $StateRoot $RunId $milestone $plan.TargetName $id}}
-                Complete-PASVaultOperation $stepOperationGates $plan.Target $Credentials $current $mode
-                $stepOperationGates=@()
+                if($vaultLock){
+                    Wait-PASVaultSessionEnd $plan.Target $Credentials $current $mode
+                    Exit-PASVaultLock $vaultLock
+                    $vaultLock=$null
+                }
                 continue
             }
             if($current -and -not $retrying){
@@ -500,8 +518,11 @@ function Invoke-PASWorkflow {
                 Add-PASEvent $context 'TaskCompleted' $id ([string]$current.status + $(if(Get-PASValue $current 'message' ''){': '+(Get-PASValue $current 'message' '')}else{''}))
                 if($step.Contains('Publishes')){foreach($m in @($step.Publishes)){Write-PASMilestone $StateRoot $RunId ([string]$m) $plan.TargetName $id; Add-PASEvent $context 'MilestonePublished' $id ([string]$m)}}
                 if(($mode -eq 'Detached' -or $durableBash) -and $current.status -eq 'Succeeded'){try{Finish-PASDetached $plan.Target $Credentials $attempt}catch{Add-PASEvent $context 'CleanupWarning' $id ('detached task cleanup failed: '+$_.Exception.Message) 'Warning'}}
-                Complete-PASVaultOperation $stepOperationGates $plan.Target $Credentials $current $mode
-                $stepOperationGates=@()
+                if($vaultLock){
+                    Wait-PASVaultSessionEnd $plan.Target $Credentials $current $mode
+                    Exit-PASVaultLock $vaultLock
+                    $vaultLock=$null
+                }
             }catch{
                 $message=[string]$_.Exception.Message
                 $uncertain=($message.StartsWith('PAExecUnknown:') -or ($dispatched -and -not $acknowledged -and $plan.Target.Protocol -ne 'Local' -and $scope -ne 'Controller'))
@@ -530,7 +551,8 @@ function Invoke-PASWorkflow {
         throw
     }finally{
         try{
-            if(@($stepOperationGates).Count){Exit-PASVaultOperation -Gates $stepOperationGates -Succeeded $false}
+            # A failed step ends here: the Vault lock is never kept after a failure.
+            Exit-PASVaultLock $vaultLock
         }finally{
             if($remoteLock -and $context.State -and $context.State.status -eq 'Succeeded'){
                 try{[void](Invoke-PASRemoteLock $plan $Credentials $RunId -Release)}catch{Write-Verbose 'lock release failed'}

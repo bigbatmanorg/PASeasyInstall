@@ -42,24 +42,46 @@ function Read-PASEnvelope {
     foreach($p in $raw.secrets.PSObject.Properties){$secrets[$p.Name]=$p.Value|ConvertTo-SecureString}
     return @{Credentials=$credentials;Secrets=$secrets}
 }
+function Test-PASControllerAlive {
+    # Is the controller process recorded in a run record still running? $true, $false, or $null when the
+    # process list cannot be read (then nobody may conclude that it stopped).
+    # A PID alone is not enough (Windows reuses PIDs): the process start time must match the recorded one.
+    param($Record)
+    if (-not (Get-PASValue $Record 'controllerPid' $null)) { return $false }
+    try {
+        $process = Get-CimInstance Win32_Process -Filter ('ProcessId = ' + [int]$Record.controllerPid) -ErrorAction Stop
+    } catch {
+        return $null
+    }
+    if (-not $process) { return $false }
+    $started = [string](Get-PASValue $Record 'controllerStartedUtc' '')
+    if ($started) {
+        $difference = $process.CreationDate.ToUniversalTime() - [DateTime]::Parse($started).ToUniversalTime()
+        return ([Math]::Abs($difference.TotalMilliseconds) -lt 1)
+    }
+    return ([string]$process.CommandLine).Contains([string]$Record.id)
+}
 function Get-PASRunRecord {
+    # The run record (run-v2.json) as stored, except that a run whose controller process is gone is reported
+    # as Interrupted (or LaunchFailed when no controller ever started): a dead controller never looks alive.
     [CmdletBinding()]param([Parameter(Mandatory)][string]$RunId,[string]$DataRoot=(Get-PASDataRoot))
     $dir=Get-PASRunDirectory $RunId $DataRoot
     $run=Read-PASJson (Join-Path $dir 'run-v2.json')
     if(-not $run){return $null}
-    if($run.status -in @('Running','Launching') -and $run.controllerPid){
-        try {
-            $p=Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$run.controllerPid) -ErrorAction Stop
-            $started=[string](Get-PASValue $run 'controllerStartedUtc' '')
-            $sameProcess=$false
-            if($p){
-                if($started){$sameProcess=([Math]::Abs(($p.CreationDate.ToUniversalTime()-[DateTime]::Parse($started).ToUniversalTime()).TotalMilliseconds) -lt 1)}
-                else{$sameProcess=([string]$p.CommandLine).Contains($RunId)}
-            }
-            if(-not $sameProcess){
-                $run.status='Interrupted';$run.message='Controller ended. Remote attempts require reconciliation on resume.'
-            }
-        }catch{} # When process inspection fails, do not claim it stopped.
+    if ($run.status -notin @('Running','Launching')) { return $run }
+    if ($run.controllerPid) {
+        if ((Test-PASControllerAlive $run) -eq $false) {
+            $run.status = 'Interrupted'
+            $run.message = 'The controller process ended without recording an outcome. Resume the run: it reconciles what happened on the servers.'
+        }
+        return $run
+    }
+    # Launching without a controller PID: the controller is starting right now, or it never started.
+    $started = [DateTime]::MinValue
+    $parsed = [DateTime]::TryParse([string]$run.startedUtc, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AdjustToUniversal, [ref]$started)
+    if (-not $parsed -or ([DateTime]::UtcNow - $started).TotalMinutes -gt 2) {
+        $run.status = 'LaunchFailed'
+        $run.message = 'The controller process never started for this run. Resume it or start a new run.'
     }
     return $run
 }
@@ -77,10 +99,15 @@ function Write-PASRunEvent {
     $line=[ordered]@{timestampUtc=[DateTime]::UtcNow.ToString('o');event=$Event;component=$ComponentId;taskId=$Stage;level=$Level;message=$Message}
     [IO.File]::AppendAllText((Join-Path $Dir 'events-v2.jsonl'),(($line|ConvertTo-Json -Compress)+"`n"),[Text.UTF8Encoding]::new($false))
 }
-function Test-PASActiveEnvironment {
+function Assert-PASEnvironmentNotRunning {
+    # A new run for an environment name is refused only while another run of that name has a live controller.
+    # Failed, Unknown, Interrupted, Blocked and Abandoned runs do not block: the target locks on the servers
+    # (Invoke-PASRemoteLock) are what protects a half-installed server from a different run.
     param([string]$Name,[string]$DataRoot,[string]$ExcludeRunId='')
-    $active=@(Get-PASRunRecords -DataRoot $DataRoot | Where-Object { $_.name -eq $Name -and $_.id -ne $ExcludeRunId -and $_.status -in @('Launching','Running','Unknown','Interrupted') })
-    if($active.Count){throw "Environment '$Name' has unresolved deployment $($active[0].id). Resume or reconcile it before creating another."}
+    $live = @(Get-PASRunRecords -DataRoot $DataRoot | Where-Object { $_.name -eq $Name -and $_.id -ne $ExcludeRunId -and $_.status -in @('Launching','Running') })
+    if ($live.Count) {
+        throw "Environment '$Name' is being deployed right now by run $($live[0].id) (controller process $($live[0].controllerPid)). Wait for it, or stop it with Stop-PASRun -RunId $($live[0].id) -Force."
+    }
 }
 function Wait-PASControllerCompletion {
     param([string]$RunId,[string]$DataRoot,[int]$ControllerPid=0,[datetime]$ControllerStartedAfterUtc=[datetime]::MinValue)
@@ -137,7 +164,7 @@ function Start-PASDeployment {
     Assert-PASWindowsController
     if(-not $PSCmdlet.ShouldProcess([string]$c.name,'Start CyberArk deployment')){return $plan}
     Assert-PASVaultInstallationSecrets -Configuration $c -Secrets $SecretMap
-    Test-PASActiveEnvironment -Name ([string]$c.name) -DataRoot $DataRoot
+    Assert-PASEnvironmentNotRunning -Name ([string]$c.name) -DataRoot $DataRoot
     # WinRM needs an explicit local account for workgroup servers ('Administrator' -> '.\Administrator').
     $CredentialMap=ConvertTo-PASControllerCredentialMap $c $CredentialMap
     $id=[guid]::NewGuid().ToString('N');$dir=Get-PASRunDirectory $id $DataRoot
@@ -311,8 +338,9 @@ function Invoke-PASRunTarget {
         RunId = $Run.RunId; Credentials = $Run.Credentials; Secrets = $Run.Secrets; Resume = $resume
     }
     if ($resume -and @($Retry).Count) { $arguments.Retry = @($Retry) }
-    if ($Run.VaultLease) { $arguments.BorrowedVaultLease = $Run.VaultLease }
-    else { $arguments.VaultSessionAddress = [string]$Run.Config.vault.address; $arguments.CoordinationDataRoot = $Run.DataRoot }
+    # Steps that open a Vault session take the Vault lock of this address (Locks.ps1).
+    $vaultAddress = [string](Get-PASValue (Get-PASValue $Run.Config 'vault' $null) 'address' '')
+    if ($vaultAddress) { $arguments.VaultAddress = $vaultAddress }
     Invoke-PASWorkflow @arguments | Out-Null
 }
 function Invoke-PASActiveDirectoryForest {
@@ -462,9 +490,9 @@ function Invoke-PASRunController {
     [CmdletBinding()]param([Parameter(Mandatory)][string]$RunId,[string]$DataRoot=(Get-PASDataRoot),[string]$Envelope,[switch]$Resume,[hashtable]$InMemoryAuth,[switch]$RetryFailedPreflight)
     Assert-PASWindowsController
     $dir=Get-PASRunDirectory $RunId $DataRoot
-    # Acquire before reading/changing controller metadata. A second Resume may
-    # race the first caller, but it must never overwrite that owner's status.
-    # Keep the empty lockfile: deleting it can create two independent lock inodes.
+    # Run lock: one controller process per run. Acquire it before reading/changing the run record. A second
+    # Resume may race the first caller, but it must never overwrite that owner's status.
+    # Keep the empty lockfile: deleting it can create two independent lock files.
     $lease=Get-PASFileLock (Join-Path $dir 'controller.lock')
     try{
         $path=Join-Path $dir 'run-v2.json'
@@ -520,25 +548,9 @@ function Invoke-PASRunControllerCore {
     $record.controllerPid=$PID;$record.status='Running';$record.message='Executing deployment';$record.finishedUtc=$null
     Write-PASJsonAtomic $recordPath $record
     $run=@{RunId=$RunId;DataRoot=$DataRoot;Directory=$dir;Config=$config;Credentials=$auth.Credentials;Secrets=$auth.Secrets
-        Record=$record;RecordPath=$recordPath;Target='';SshReady=@{};RetryFailedPreflight=[bool]$RetryFailedPreflight;VaultLease=$null}
-    $lock=$null; $vaultSequenceGates=@(); $hostGates=New-Object System.Collections.ArrayList
+        Record=$record;RecordPath=$recordPath;Target='';SshReady=@{};RetryFailedPreflight=[bool]$RetryFailedPreflight}
     try {
-        # One writer per environment/host. Vault admission is limited to authenticated operations.
-        $lock=Enter-PASGate -Name ('environment-'+[string]$config.name) -DataRoot $DataRoot -RunId $RunId -TimeoutSeconds 1
         Assert-PASVaultInstallationSecrets -Configuration $config -Secrets $auth.Secrets -ReferencesResolved
-        $allHosts=@(Get-PASDeploymentHostIds $config)
-        $endpointOwners=@{}
-        $addresses=@(foreach($hostId in $allHosts){
-            foreach($endpoint in @(Get-PASResourceIdentity ([string]$config.hosts[$hostId].address))){
-                if($endpointOwners.ContainsKey($endpoint) -and $endpointOwners[$endpoint] -ne $hostId){throw 'Host DNS aliases resolve to the same endpoint; configure co-location with one host record'}
-                $endpointOwners[$endpoint]=$hostId
-                $endpoint
-            }
-        })
-        $addresses=@($addresses | Sort-Object -Unique)
-        foreach($address in $addresses){
-            [void]$hostGates.Add((Enter-PASGate -Name ('host-'+$address) -DataRoot $DataRoot -RunId $RunId -TimeoutSeconds 30))
-        }
         if ($Resume) { Write-PASRunEvent $dir 'RunResumed' 'Resuming the run: finished components are revalidated, then the remaining ones are installed' }
         foreach ($warning in @($plan.Warnings | Where-Object { $_ -like 'execution.mode*' })) { Write-PASRunEvent $dir 'Warning' ([string]$warning) '' '' 'Warning' }
         if (-not $Resume) {
@@ -551,13 +563,11 @@ function Invoke-PASRunControllerCore {
         Invoke-PASDomainJoins -Run $run
         if(@($config.components|Where-Object{$_.type -eq 'Vault'}).Count){
             Write-PASRunEvent $dir 'VaultSequence' 'Starting primary/DR installation'
-            # This coordinated sequence includes PACLI, DR registration and replication.
-            $vaultSequenceGates=@(Enter-PASVaultOperation -Address ([string]$config.vault.address) -DataRoot $DataRoot -RunId $RunId)
-            $run.VaultLease=New-PASBorrowedVaultLease -Address ([string]$config.vault.address) -RunId $RunId -DataRoot $DataRoot -Gates $vaultSequenceGates
-            Invoke-PASVaultSequence -Run $run
-            $run.VaultLease=$null
-            Exit-PASVaultOperation -Gates $vaultSequenceGates -Succeeded $true
-            $vaultSequenceGates=@()
+            # The whole sequence (PACLI, DR registration, replication) holds the Vault lock, so no other
+            # controller on this machine opens a Vault session in between. Its steps take the same lock
+            # again (re-entrant) and release only their own hold.
+            $vaultLock=Enter-PASVaultLock -Address ([string]$config.vault.address)
+            try{Invoke-PASVaultSequence -Run $run}finally{Exit-PASVaultLock $vaultLock}
         }
         # Plan order: every PVWA, then CPM, PSM, PSMP. A failure stops the run here; Resume-PASDeployment
         # re-enters this loop, where finished components are revalidated and the rest is installed.
@@ -579,11 +589,8 @@ function Invoke-PASRunControllerCore {
         Write-PASRunEvent $dir 'RunStopped' $reason ([string]$record.currentComponent) '' 'Error'
         throw $reason
     }finally{
-        if(@($vaultSequenceGates).Count){Exit-PASVaultOperation -Gates $vaultSequenceGates -Succeeded $false}
-        foreach($hg in @($hostGates)){try{if($record.status -eq 'Succeeded'){$hg.Complete()};$hg.Dispose()}catch{}}
         $record.finishedUtc=[DateTime]::UtcNow.ToString('o')
         Write-PASJsonAtomic $recordPath $record
-        if($lock){if($record.status -eq 'Succeeded'){$lock.Complete()};$lock.Dispose()}
         $auth=$null
         $script:PASFrozenMedia=$null
     }

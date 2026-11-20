@@ -336,7 +336,7 @@ function Wait-PASDetachedSessionQuiescence {
         if($remote.state -ne 'Succeeded'){throw 'PAExecUnknown: authenticated attempt no longer has its successful terminal record'}
         $active=Get-PASValue $remote 'workerActive' $null
         if($active -is [bool] -and -not $active){return}
-        if([DateTime]::UtcNow -ge $deadline){throw 'PAExecUnknown: authenticated worker exit is unconfirmed; retaining the Vault claim'}
+        if([DateTime]::UtcNow -ge $deadline){throw 'PAExecUnknown: the worker that used the Vault session has not exited yet; inspect the attempt on the target before resuming'}
         Start-Sleep -Milliseconds 500
     }while($true)
 }

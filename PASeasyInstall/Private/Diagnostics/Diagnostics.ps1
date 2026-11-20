@@ -1,4 +1,4 @@
-﻿# Read-only diagnostics. Authenticated health uses the shared controller Vault gate.
+# Read-only diagnostics. The authenticated health check holds the Vault lock (Locks.ps1) while its session is open.
 function Get-PASRunLog {
     [CmdletBinding(DefaultParameterSetName='Run')]
     param([Parameter(ParameterSetName='Run',Mandatory)][string]$RunId,
@@ -103,9 +103,7 @@ function Test-PASDeploymentStatus {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Config,[hashtable]$CredentialMap=@{},
         [pscredential]$VaultCredential,[uri]$ApiBaseUri,
-        [ValidatePattern('^(?:[0-9]+_[0-9]+)?$')][string]$ControlledCPMAccountId='',
-        [ValidatePattern('^[a-fA-F0-9]{32}$')][string]$HealthRunId=([guid]::NewGuid().ToString('N')),
-        [string]$DataRoot=(Get-PASDataRoot))
+        [ValidatePattern('^(?:[0-9]+_[0-9]+)?$')][string]$ControlledCPMAccountId='')
     $statuses=@(Get-PASComponentStatus -Config $Config -CredentialMap $CredentialMap)
     foreach($status in $statuses){
         $status|Add-Member NoteProperty FunctionalVerification 'NotTested' -Force
@@ -113,13 +111,13 @@ function Test-PASDeploymentStatus {
     }
     $failing=@($statuses|Where-Object{$_.ServiceStatus -ne 'Running'})
     $result=[ordered]@{ServicesHealthy=($failing.Count -eq 0);OperationallyVerified=$false;
-        Mode='ServiceOnly';Components=$statuses;Health=$null;HealthRunId=$HealthRunId;ClaimRetained=$false;
+        Mode='ServiceOnly';Components=$statuses;Health=$null;
         FailureCode='';Issues=@($failing|ForEach-Object {"$($_.Component): $($_.ServiceStatus)"});
         Message='Service-only probe. Component functional validation is NotTested.'}
     if(-not $VaultCredential){return [pscustomobject]$result}
     $result.Mode='AuthenticatedAPI'
-    $gates=New-Object System.Collections.ArrayList
-    $authenticationDispatched=$false;$releaseClaims=$true
+    $vaultLock=$null
+    $authenticationDispatched=$false
     try {
         $configuration=Read-PASConfiguration -Path $Config
         $pvwas=@($configuration.components|Where-Object{$_.type -eq 'PVWA'})
@@ -138,54 +136,26 @@ function Test-PASDeploymentStatus {
             $result.FailureCode='InvalidHTTPSApiEndpoint';return [pscustomobject]$result
         }
         if(-not [string]$configuration.vault.address){$result.FailureCode='VaultAddressRequired';return [pscustomobject]$result}
-        $identities=@(Get-PASResourceIdentity -Address ([string]$configuration.vault.address)|Sort-Object -Unique)
-        if(-not $identities.Count){$result.FailureCode='VaultResourceIdentityRequired';return [pscustomobject]$result}
-        foreach($identity in $identities){
-            [void]$gates.Add((Enter-PASGate -Name ('vault-'+$identity) -DataRoot $DataRoot -RunId $HealthRunId -TimeoutSeconds 30))
-        }
-        $preexisting=@($gates.ToArray()|Where-Object{
-            $null -eq $_.PSObject.Properties['PreexistingClaim'] -or [bool]$_.PreexistingClaim
-        })
-        if($preexisting.Count){
-            $result.FailureCode='HealthSessionReconciliationRequired'
-            $result.Message='An unresolved prior health claim requires external session reconciliation. No new authentication was dispatched.'
-        }else{
-            # A dispatched request can create a session even if its response is lost.
-            $authenticationDispatched=$true;$releaseClaims=$false
-            $health=Invoke-PASAuthenticatedWebHealth -ApiBaseUri $ApiBaseUri -Credential $VaultCredential -ControlledCPMAccountId $ControlledCPMAccountId
-            $result.Health=$health
-            $releaseClaims=($health.SessionState -in @('Closed','NotOpened'))
-            $result.FailureCode=[string]$health.FailureCode
-            foreach($status in $statuses){
-                if($selected -and $status.Component -eq $selected.id){
-                    $status.FunctionalVerification=if($health.PVWA.Passed -and $health.SessionState -eq 'Closed'){'AuthenticatedAPI'}else{'Failed'}
-                    $status.OperationallyVerified=([bool]$health.PVWA.OperationallyVerified -and $health.SessionState -eq 'Closed')
-                }elseif($status.Type -eq 'CPM' -and $ControlledCPMAccountId){
-                    $status.FunctionalVerification='ControlledAccountStatusOnly'
-                }
+        # One authenticated Vault session at a time on this controller: wait for a running deployment step.
+        $vaultLock=Enter-PASVaultLock -Address ([string]$configuration.vault.address) -TimeoutSeconds 30
+        $authenticationDispatched=$true
+        $health=Invoke-PASAuthenticatedWebHealth -ApiBaseUri $ApiBaseUri -Credential $VaultCredential -ControlledCPMAccountId $ControlledCPMAccountId
+        $result.Health=$health
+        $result.FailureCode=[string]$health.FailureCode
+        foreach($status in $statuses){
+            if($selected -and $status.Component -eq $selected.id){
+                $status.FunctionalVerification=if($health.PVWA.Passed -and $health.SessionState -eq 'Closed'){'AuthenticatedAPI'}else{'Failed'}
+                $status.OperationallyVerified=([bool]$health.PVWA.OperationallyVerified -and $health.SessionState -eq 'Closed')
+            }elseif($status.Type -eq 'CPM' -and $ControlledCPMAccountId){
+                $status.FunctionalVerification='ControlledAccountStatusOnly'
             }
-            $result.Message='Authenticated API results are component-specific. CPM status and service probes do not prove end-to-end operation.'
         }
+        $result.Message='Authenticated API results are component-specific. CPM status and service probes do not prove end-to-end operation.'
     }catch{
-        $result.FailureCode=if($authenticationDispatched){'AuthenticatedHealthFailed'}else{'HealthCoordinationFailed'}
-        $result.Message='Health validation could not complete. Inspect the reported classification and reconcile any retained claim before another session.'
+        $result.FailureCode=if($authenticationDispatched){'AuthenticatedHealthFailed'}else{'HealthNotStarted'}
+        $result.Message='Health validation could not complete: '+[string]$_.Exception.Message
     }finally{
-        $result.ClaimRetained=($gates.Count -gt 0 -and -not $releaseClaims)
-        foreach($gate in @($gates.ToArray())){
-            $priorClaim=($null -eq $gate.PSObject.Properties['PreexistingClaim'] -or [bool]$gate.PreexistingClaim)
-            if($priorClaim){
-                $result.ClaimRetained=$true
-                if(-not $authenticationDispatched){
-                    $result.FailureCode='HealthSessionReconciliationRequired'
-                    $result.Message='An unresolved prior health claim requires external session reconciliation. No new authentication was dispatched.'
-                }
-            }
-            try{if($releaseClaims -and -not $priorClaim){$gate.Complete()}}
-            catch{$result.ClaimRetained=$true;$result.FailureCode='HealthGateCleanupFailed'}
-            finally{
-                try{$gate.Dispose()}catch{$result.ClaimRetained=$true;$result.FailureCode='HealthGateCleanupFailed'}
-            }
-        }
+        Exit-PASVaultLock $vaultLock
     }
     return [pscustomobject]$result
 }
