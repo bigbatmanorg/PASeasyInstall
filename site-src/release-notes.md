@@ -1,13 +1,86 @@
 # Release notes
 
+## 2.0.0
+
+!!! note "Lab-tested on 2026-11-21, Lab profile only"
+    2.0.0 installed whole labs from clean servers without manual steps, with CyberArk 15.0 and 15.2, on
+    Windows Server 2022, Ubuntu 24.04 and Rocky Linux 9: Vault, DR Vault, PVWA, CPM, PSM and PSMP, also two
+    instances of each component. The desktop installed a Full lab (15.2) on real servers, including a stop with
+    an error and *Try again*. Not tested: the Secure profile and domain-joined components. What works, what is
+    experimental and what comes later is in `Docs/STATUS.md` of the repository.
+
+2.0.0 keeps what 1.0 installs and how it installs it (the recipes that run on the servers are unchanged). It
+replaces the command set and simplifies the controller.
+
+### What is new
+
+- **New desktop:** rewritten directly on the NativeHTMLKit SDK. Four steps (media, lab, servers, install), a page per
+  installation with progress, retry and a lab check, an **Advanced** switch, a compact window with a dim colour scheme.
+- **VC++ runtimes** for the Vault are taken from the CPM, PVWA or PSM package; they no longer have to be downloaded
+  when one of those is part of the lab.
+- **One command per component:** `Install-PASVault`, `Install-PASPVWA`, `Install-PASCPM`, `Install-PASPSM`,
+  `Install-PASPSMP`, `Install-PASDomainController`. `Install-PASLab` installs a whole lab from one configuration.
+- **Run commands:** `Get-PASRun`, `Get-PASRunEvent`, `Wait-PASRun`, `Resume-PASRun`, `Stop-PASRun`.
+- **`Test-PASPreflight`** (new): checks the controller and the servers without changing anything.
+- **`Resume-PASRun -RetryStep`**: execute a named failed step again after you inspected the server.
+- **The desktop** shows the run id and, when a run stops, the commands to continue. `-Config` reopens a saved
+  project.
+- **Active Directory** can be installed from a command (`Install-PASDomainController`) like every other component.
+
+### Breaking changes
+
+- **Two modules instead of one.** `PASeasyInstall` holds the commands and has no dependencies. The desktop moved to
+  `PASeasyInstall.UI` (`Install-Module PASeasyInstall.UI`), which requires NativeHTMLKit.
+- **All 1.0 command names are gone.** See the mapping below. There are no aliases.
+- **No parallel installation.** Components are installed one after the other. `execution.mode = Parallel` in an old
+  project file is accepted with a warning and runs sequentially.
+- **Locks are simpler.** The controller-side environment claims and the coordination folder
+  (`C:\ProgramData\PASeasyInstall-Coordination`) are gone. There are three locks: run lock, target lock, Vault lock.
+  The message "Unreconciled resource" no longer exists. See [Coordination and locks](concepts/coordination.md).
+- **A failed step is not repeated on resume.** Name it with `-RetryStep`.
+- **No source digest.** Updating the module no longer invalidates a run that you want to resume.
+- **Run file names changed:** `run-v2.json`, `plan-v2.json` and `events-v2.jsonl` are now `run.json`, `plan.json`
+  and `events.jsonl`. Runs started with 1.0 cannot be resumed with 2.0.
+- **Desktop:** `-Advanced` and `-Theme` are gone (one theme). `-Backend Orchestrator` is now `-Backend Live`.
+- **Portable ZIP:** the launcher `Invoke-PASeasyInstall.cmd` is gone; use `PASeasyInstall-Shell.cmd` and the
+  commands.
+- **PTA** is not included. Its PowerShell code was removed.
+
+### Command mapping 1.0 to 2.0
+
+| 1.0 | 2.0 |
+|---|---|
+| `Start-PASeasyInstall` (module PASeasyInstall) | `Start-PASeasyInstall` (module **PASeasyInstall.UI**) |
+| `Invoke-PASeasyInstall -Config <file>` | `Install-PASLab -Path <file>` |
+| `Invoke-PASeasyInstall -Config <file> -PlanOnly` | `Get-PASLabPlan -Path <file>` |
+| `Invoke-PASeasyInstall -Resume <id>` | `Resume-PASRun -RunId <id>` |
+| `New-PASDeploymentConfiguration` | `New-PASLabConfiguration` |
+| `Test-PASEnvironment` | `Test-PASLabConfiguration` |
+| `Get-PASEnvironmentPlan` | `Get-PASLabPlan` |
+| `Save-PASEnvironment` | `Export-PASLabConfiguration` |
+| (reading a project file) | `Import-PASLabConfiguration` |
+| `Start-PASEnvironment` | `Install-PASLab` |
+| `Get-PASEnvironmentSnapshot -RunId <id>` | `Get-PASRun -RunId <id>` |
+| `Get-PASEnvironmentEvents` | `Get-PASRunEvent` |
+| `Resume-PASeasyDeployment` | `Resume-PASRun` |
+| `Close-PASDeployment` | `Stop-PASRun` |
+| `Test-PASEnvironmentHealth` | `Test-PASHealth` |
+| `Export-PASRunData` | `Export-PASDiagnostics` |
+| `New-PASFreshEnvironment`, `New-PASExistingVaultComponent`, the per-component `Invoke-PAS<X>` and `New-PAS<X>Configuration` commands | `Install-PASVault`, `Install-PASPVWA`, `Install-PASCPM`, `Install-PASPSM`, `Install-PASPSMP`, `Install-PASDomainController` |
+| `Get-PASMediaInventory`, `Get-PASMediaSelection`, `Get-PASStageCatalog` | unchanged |
+| (new) | `Wait-PASRun`, `Test-PASPreflight`, `Get-PASCredentialRequirement`, `Get-PASRunLog` |
+
+Parameter changes to note: `-Config` is now `-Path` on the lab commands (`-Config` still works on `Test-PASHealth`),
+and `Stop-PASRun` has no `-Reason`.
+
 ## 1.0.0 (first public release)
 
 **Supported in this release:** Vault (Primary, or Primary + DR), PVWA, CPM, PSM, PSMP and Active Directory (new
 forest), installed from a Windows PowerShell 5.1 controller through the desktop or the command line.
 
 - New six-step desktop: media detection (including inside the CyberArk bundle ZIP), several instances per component,
-  co-location, and one-server-at-a-time or parallel installation.
-- One configuration for a whole lab (`New-PASDeploymentConfiguration`), run as a coordinated set of durable runs.
+  co-location, and one-server-at-a-time or parallel installation (parallel was removed in 2.0).
+- One configuration for a whole lab, run as a coordinated set of durable runs.
 - Linux targets: the SSH key is set up from the server password you type once.
 - Distributed as a portable ZIP (GitHub Releases) and as a PowerShell Gallery module.
 
@@ -34,15 +107,12 @@ its recording. The controller was Windows Server 2022 with Windows PowerShell 5.
 
 ### Not in this release
 
-- **PTA (Privileged Threat Analytics).** The code stays in the repository for future work, but it is not offered
-  in the desktop or in the public commands.
-- Reopening a saved project in the desktop. The project file is used by the command line
-  ([`Invoke-PASeasyInstall`](commands/invoke-paseasyinstall.md)).
-- Resuming a failed unit from the desktop. Use [`Resume-PASeasyDeployment`](commands/resume.md).
-- Active Directory from the desktop (command line only).
+- Reopening a saved project in the desktop (added in 2.0: `Start-PASeasyInstall -Config`).
+- Resuming a failed run from the desktop. Use the resume command at the prompt (2.0: `Resume-PASRun`).
+- Active Directory from the desktop (command line only; 2.0: `Install-PASDomainController`).
 
 ## Roadmap
 
-- PTA, once it can be qualified on hardware that meets the vendor's sizing (16 GB RAM, 8 vCPU, 500 GB disk).
+- An end-to-end lab test of 2.0.0.
 - Domain-joined component servers chosen from the desktop.
-- Reopen and resume projects in the desktop.
+- Resume a run from the desktop.

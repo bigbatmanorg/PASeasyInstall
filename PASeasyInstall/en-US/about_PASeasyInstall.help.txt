@@ -1,0 +1,96 @@
+TOPIC
+    about_PASeasyInstall
+
+SHORT DESCRIPTION
+    Builds CyberArk PAM self-hosted labs from one Windows PowerShell 5.1 controller.
+
+LONG DESCRIPTION
+    PASeasyInstall installs a Primary Vault (optionally with a DR Vault), PVWA, CPM, PSM, PSMP and an
+    Active Directory lab forest on servers you provide. Each component has one command, and a whole
+    lab can be installed from one configuration file.
+
+    An installation is a "run". It executes in its own controller process, so it continues when you
+    close the console. Every step is recorded on the server and on the controller; a run that stopped
+    can be resumed, and nothing is blindly repeated.
+
+    PASeasyInstall is intended for LABS, demos and training. Production use is at your own risk.
+    You supply the CyberArk installation media and license. Not affiliated with or endorsed by CyberArk.
+
+  QUICK START: ONE VAULT FROM THE PROMPT
+        Install-PASVault -ComputerName 192.0.2.11 -MediaPath D:\CyberArkMedia -Wait
+
+    The command validates the input and asks for confirmation. Then it asks for the Windows account
+    of the server and for the two Vault passwords to set, installs and hardens the Vault, and shows
+    the progress. Add -WhatIf to see what would happen: nothing is asked and nothing is contacted.
+
+    The other components work the same way, against a Vault that exists:
+        Install-PASPVWA  -ComputerName 192.0.2.21 -VaultAddress 192.0.2.11 -MediaPath D:\CyberArkMedia -CertificateThumbprint <thumbprint>
+        Install-PASCPM   -ComputerName 192.0.2.22 -VaultAddress 192.0.2.11 -MediaPath D:\CyberArkMedia
+        Install-PASPSM   -ComputerName 192.0.2.23 -VaultAddress 192.0.2.11 -MediaPath D:\CyberArkMedia
+        Install-PASPSMP  -ComputerName 192.0.2.25 -VaultAddress 192.0.2.11 -MediaPath D:\CyberArkMedia -AcceptEula
+        Install-PASDomainController -ComputerName 192.0.2.10 -DomainName pam.lab
+
+    In a lab with self-signed certificates add -SecurityProfile Lab. Then one password can be used
+    for everything:  -LabPassword (Read-Host -AsSecureString 'Lab password')
+
+  A WHOLE LAB FROM A CONFIGURATION FILE
+        $media = Get-PASMediaSelection -Inventory (Get-PASMediaInventory -Path D:\CyberArkMedia)
+        $cfg = New-PASLabConfiguration -Environment MyLab -VaultMode Primary `
+                 -PrimaryAddress 192.0.2.11 -ControllerAddress 192.0.2.10 `
+                 -Instances @(@{ Type = 'PVWA'; Name = 'PVWA01'; Address = '192.0.2.21' }) `
+                 -Media $media -SecurityProfile Lab
+        Export-PASLabConfiguration -Configuration $cfg -Path .\MyLab.json
+
+        Test-PASLabConfiguration -Path .\MyLab.json -CheckMedia     is the configuration complete?
+        (Get-PASLabPlan -Path .\MyLab.json).Items | Format-Table Id, Type, Address, Media
+                                                                    what would be installed, in which order
+        Get-PASCredentialRequirement -Path .\MyLab.json             which accounts and passwords are needed
+        Test-PASPreflight -Path .\MyLab.json                        are the servers reachable and ready?
+        Install-PASLab -Path .\MyLab.json -Wait                     install
+
+  FOLLOWING, RESUMING AND STOPPING A RUN
+    Every Install-* command returns a run id (or, with -Wait, the finished run).
+        Get-PASRun                           all runs, newest first
+        Get-PASRun -RunId <id>               one run: status, components, latest events
+        Get-PASRunEvent -RunId <id> -Failed  what failed
+        Wait-PASRun -RunId <id>              show the progress until the run ends
+        Resume-PASRun -RunId <id>            continue a run that stopped
+        Resume-PASRun -RunId <id> -RetryStep cpm01:install     ... and execute a failed step again
+        Stop-PASRun -RunId <id>              give a run up and release its locks on the servers
+        Test-PASHealth -Path .\MyLab.json -VaultCredential (Get-Credential Administrator)
+        Export-PASDiagnostics -RunId <id>    sanitized ZIP of a run for support or documentation
+
+    A step that failed is never repeated on its own. Look at the server and at the failed event,
+    correct the cause, then resume and name the step with -RetryStep.
+
+  CREDENTIALS
+    Passwords are asked for after the confirmation, or passed as PSCredential and SecureString
+    parameters. They are held in memory only and handed to the controller process of the same Windows
+    user with DPAPI. They are never written to a configuration, a log or a command line. For that
+    reason start an installation from a local session on the controller (console or RDP), not from a
+    remote PowerShell session.
+
+  WHERE RUN DATA LIVES
+    %LOCALAPPDATA%\PASeasyInstall, or the folder named by the environment variable PAS_EASY_DATA_ROOT:
+        Runs\<run id>\        run.json (status), config.json and plan.json (what the run installs),
+                              events.jsonl (progress), one folder per component with its journal
+        MediaCache\           installers extracted from ZIP bundles
+        ssh\<environment>\    the SSH key of this controller for the Linux servers of an environment
+    (Get-PASRun -RunId <id>).RunDirectory is the folder of one run. Runs are private to the Windows
+    user who started them.
+
+  DESKTOP WIZARD
+    The optional module PASeasyInstall.UI offers the same functions as a desktop wizard
+    (Start-PASeasyInstall). It only calls the commands of this module.
+
+  EXECUTION POLICY
+    The module is not Authenticode-signed. Under RemoteSigned (the Windows Server default) a
+    Gallery-installed module runs as it is. Under AllSigned, allow it for the current window only:
+        Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+    Unblock a ZIP copy once: Get-ChildItem -Path <folder> -Recurse | Unblock-File
+
+SEE ALSO
+    https://github.com/bigbatmanorg/PASeasyInstall
+    Get-Command -Module PASeasyInstall
+    Get-Help Install-PASVault -Full
+    Get-Help Install-PASLab -Full

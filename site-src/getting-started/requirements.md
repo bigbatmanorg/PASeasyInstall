@@ -7,7 +7,7 @@
 | Operating system | Windows Server 2019/2022/2025 or Windows 10/11, 64-bit |
 | PowerShell | **Windows PowerShell 5.1** (built in). PowerShell 7 can run the desktop in Mock mode, but real installations need 5.1. |
 | .NET | .NET Framework 4.7.2 or later (4.8 recommended) |
-| UI runtime | [NativeHTMLKit.UI](https://nativehtmlkit.github.io/). It is bundled in the portable ZIP, and installed automatically as a dependency from the Gallery. |
+| UI runtime | [NativeHTMLKit](https://nativehtmlkit.github.io/). It is bundled in the portable ZIP, and installed automatically as a dependency from the Gallery. |
 | OpenSSH client | Built into Windows. Needed only for PSMP (Linux) targets. |
 | Disk | About 10 GB free for the media cache and run journals |
 
@@ -61,8 +61,11 @@ Supply the CyberArk PAM Self-Hosted media yourself. PASeasyInstall recognises it
 - **Or single component ZIPs:** `Server-Rls-v15.0.zip`, `PACLI-Rls-v15.0.zip`, `Disaster Recovery-Rls-v15.0.zip`,
   `Password Vault Web Access-Rls-v15.0.zip`, `Central Policy Manager-Rls-v15.0.zip`,
   `Privileged Session Manager-Rls-v15.0.zip`, `PrivilegedSessionManagerSSHProxy-<distribution>-Intel64-Rls-v15.0.zip`.
+- **For a Vault: `Vault Ansible Role-Rls-v15.0.zip`** (it is inside the full bundle). PASeasyInstall takes PAKeyGen, the
+  response templates and the VC++ 2013 runtime from it. Without it the validation reports the Vault media files as missing.
 - **`license.xml`**, and the **public** recovery key `recpub.key`. A keys ZIP is accepted, but only `recpub.key`
   is ever read from it.
-- **VC++ redistributables** (`VC_redist.x64.exe`, `VC_redist.x86.exe`) in the same folder.
+- **VC++ redistributables** (`VC_redist.x64.exe`, `VC_redist.x86.exe`): needed for the Vault. They are taken from the CPM, PVWA or PSM
+  package when one of them is part of the lab. Only for a Vault on its own, put the two files into the same folder.
 
 Put everything in one folder (for example `C:\CyberArk\media`) and add that folder on the first step of the desktop.

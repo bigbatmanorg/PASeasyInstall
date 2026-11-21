@@ -2,21 +2,27 @@
 
 ```mermaid
 flowchart LR
-  UI["Desktop<br/>(PASeasyInstall.UI, NativeHTMLKit.UI)"] --> ORCH["Orchestrator<br/>composition · plan · fleet"]
-  CLI["Commands / scripts"] --> ORCH
-  ORCH --> CORE["Core engine<br/>durable runs · journals · coordination"]
-  CORE -->|WinRM HTTPS| WIN["Windows targets<br/>Vault · DR · PVWA · CPM · PSM · AD"]
-  CORE -->|SSH| LNX["Linux target<br/>PSMP"]
+  UI["Desktop<br/>(PASeasyInstall.UI, NativeHTMLKit)"] --> PUB["Public commands<br/>Install-PAS* · lab configuration · runs"]
+  CLI["PowerShell prompt / scripts"] --> PUB
+  PUB --> RUN["Run controller<br/>one detached process per run"]
+  RUN --> ENG["Engine<br/>workflow · step attempts · journal · locks"]
+  ENG -->|WinRM HTTPS| WIN["Windows targets<br/>Vault · DR · PVWA · CPM · PSM · AD"]
+  ENG -->|SSH| LNX["Linux target<br/>PSMP"]
 ```
 
-- **PASeasyInstall.UI** is the desktop. It talks to the backend only through a small, documented contract, and the
-  same window runs against the real installer or the Mock simulator.
-- **PASeasyInstall.Orchestrator** handles media inventory, composition of a whole lab, the plan, and the *fleet
-  controller* that runs the Vault (+DR) first and then each component server, sequentially or in parallel.
-- **PASeasyInstall.Core** is the engine. It owns transports (WinRM HTTPS, SSH), frozen workflows, the event journals,
-  recovery and coordination.
-- **Component modules** (Vault, DR, PVWA, CPM, PSM, PSMP, AD) contain the recipes. Each can be imported and used on its
-  own with Core, without the UI.
+There are two modules:
+
+- **PASeasyInstall** is the core. It has no dependencies. It exports 25 [commands](../commands/index.md); everything
+  else is private. Inside it:
+    - `Public` has one file per command;
+    - `Private\Config` reads, validates and composes configurations and builds the plan;
+    - `Private\Run` is the **run controller**. It installs the components of a run one after the other: Active
+      Directory, domain joins, Vault (and DR), then PVWA, CPM, PSM, PSMP;
+    - `Private\Engine` runs one workflow on one server: transports (WinRM HTTPS, SSH), step attempts, the journal
+      and the locks;
+    - `Recipes` holds the scripts that run on the servers.
+- **PASeasyInstall.UI** is the desktop. It calls only the public commands, and the same window runs against the
+  real module or the Mock simulator.
 
 Everything runs in **Windows PowerShell 5.1** on the controller. There is no web server, database, browser engine or
 agent installed permanently on the targets. The vendor's own installers, hardening and registration scripts do the
@@ -27,5 +33,7 @@ product work.
 | On the controller | On a target |
 |---|---|
 | Planning, validation, media resolution and caching | Staged media (hash-verified) in a protected workspace |
-| A **detached controller process** per deployment (survives closing the window) | Each stage as a **scheduled task running as SYSTEM** (Windows) or a **systemd unit** (Linux) with a unique attempt ID |
-| Event journals under `%LOCALAPPDATA%\PASeasyInstall` | A restricted WinRM endpoint usable only by the configured administrator |
+| A **detached controller process** per run (survives closing the console or the window) | Each step as a **scheduled task** (Windows) or a **systemd unit** (Linux) with a unique attempt ID |
+| Run files under `%LOCALAPPDATA%\PASeasyInstall\Runs\<run id>` | A restricted WinRM endpoint usable only by the configured administrator |
+
+The repository file `Docs/DESIGN.md` lists every file a run leaves on the controller and on a target.

@@ -1,7 +1,7 @@
 # Portable ZIP
 
-The portable release contains PASeasyInstall **and** everything it needs to run: the NativeHTMLKit and
-NativeHTMLKit.UI modules with their native window host. Unzip it and run it. Nothing is installed on the controller, and
+The portable release contains both PASeasyInstall modules (the commands and the desktop) **and** everything they
+need to run: the NativeHTMLKit module with its native window host. Unzip it and run it. Nothing is installed on the controller, and
 the controller needs no internet access.
 
 ## Download and run
@@ -11,7 +11,7 @@ the controller needs no internet access.
 2. Unblock the ZIP **before** extracting it, so Windows does not flag every file inside as downloaded:
 
     ```powershell
-    Unblock-File -Path .\PASeasyInstall-1.0.0-portable.zip
+    Unblock-File -Path .\PASeasyInstall-2.0.0-portable.zip
     ```
 
 3. Extract it, for example to `C:\PASeasyInstall`.
@@ -21,27 +21,29 @@ the controller needs no internet access.
 ```text
 C:\PASeasyInstall\
   Start-PASeasyInstall.cmd / .ps1     the desktop (double-click the .cmd)
-  Invoke-PASeasyInstall.cmd / .ps1    command-line install from a saved project
   PASeasyInstall-Shell.cmd / .ps1     a PowerShell window with every PASeasyInstall command loaded
   README-PORTABLE.txt, LICENSE.txt, THIRD_PARTY_*.txt
-  Modules\PASeasyInstall\<version>\  the module
-  Modules\NativeHTMLKit.UI\, Modules\NativeHTMLKit\   the desktop runtime, including its native host
+  PASeasyInstall\                     the commands (core module)
+  PASeasyInstall.UI\                  the desktop module
+  NativeHTMLKit\                      the desktop runtime, including its native host
 ```
 
-The launchers unblock the extracted files, put the bundled `Modules` folder first on `PSModulePath` for their own
+The launchers unblock the extracted files, put the folder first on `PSModulePath` for their own
 process only, and start Windows PowerShell 5.1 with `-ExecutionPolicy Bypass`. A `SHA256SUMS` file is published next
 to the ZIP on the release page.
 
 ## Command line from the portable folder
 
-```bat
-C:\PASeasyInstall\Invoke-PASeasyInstall.cmd -Config C:\Labs\Lab01.json -PlanOnly
-C:\PASeasyInstall\Invoke-PASeasyInstall.cmd -Config C:\Labs\Lab01.json -Wait
-C:\PASeasyInstall\Invoke-PASeasyInstall.cmd -Resume <runId> -RetryFailedPreflight
+Double-click `PASeasyInstall-Shell.cmd` for a PowerShell window with every command from the
+[command reference](../commands/index.md) loaded:
+
+```powershell
+(Get-PASLabPlan -Path C:\Labs\Lab01.json).Items | Format-Table Id, Type, Address, Media
+Install-PASLab -Path C:\Labs\Lab01.json -Wait
+Resume-PASRun -RunId <run id> -Wait
 ```
 
-Or double-click `PASeasyInstall-Shell.cmd` for a PowerShell window with every command from the
-[command reference](../commands/index.md) loaded.
+`Start-PASeasyInstall.cmd -Config C:\Labs\Lab01.json` reopens a saved project in the desktop.
 
 ## Updating
 

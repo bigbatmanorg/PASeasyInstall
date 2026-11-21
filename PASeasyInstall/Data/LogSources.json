@@ -1,0 +1,68 @@
+[
+  {
+    "Component": "Vault",
+    "Name": "italog",
+    "Path": "C:\\Program Files (x86)\\PrivateArk\\Server\\Logs\\italog.log",
+    "Qualified": false
+  },
+  {
+    "Component": "Vault",
+    "Name": "db",
+    "Path": "C:\\Program Files (x86)\\PrivateArk\\Server\\Database\\VaultDB.log",
+    "Qualified": false
+  },
+  {
+    "Component": "DRVault",
+    "Name": "padr",
+    "Path": "C:\\Program Files (x86)\\PrivateArk\\PADR\\Logs\\padr.log",
+    "Qualified": false
+  },
+  {
+    "Component": "PVWA",
+    "Name": "application",
+    "Path": "C:\\Windows\\Temp\\PVWA\\PVWA.App.Log",
+    "Qualified": false
+  },
+  {
+    "Component": "CPM",
+    "Name": "pm",
+    "Path": "C:\\Program Files (x86)\\CyberArk\\Password Manager\\Logs\\pm.log",
+    "Qualified": false
+  },
+  {
+    "Component": "CPM",
+    "Name": "error",
+    "Path": "C:\\Program Files (x86)\\CyberArk\\Password Manager\\Logs\\pm_error.log",
+    "Qualified": false
+  },
+  {
+    "Component": "CPM",
+    "Name": "trace",
+    "Path": "C:\\Program Files (x86)\\CyberArk\\Password Manager\\Logs\\PMTrace.log",
+    "Qualified": false
+  },
+  {
+    "Component": "PSM",
+    "Name": "console",
+    "Path": "C:\\Program Files (x86)\\CyberArk\\PSM\\Logs\\PSMConsole.log",
+    "Qualified": false
+  },
+  {
+    "Component": "PSM",
+    "Name": "trace",
+    "Path": "C:\\Program Files (x86)\\CyberArk\\PSM\\Logs\\PSMTrace.log",
+    "Qualified": false
+  },
+  {
+    "Component": "PSMP",
+    "Name": "console",
+    "Path": "/var/opt/CARKpsmp/logs/PSMPConsole.log",
+    "Qualified": false
+  },
+  {
+    "Component": "PSMP",
+    "Name": "trace",
+    "Path": "/var/opt/CARKpsmp/logs/PSMPTrace.log",
+    "Qualified": false
+  }
+]
