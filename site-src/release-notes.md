@@ -1,5 +1,12 @@
 # Release notes
 
+## 2.0.2
+
+- **`Start-PASeasyInstall` works from an interactive console.** In 2.0.1 it failed there with *The property
+  'OSArchitecture' cannot be found* (the console's line editor PSReadLine and NativeHTMLKit 0.1.2 do not get along
+  in one process). The window now opens in its own process, the prompt stays free, and a window that cannot start
+  says why.
+
 ## 2.0.1
 
 - **One module again.** The desktop window is part of `PASeasyInstall`: `Install-Module PASeasyInstall`, then

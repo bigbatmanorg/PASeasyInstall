@@ -1,6 +1,6 @@
 @{
     RootModule           = 'PASeasyInstall.psm1'
-    ModuleVersion        = '2.0.1'
+    ModuleVersion        = '2.0.2'
     GUID                 = '19563e11-6fa7-46a9-bfd5-79a4e449afd6'
     Author               = 'PASeasyInstall contributors'
     CompanyName          = 'Community'
@@ -32,7 +32,7 @@
             Tags         = @('CyberArk', 'PAM', 'Lab', 'Installer', 'PowerShell', 'Vault', 'PVWA', 'CPM', 'PSM', 'PSMP', 'Windows', 'Desktop')
             LicenseUri   = 'https://github.com/bigbatmanorg/PASeasyInstall/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/bigbatmanorg/PASeasyInstall'
-            ReleaseNotes = '2.0.1: one module again. The desktop window is part of this module: Start-PASeasyInstall opens it, and there is no separate PASeasyInstall.UI module. The window is new: four steps (media, lab, servers, install), a page per installation with progress, retry and a lab check. The VC++ runtimes for the Vault are taken from the CPM, PVWA or PSM package. 2.0.0: a new, simple command set. Install-PASVault, Install-PASPVWA, Install-PASCPM, Install-PASPSM, Install-PASPSMP and Install-PASDomainController install one component from the prompt; Install-PASLab installs a whole lab from a configuration (New-/Test-/Export-/Import-PASLabConfiguration, Get-PASLabPlan); Get-PASRun, Get-PASRunEvent, Wait-PASRun, Resume-PASRun and Stop-PASRun follow and control a run; Test-PASPreflight (new), Test-PASHealth, Export-PASDiagnostics and Get-PASRunLog check and diagnose. Breaking since 1.0: the 1.0 command names are gone and the module no longer requires NativeHTMLKit.UI. Tested with PAM 15.0 and 15.2. Intended for labs; production use is at your own risk. See https://bigbatmanorg.github.io/PASeasyInstall/release-notes/'
+            ReleaseNotes = '2.0.2: Start-PASeasyInstall opens the window in its own process, so it also works from an interactive console (2.0.1 failed there with an OSArchitecture error) and the prompt stays free. 2.0.1: one module again. The desktop window is part of this module: Start-PASeasyInstall opens it, and there is no separate PASeasyInstall.UI module. The window is new: four steps (media, lab, servers, install), a page per installation with progress, retry and a lab check. The VC++ runtimes for the Vault are taken from the CPM, PVWA or PSM package. 2.0.0: a new, simple command set. Install-PASVault, Install-PASPVWA, Install-PASCPM, Install-PASPSM, Install-PASPSMP and Install-PASDomainController install one component from the prompt; Install-PASLab installs a whole lab from a configuration (New-/Test-/Export-/Import-PASLabConfiguration, Get-PASLabPlan); Get-PASRun, Get-PASRunEvent, Wait-PASRun, Resume-PASRun and Stop-PASRun follow and control a run; Test-PASPreflight (new), Test-PASHealth, Export-PASDiagnostics and Get-PASRunLog check and diagnose. Breaking since 1.0: the 1.0 command names are gone and the module no longer requires NativeHTMLKit.UI. Tested with PAM 15.0 and 15.2. Intended for labs; production use is at your own risk. See https://bigbatmanorg.github.io/PASeasyInstall/release-notes/'
         }
     }
 }
