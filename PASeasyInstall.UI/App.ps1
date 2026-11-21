@@ -334,6 +334,7 @@ function Update-PASUIRun {
     Set-PASUIHtml 'run-status' (Get-PASUIRunStatusHtml $S $Catalog)
     Set-PASUIHtml 'run-comps' (Get-PASUIRunComponentsHtml $S $Catalog)
     Set-PASUIHtml 'run-log' (Get-PASUIRunLogHtml $S)
+    Set-PASUIHtml 'run-last' (Get-PASUIRunLastLineHtml $S)
     Set-PASUIHtml 'run-adv' (Get-PASUIRunAdvancedHtml $S)
 }
 
@@ -689,7 +690,8 @@ function Set-PASUIToggle {
 # ------------------------------------------------------------------ window
 
 try {
-    $window = New-NativeHTMLKitWindow -Application $app -Title 'PASeasyInstall' -Width 1080 -Height 780 -MinWidth 860 -MinHeight 560
+    # Small by default: the window is made to sit next to other windows. It stays usable down to the minimum.
+    $window = New-NativeHTMLKitWindow -Application $app -Title 'PASeasyInstall' -Width 800 -Height 560 -MinWidth 480 -MinHeight 340
     $doc = Open-NativeHTMLKitFile -Window $window -Path (Join-Path (Join-Path $PSScriptRoot 'Web') 'index.html')
     if ($Backend -eq 'Mock') {
         $null = Set-NativeHTMLKitDocumentAttribute -Document $doc -Element 'mode-badge' -Name 'hidden' -Remove

@@ -572,6 +572,35 @@ function Format-PASUIWhen {
     return $when.ToLocalTime().ToString('d MMM HH:mm', [Globalization.CultureInfo]::InvariantCulture)
 }
 
+function Format-PASUITime {
+    # A UTC time stamp as local "14:05:09", for the activity log.
+    param([string]$Utc)
+    $when = [datetime]::MinValue
+    $styles = [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal
+    if (-not $Utc -or -not [datetime]::TryParse($Utc, [Globalization.CultureInfo]::InvariantCulture, $styles, [ref]$when)) {
+        return ''
+    }
+    return $when.ToLocalTime().ToString('HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Get-PASUIEventKind {
+    # How a log line is coloured: bad (failed), warn, ok (a step finished), run (a step started), or nothing.
+    param($Entry)
+    if ([string]$Entry.Status -in @('Failed', 'Unknown') -or [string]$Entry.Level -eq 'Error') {
+        return 'bad'
+    }
+    if ([string]$Entry.Level -eq 'Warning' -or [string]$Entry.Event -eq 'Warning') {
+        return 'warn'
+    }
+    if ([string]$Entry.Event -in @('TaskCompleted', 'TaskRevalidated', 'RunCompleted', 'ComponentCompleted')) {
+        return 'ok'
+    }
+    if ([string]$Entry.Event -in @('TaskStarted', 'RunStarted', 'RunResumed', 'ControllerLaunched')) {
+        return 'run'
+    }
+    return ''
+}
+
 function Format-PASUIDuration {
     # Minutes between two UTC time stamps (or until now) as "42 min" or "1 h 05 min".
     param([string]$StartUtc, [string]$EndUtc = '')

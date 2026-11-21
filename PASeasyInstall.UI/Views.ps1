@@ -78,7 +78,7 @@ function Get-PASUIHomeHtml {
     $html = New-Object System.Text.StringBuilder
     [void]$html.Append('<div class="page">')
     [void]$html.Append('<div class="card hero"><h1>Build a CyberArk PAM lab</h1>')
-    [void]$html.Append('<p class="lead">Four steps: point to the installer media, choose the lab, name the servers, install.<br>Nothing is changed on any server before you press Install.</p>')
+    [void]$html.Append('<p class="lead">Media, lab, servers, install. Nothing is changed on any server before you press Install.</p>')
     [void]$html.Append('<div class="actions"><button id="act-new" class="btn primary big">Start a new lab</button><button id="act-open" class="btn big">Open a saved lab file</button></div></div>')
 
     [void]$html.Append('<div class="card"><h2>Your installations</h2>')
@@ -109,7 +109,7 @@ function Get-PASUIMediaHtml {
     param([hashtable]$State)
     $html = New-Object System.Text.StringBuilder
     [void]$html.Append('<div class="page"><h1>Where is the installer media?</h1>')
-    [void]$html.Append('<p class="lead">Choose the folder that holds what you downloaded from CyberArk: the one big ZIP or the separate ZIPs, plus your license file and the recovery public key. Nothing is unpacked or changed.</p>')
+    [void]$html.Append('<p class="lead">The folder with what you downloaded from CyberArk (the one big ZIP or the separate ZIPs), your license file and the recovery public key.</p>')
     [void]$html.Append('<div class="card"><div id="media-drop" class="drop" data-nativehtmlkit-drop="files"><strong>Drop the media folder or the ZIP files here</strong><span>or type the folder below</span></div>')
     [void]$html.Append('<div class="row"><div class="grow"><label for="f-mediapath">Media folder</label>')
     [void]$html.Append('<input type="text" id="f-mediapath" placeholder="D:\CyberArkMedia" value="' + (ConvertTo-PASUIText $State.MediaPath) + '"></div>')
@@ -242,7 +242,7 @@ function Get-PASUIServersHtml {
     param([hashtable]$State)
     $html = New-Object System.Text.StringBuilder
     [void]$html.Append('<div class="page"><h1>Which servers?</h1>')
-    [void]$html.Append('<p class="lead">Each server must be a freshly installed machine that this computer can reach. Windows servers need remote management (WinRM over HTTPS) switched on; the Linux server needs SSH.</p>')
+    [void]$html.Append('<p class="lead">Freshly installed machines this computer can reach: Windows with WinRM over HTTPS, Linux with SSH.</p>')
 
     [void]$html.Append('<div class="card"><table><thead><tr><th>Server for</th><th>Computer name</th><th>Address (IP or DNS name)</th></tr></thead><tbody>')
     foreach ($slot in Get-PASUIServerSlots $State) {
@@ -336,7 +336,7 @@ function Get-PASUIPreflightHtml {
     }
     [void]$html.Append('</tbody></table>')
     if (-not $State.Advanced -and -not $failed.Count) {
-        [void]$html.Append('<p class="hint">Switch on Advanced options to see every single check.</p>')
+        [void]$html.Append('<p class="hint">Switch on Advanced to see every single check.</p>')
     }
     return $html.ToString()
 }
@@ -426,7 +426,7 @@ function Get-PASUIRunHtml {
     $html = New-Object System.Text.StringBuilder
     [void]$html.Append('<div class="page"><div id="run-status">' + (Get-PASUIRunStatusHtml $State $Catalog) + '</div>')
     [void]$html.Append('<div class="card" id="run-comps">' + (Get-PASUIRunComponentsHtml $State $Catalog) + '</div>')
-    [void]$html.Append("<details$open><summary>Activity log</summary><div class=`"card flat log`"><table><tbody id=`"run-log`">" + (Get-PASUIRunLogHtml $State) + '</tbody></table></div></details>')
+    [void]$html.Append("<details class=`"logbox`"$open><summary>Activity log<span class=`"last`" id=`"run-last`">" + (Get-PASUIRunLastLineHtml $State) + "</span></summary><div class=`"log`" id=`"run-log`">" + (Get-PASUIRunLogHtml $State) + '</div></details>')
     [void]$html.Append('<div id="run-adv">' + (Get-PASUIRunAdvancedHtml $State) + '</div></div>')
     return $html.ToString()
 }
@@ -440,7 +440,7 @@ function Get-PASUIRunStatusHtml {
     $progress = Get-PASUIRunProgress -Snapshot $run -Catalog $Catalog -PlanItems $State.RunPlan
     $html = New-Object System.Text.StringBuilder
     [void]$html.Append('<div class="runhead"><h1>' + (ConvertTo-PASUIText $run.Name) + '</h1>')
-    [void]$html.Append("<span class=`"pill $kind`">" + (ConvertTo-PASUIText (Get-PASUIStatusText $status)) + '</span></div>')
+    [void]$html.Append("<span class=`"pill $kind`">" + (ConvertTo-PASUIText (Get-PASUIStatusText $status)) + '</span>')
 
     $elapsed = ''
     if ($run.PSObject.Properties['StartedUtc']) {
@@ -456,15 +456,15 @@ function Get-PASUIRunStatusHtml {
     } elseif ($kind -eq 'bad') {
         $meterClass = 'meter bad'
     }
-    [void]$html.Append("<div class=`"$meterClass`"><div class=`"fill`" style=`"width:$($progress.Percent)%`"></div></div>")
-    $line = "$($progress.Done) of $($progress.Total) steps done"
+    $line = "$($progress.Done) of $($progress.Total) steps"
     if ($elapsed) {
         $line += ", $elapsed"
     }
-    [void]$html.Append('<p class="hint">' + (ConvertTo-PASUIText $line) + '</p>')
+    [void]$html.Append('<span class="grow">' + (ConvertTo-PASUIText $line) + '</span></div>')
+    [void]$html.Append("<div class=`"$meterClass`"><div class=`"fill`" style=`"width:$($progress.Percent)%`"></div></div>")
 
     if (Test-PASUIRunActive $status) {
-        [void]$html.Append('<div class="box info">The installation is running on its own. You can close this window; open it again any time to see the progress.</div>')
+        [void]$html.Append('<p class="hint">Running on its own: you can close this window and open it again later.</p>')
     } elseif ($status -eq 'Succeeded') {
         [void]$html.Append('<div class="box ok"><strong>The lab is installed.</strong> Check that every component is connected to the Vault before you use it.')
         [void]$html.Append('<div class="actions"><button id="act-health" class="btn primary">Check the lab</button></div></div>')
@@ -511,21 +511,35 @@ function Get-PASUIRunComponentsHtml {
 }
 
 function Get-PASUIRunLogHtml {
-    # The newest 200 events, newest first, as table rows.
+    # The newest 200 events, newest first. One line each: time, component, step, message.
+    # A coloured bar on the left tells what kind of line it is (finished, started, warning, failed).
     param([hashtable]$State)
     $html = New-Object System.Text.StringBuilder
     $events = @($State.Run.Events | Select-Object -Last 200)
     [array]::Reverse($events)
     foreach ($entry in $events) {
-        $class = ''
-        if ([string]$entry.Status -in @('Failed', 'Unknown') -or [string]$entry.Level -eq 'Error') {
-            $class = ' class="bad"'
-        }
-        $time = Format-PASUIWhen ([string]$entry.TimestampUtc)
-        [void]$html.Append("<tr$class><td style=`"width:96px`">" + (ConvertTo-PASUIText $time) + '</td><td style="width:110px">' + (ConvertTo-PASUIText $entry.Component) + '</td>')
-        [void]$html.Append('<td style="width:150px">' + (ConvertTo-PASUIText (Get-PASUIStageText ([string]$entry.Stage))) + '</td><td>' + (ConvertTo-PASUIText $entry.Message) + '</td></tr>')
+        $kind = Get-PASUIEventKind $entry
+        $step = Get-PASUIStageText ([string]$entry.Stage)
+        [void]$html.Append("<div class=`"ev $kind`"><span class=`"t`">" + (ConvertTo-PASUIText (Format-PASUITime ([string]$entry.TimestampUtc))) + '</span>')
+        [void]$html.Append('<span class="c">' + (ConvertTo-PASUIText $entry.Component) + '</span><span class="s">' + (ConvertTo-PASUIText $step) + '</span>')
+        [void]$html.Append('<span class="m">' + (ConvertTo-PASUIText $entry.Message) + '</span></div>')
     }
     return $html.ToString()
+}
+
+function Get-PASUIRunLastLineHtml {
+    # The number of events and the newest one, shown next to "Activity log" while the log is folded.
+    param([hashtable]$State)
+    $events = @($State.Run.Events)
+    if (-not $events.Count) {
+        return ''
+    }
+    $last = $events[-1]
+    $text = [string]$last.Message
+    if ($text.Length -gt 90) {
+        $text = $text.Substring(0, 90) + '...'
+    }
+    return (ConvertTo-PASUIText ("$($events.Count) events, latest " + (Format-PASUITime ([string]$last.TimestampUtc)) + ': ' + $text))
 }
 
 function Get-PASUIRunAdvancedHtml {
