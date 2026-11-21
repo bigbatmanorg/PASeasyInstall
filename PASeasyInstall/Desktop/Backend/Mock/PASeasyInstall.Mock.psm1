@@ -424,7 +424,7 @@ function Test-PASPreflight {
     <# Simulated: one "answers" row per server of the plan. A lab whose name contains "fail" reports
        one server that does not answer. Contacts nothing. #>
     [CmdletBinding()]
-    param($Configuration, [hashtable]$CredentialMap = @{}, [securestring]$LabPassword)
+    param($Configuration, [hashtable]$CredentialMap = @{}, [securestring]$LabPassword, [switch]$ConnectivityOnly)
     $plan = Get-PASLabPlan -Configuration $Configuration
     $seen = @{}
     $rows = New-Object System.Collections.ArrayList
@@ -441,7 +441,11 @@ function Test-PASPreflight {
             $passed = $false
             $detail = 'Simulated: no answer on the management port'
         }
-        [void]$rows.Add([pscustomobject]@{ Server = [string]$item.Host; Address = $address; Check = 'Sign-in'; Passed = $passed; Detail = $detail })
+        [void]$rows.Add([pscustomobject]@{ Server = [string]$item.Host; Address = $address; Check = 'TCP port'; Passed = $passed; Detail = $detail })
+        if ($ConnectivityOnly -or -not $passed) {
+            continue
+        }
+        [void]$rows.Add([pscustomobject]@{ Server = [string]$item.Host; Address = $address; Check = 'Sign-in'; Passed = $true; Detail = 'Simulated: signed in' })
         [void]$rows.Add([pscustomobject]@{ Server = [string]$item.Host; Address = $address; Check = 'Free disk space'; Passed = $true; Detail = 'Simulated: 80 GB free' })
     }
     return @($rows)

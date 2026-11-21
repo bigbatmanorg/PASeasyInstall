@@ -43,13 +43,20 @@ under it.
 
 ## Step 3: Servers { #servers }
 
-One line per server: its computer name and its address. Then the **lab password**: one password that must already
-be the password of `Administrator` on the Windows servers and of `root` on the Linux server, and that becomes the
-password of the new Vault users. With PSMP in the lab you also accept the CyberArk license agreement of its
-installer here.
+A plain form. One line per server: its computer name, its address, and the account to sign in with (a local
+administrator on Windows, `root` on Linux) with its password. Below it, the Vault passwords: for a new Vault the
+passwords to set for the Vault users Administrator and Master (and the DR user, with a DR Vault); for a Vault you
+already have, the password of its Administrator. With PSMP in the lab you also accept the CyberArk license agreement
+of its installer here.
 
-**Check the servers** signs in to every server and checks the operating system, free disk space and pending
-restarts. It changes nothing and is optional.
+**Next** checks the servers before anything else happens:
+
+1. within a few seconds, whether every server answers at its address at all;
+2. then, in the background, whether the account can sign in to each server and whether the server is ready
+   (operating system, free disk space, pending restarts).
+
+A server that does not answer or an account that does not work is named with the reason, and the window stays on
+this step. Only when every server passed, the review step is shown. The check changes nothing on the servers.
 
 ## Step 4: Review and install { #install }
 
@@ -69,15 +76,15 @@ you can close the window and open it again later.
 - **Activity log** shows the events of the run, newest first: time, component, step and message. A coloured bar
   marks finished, started, warning and failed lines. Folded, it shows the newest event.
 
-The window keeps no password after an installation has started, so it asks for the lab password again when you
-continue an installation or check the lab.
+While the window stays open it remembers the accounts of the installation it started (protected in memory, never
+in a file), so *Try again* and *Check the lab* need nothing more. For an installation opened later from the list
+it asks for the accounts again.
 
 ## Advanced options { #advanced }
 
 The switch in the top bar shows what most labs never need:
 
-- other account names and the address of this computer as the Vault sees it;
-- a separate password for every server account and Vault user;
+- the address of this computer as the Vault sees it;
 - up to four instances of a component (two were tested);
 - every single result of the server check;
 - the same installation as PowerShell commands, **Save the lab file**, and **Stop the installation**.

@@ -1,7 +1,7 @@
 # PASeasyInstall 2.0: state of things
 
 One page that says what can be used now, what is experimental and what comes later.
-Last updated 2026-11-21, for release 2.0.1 (one module: commands and desktop window).
+Last updated 2026-11-22, for release 2.0.3.
 
 PASeasyInstall builds **labs**. Everything below was tested with the **Lab** security profile on
 Windows Server 2022 and Ubuntu 24.04, from a Windows Server 2022 controller.
@@ -85,9 +85,9 @@ short and has to be downloaded again.
 - **Retry of a CPM registration that failed late.** The vendor tool has by then created the CPM's Vault user and
   a retry creates another one (`PasswordManager1`), which can hit the licence limit of CPM users. Until fixed:
   delete the leftover Vault user before retrying, or install that CPM again on a clean server.
-- **Desktop:** "Check the servers" and starting an installation block the window while they run; retry and
-  lab check ask for one lab password, so a lab with separate passwords is continued from PowerShell; dropping
-  media on the window was not tried by hand; a Vault on its own does not look for the VC++ runtimes in
+- **Desktop:** starting an installation blocks the window for about half a minute; the root password of a Linux
+  server is not verified by the server check (only that SSH answers), so a wrong one shows up when PSMP is installed;
+  dropping media on the window was not tried by hand; a Vault on its own does not look for the VC++ runtimes in
   packages that are in the media folder but not part of the lab.
 - **`Test-PASHealth`** needs the PVWA name to resolve on the controller (DNS or hosts file).
 - **"Who installs" values.** The vendor installers take a user name and a company name; they stay at the vendor

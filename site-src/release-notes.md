@@ -1,5 +1,16 @@
 # Release notes
 
+## 2.0.3
+
+- **A wrong address no longer leaves an installation waiting.** Every `Install-*` command first checks, within
+  seconds, that each server answers on its management port, and stops with the list of servers that do not.
+  `Test-PASPreflight -ConnectivityOnly` does only that check.
+- **Desktop, Servers step:** a plain form with the account and password of every server and the Vault passwords.
+  The single "lab password" is gone from the window. **Next** checks the servers (do they answer, does the account
+  work, is the server ready) and only then shows the plan; problems are named with the reason.
+- The window remembers the accounts of the installation it started while it stays open, so *Try again* and
+  *Check the lab* do not ask again.
+
 ## 2.0.2
 
 - **`Start-PASeasyInstall` works from an interactive console.** In 2.0.1 it failed there with *The property

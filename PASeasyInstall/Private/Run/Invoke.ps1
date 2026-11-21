@@ -89,6 +89,9 @@ function Invoke-PASInstallCommand {
         return
     }
     Assert-PASWindowsController
+    # A wrong address or a server that is switched off must stop the command here, within seconds,
+    # and not leave an installation waiting for a server that never answers.
+    Assert-PASServersReachable -Configuration $ready
 
     # Nothing was asked so far. Missing credentials and secrets are prompted for here.
     $auth = Resolve-PASInstallCredential -Configuration $ready -CredentialMap $CredentialMap -SecretMap $SecretMap -LabPassword $LabPassword
@@ -282,6 +285,86 @@ function New-PASPreflightResult {
         Check = $Check
         Passed = $Passed
         Detail = $Detail
+    }
+}
+
+function Get-PASManagementEndpoint {
+    # The port the installer talks to on one server of a configuration: Port and Name (for messages).
+    # Linux: SSH 22. Windows: WinRM over HTTPS 5986, or HTTP 5985 where the configuration allows it.
+    param($Configuration, [string]$ServerId)
+    $server = $Configuration.hosts[$ServerId]
+    if ([string]$server.os -eq 'Linux') {
+        $port = 22
+        $name = 'SSH'
+    } else {
+        $useHttps = $true
+        $overrides = $Configuration.security.overrides
+        if ([string]$Configuration.security.profile -eq 'Lab' -and $overrides -and $overrides.Contains('WinRM.RequireHTTPS')) {
+            $useHttps = [bool]$overrides['WinRM.RequireHTTPS']
+        }
+        if ($server.Contains('useSsl')) {
+            $useHttps = [bool]$server.useSsl
+        }
+        if ($useHttps) {
+            $port = 5986
+            $name = 'WinRM HTTPS'
+        } else {
+            $port = 5985
+            $name = 'WinRM HTTP'
+        }
+    }
+    if ($server.Contains('port') -and $server.port) {
+        $port = [int]$server.port
+    }
+    return [pscustomobject]@{ Port = $port; Name = $name }
+}
+
+function Get-PASUnreachableServer {
+    # The servers of a configuration that do not answer on their management port, one line of text each.
+    # All ports are tried at the same time, so the answer comes after at most -TimeoutSeconds.
+    param($Configuration, [int]$TimeoutSeconds = 4)
+    $pending = @()
+    $problems = @()
+    foreach ($serverId in @(Get-PASDeploymentHostIds $Configuration)) {
+        $address = [string]$Configuration.hosts[$serverId].address
+        $endpoint = Get-PASManagementEndpoint -Configuration $Configuration -ServerId $serverId
+        $client = New-Object System.Net.Sockets.TcpClient
+        try {
+            $connect = $client.BeginConnect($address, $endpoint.Port, $null, $null)
+            $pending += @{ ServerId = $serverId; Address = $address; Endpoint = $endpoint; Client = $client; Connect = $connect }
+        } catch {
+            $client.Close()
+            $problems += "$address ($serverId): the address is not valid or its name cannot be resolved"
+        }
+    }
+    $deadline = [datetime]::UtcNow.AddSeconds($TimeoutSeconds)
+    foreach ($entry in $pending) {
+        $left = [int][math]::Max(0, ($deadline - [datetime]::UtcNow).TotalMilliseconds)
+        $connected = $false
+        try {
+            if ($entry.Connect.AsyncWaitHandle.WaitOne($left)) {
+                $entry.Client.EndConnect($entry.Connect)
+                $connected = [bool]$entry.Client.Connected
+            }
+        } catch {
+            $connected = $false
+        } finally {
+            $entry.Client.Close()
+        }
+        if (-not $connected) {
+            $problems += "$($entry.Address) ($($entry.ServerId)): no answer on $($entry.Endpoint.Name) port $($entry.Endpoint.Port)"
+        }
+    }
+    return @($problems)
+}
+
+function Assert-PASServersReachable {
+    # Stops an installation before it starts when a server does not answer.
+    param($Configuration)
+    $problems = @(Get-PASUnreachableServer -Configuration $Configuration)
+    if ($problems.Count) {
+        throw ('Nothing was started. These servers do not answer: ' + ($problems -join '; ') +
+            '. Check the address, that the server is switched on, that remote management (WinRM over HTTPS, or SSH on Linux) is enabled and that no firewall blocks the port.')
     }
 }
 

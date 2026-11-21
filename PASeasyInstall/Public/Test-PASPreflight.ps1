@@ -39,6 +39,9 @@ function Test-PASPreflight {
     checks only.
     .PARAMETER LabPassword
     One password for every server account of the configuration. Only for the Lab security profile.
+    .PARAMETER ConnectivityOnly
+    Only checks that every server answers on its management port (name resolution and TCP connect).
+    Takes a few seconds, needs no credentials and signs in nowhere.
     .EXAMPLE
     Test-PASPreflight -Path .\MyLab.json | Format-Table Server, Check, Passed, Detail -AutoSize
 
@@ -59,7 +62,9 @@ function Test-PASPreflight {
 
         [hashtable]$CredentialMap = @{},
 
-        [securestring]$LabPassword
+        [securestring]$LabPassword,
+
+        [switch]$ConnectivityOnly
     )
 
     $source = Resolve-PASConfigurationInput -Path $Path -Configuration $Configuration
@@ -119,14 +124,6 @@ function Test-PASPreflight {
     # 'Administrator' becomes '.\Administrator' for WinRM, exactly as for an installation.
     $credentials = ConvertTo-PASControllerCredentialMap $configuration $credentials
 
-    # The WinRM port follows the same rules as the installer's session (New-PASManagementSession).
-    $labProfile = ([string]$configuration.security.profile -eq 'Lab')
-    $overrides = $configuration.security.overrides
-    $httpsByDefault = $true
-    if ($labProfile -and $overrides -and $overrides.Contains('WinRM.RequireHTTPS')) {
-        $httpsByDefault = [bool]$overrides['WinRM.RequireHTTPS']
-    }
-
     # ---- Every server ----------------------------------------------------------------------------
     foreach ($serverId in @(Get-PASDeploymentHostIds $configuration)) {
         $server = $configuration.hosts[$serverId]
@@ -149,32 +146,16 @@ function Test-PASPreflight {
         }
 
         # 2. Management port.
-        if ($isLinux) {
-            $port = 22
-            $portName = 'SSH'
-        } else {
-            $useHttps = $httpsByDefault
-            if ($server.Contains('useSsl')) {
-                $useHttps = [bool]$server.useSsl
-            }
-            if ($useHttps) {
-                $port = 5986
-                $portName = 'WinRM HTTPS'
-            } else {
-                $port = 5985
-                $portName = 'WinRM HTTP'
-            }
-        }
-        if ($server.Contains('port') -and $server.port) {
-            $port = [int]$server.port
-        }
-        $portOpen = Test-PASTcpPort -ComputerName $address -Port $port -TimeoutSeconds 5
+        $endpoint = Get-PASManagementEndpoint -Configuration $configuration -ServerId $serverId
+        $port = $endpoint.Port
+        $portName = $endpoint.Name
+        $portOpen = Test-PASTcpPort -ComputerName $address -Port $port -TimeoutSeconds 4
         $portDetail = "$portName port $port answers"
         if (-not $portOpen) {
-            $portDetail = "$portName port $port did not answer within 5 seconds. Check that the server is running, the service is enabled and no firewall blocks the port."
+            $portDetail = "$portName port $port did not answer within 4 seconds. Check that the server is running, the service is enabled and no firewall blocks the port."
         }
         New-PASPreflightResult -Server $serverId -Address $address -Check "TCP port $port" -Passed $portOpen -Detail $portDetail
-        if (-not $portOpen) {
+        if (-not $portOpen -or $ConnectivityOnly) {
             continue
         }
 
