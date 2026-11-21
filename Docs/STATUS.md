@@ -1,7 +1,7 @@
 # PASeasyInstall 2.0: state of things
 
 One page that says what can be used now, what is experimental and what comes later.
-Last updated 2026-11-21, for release 2.0.0.
+Last updated 2026-11-21, for release 2.0.1 (one module: commands and desktop window).
 
 PASeasyInstall builds **labs**. Everything below was tested with the **Lab** security profile on
 Windows Server 2022 and Ubuntu 24.04, from a Windows Server 2022 controller.

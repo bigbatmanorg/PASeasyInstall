@@ -5,23 +5,21 @@ BeforeAll {
     $script:repo = $PASRepoRoot
     function Copy-RepoForBuild([string]$To) {
         New-Item -ItemType Directory -Path (Join-Path $To 'Tools') -Force | Out-Null
-        foreach ($item in 'PASeasyInstall', 'PASeasyInstall.UI') {
-            Copy-Item -LiteralPath (Join-Path $script:repo $item) -Destination $To -Recurse -Force
-        }
+        Copy-Item -LiteralPath (Join-Path $script:repo 'PASeasyInstall') -Destination $To -Recurse -Force
         Copy-Item -LiteralPath (Join-Path $script:repo 'Tools/Build-GalleryPackage.ps1') -Destination (Join-Path $To 'Tools')
     }
     $script:build = & (Join-Path $script:repo 'Tools/Build-GalleryPackage.ps1') -Output (Join-Path $TestDrive 'dist') -AllowMissingLicense 3>$null
     $script:core = @($script:build.Packages | Where-Object Module -eq 'PASeasyInstall')[0]
-    $script:ui = @($script:build.Packages | Where-Object Module -eq 'PASeasyInstall.UI')[0]
     Import-PASTestModule
 }
 
 Describe 'Gallery package stages' {
-    It 'stages the core module first and the UI module second, with one version' {
-        @($script:build.Packages | ForEach-Object Module) | Should -Be @('PASeasyInstall', 'PASeasyInstall.UI')
+    It 'stages exactly one module, without required modules' {
+        @($script:build.Packages | ForEach-Object Module) | Should -Be @('PASeasyInstall')
         $script:build.Version | Should -Match '^\d+\.\d+\.\d+(-[A-Za-z0-9]+)?$'
-        (Import-PowerShellDataFile (Join-Path $script:ui.Stage 'PASeasyInstall.UI.psd1')).ModuleVersion |
-            Should -Be (Import-PowerShellDataFile (Join-Path $script:core.Stage 'PASeasyInstall.psd1')).ModuleVersion
+        $manifest = Import-PowerShellDataFile (Join-Path $script:core.Stage 'PASeasyInstall.psd1')
+        $manifest.ContainsKey('RequiredModules') | Should -BeFalse
+        @($manifest.FunctionsToExport) | Should -Contain 'Start-PASeasyInstall'
     }
     It 'puts the commands, recipes, help and license into the core package' {
         foreach ($rel in 'PASeasyInstall.psd1', 'PASeasyInstall.psm1', 'en-US/about_PASeasyInstall.help.txt', 'LICENSE.txt',
@@ -31,24 +29,24 @@ Describe 'Gallery package stages' {
         }
         Test-Path -LiteralPath $script:core.Inventory | Should -BeTrue
     }
-    It 'puts the desktop and its Mock backend into the UI package' {
-        foreach ($rel in 'PASeasyInstall.UI.psd1', 'PASeasyInstall.UI.psm1', 'App.ps1', 'Model.ps1', 'Views.ps1', 'Web/index.html', 'Web/style.css',
-            'Backend/Backend.Contract.ps1', 'Backend/Mock/PASeasyInstall.Mock.psd1') {
-            Test-Path -LiteralPath (Join-Path $script:ui.Stage $rel) | Should -BeTrue -Because $rel
+    It 'puts the desktop window and its Mock backend into the same package' {
+        foreach ($rel in 'Public/Start-PASeasyInstall.ps1', 'Desktop/App.ps1', 'Desktop/Model.ps1', 'Desktop/Views.ps1', 'Desktop/Web/index.html',
+            'Desktop/Web/style.css', 'Desktop/Backend/Backend.Contract.ps1', 'Desktop/Backend/Mock/PASeasyInstall.Mock.psd1') {
+            Test-Path -LiteralPath (Join-Path $script:core.Stage $rel) | Should -BeTrue -Because $rel
         }
-        Test-Path -LiteralPath $script:ui.Inventory | Should -BeTrue
     }
-    It 'keeps the core package free of any module dependency' {
+    It 'requires no other module; only the Desktop folder loads the window engine' {
         $data = Import-PowerShellDataFile (Join-Path $script:core.Stage 'PASeasyInstall.psd1')
         $required = @()
         if ($data.ContainsKey('RequiredModules')) { $required = @($data.RequiredModules) }
         $required.Count | Should -Be 0
         $loads = @(Get-ChildItem -LiteralPath $script:core.Stage -Recurse -File -Include '*.ps1', '*.psm1' |
+                Where-Object { $_.FullName -notmatch '[\\/]Desktop[\\/]' } |
                 Select-String -Pattern 'Import-Module\s+NativeHTMLKit')
         $loads.Count | Should -Be 0
     }
     It 'leaves out tests, tools and docs' {
-        foreach ($stage in $script:core.Stage, $script:ui.Stage) {
+        foreach ($stage in @($script:core.Stage)) {
             $files = @(Get-ChildItem -LiteralPath $stage -Recurse -File)
             @($files | Where-Object { $_.Name -like '*.Tests.ps1' }).Count | Should -Be 0
             Test-Path -LiteralPath (Join-Path $stage 'Tools') | Should -BeFalse
@@ -65,7 +63,7 @@ Describe 'Gallery package stages' {
     It 'refuses vendor media in a module folder' {
         $copy = Join-Path $TestDrive 'media'
         Copy-RepoForBuild $copy
-        [IO.File]::WriteAllBytes((Join-Path $copy 'PASeasyInstall.UI/installer.zip'), [byte[]](80, 75, 3, 4))
+        [IO.File]::WriteAllBytes((Join-Path $copy 'PASeasyInstall/Desktop/installer.zip'), [byte[]](80, 75, 3, 4))
         { & (Join-Path $copy 'Tools/Build-GalleryPackage.ps1') -Output (Join-Path $TestDrive 'media-dist') -AllowMissingLicense 3>$null } |
             Should -Throw '*forbidden file type*'
     }

@@ -37,8 +37,7 @@
 #   Install-PASLab and Resume-PASRun also take -LabPassword (one password for everything).
 #
 # Backends:
-#   Live  the PASeasyInstall module: the sibling folder of this UI module (source checkout, portable
-#         ZIP), otherwise the installed module of that name.
+#   Live  the PASeasyInstall module this desktop is part of.
 #   Mock  Backend/Mock: the same module for everything that only computes; the run, the server
 #         check and the lab check are simulated.
 
@@ -69,17 +68,13 @@ function Get-PASUIBackendContract {
 }
 
 function Get-PASUICoreModule {
-    <# What to hand to Import-Module for the PASeasyInstall module: the manifest in the sibling folder
-       of this UI module when there is one, otherwise the module name (an installed module). #>
-    $uiRoot = Split-Path -Parent $PSScriptRoot
-    $sibling = Join-Path (Join-Path (Split-Path -Parent $uiRoot) 'PASeasyInstall') 'PASeasyInstall.psd1'
-    if (Test-Path -LiteralPath $sibling -PathType Leaf) {
-        return $sibling
+    <# What to hand to Import-Module for the PASeasyInstall module: the manifest of the module this
+       desktop is part of (this file is <module>\Desktop\Backend\Backend.Contract.ps1). #>
+    $manifest = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'PASeasyInstall.psd1'
+    if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) {
+        throw "The PASeasyInstall module manifest was not found: $manifest"
     }
-    if (Get-Module -ListAvailable -Name PASeasyInstall) {
-        return 'PASeasyInstall'
-    }
-    throw "The PASeasyInstall module was not found next to this module ($sibling) and is not installed. Install-Module PASeasyInstall -Scope CurrentUser"
+    return $manifest
 }
 
 function Assert-PASUIBackend {

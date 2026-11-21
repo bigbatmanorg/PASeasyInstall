@@ -2,13 +2,12 @@
 .SYNOPSIS
 Builds the portable PASeasyInstall ZIP: unzip, run Start-PASeasyInstall.cmd, build a lab. No installation needed.
 .DESCRIPTION
-Stages both modules with Tools\Build-GalleryPackage.ps1, then lays out:
+Stages the module with Tools\Build-GalleryPackage.ps1, then lays out:
   PASeasyInstall-<version>-portable\
-    Start-PASeasyInstall.cmd / .ps1     the desktop wizard
+    Start-PASeasyInstall.cmd / .ps1     the desktop window
     PASeasyInstall-Shell.cmd / .ps1     PowerShell window with the PASeasyInstall commands loaded
     README-PORTABLE.txt, LICENSE.txt, THIRD_PARTY_*.txt
-    PASeasyInstall\                     the core module (commands)
-    PASeasyInstall.UI\                  the desktop module
+    PASeasyInstall\                     the module (commands and desktop window)
     NativeHTMLKit\                      desktop runtime (SDK with its native window host)
 The launchers clear the internet zone mark inside the folder, put the folder first on PSModulePath for
 their own process only, and run Windows PowerShell 5.1 with -NoProfile -ExecutionPolicy Bypass. They
@@ -99,7 +98,7 @@ if ($PSVersionTable.PSEdition -ne 'Desktop') {
 '@
 $startPs1 = @"
 <#
-PASeasyInstall portable: opens the desktop wizard. Builds CyberArk PAM labs; production use is at your own risk.
+PASeasyInstall portable: opens the desktop window. Builds CyberArk PAM labs; production use is at your own risk.
 Usage: Start-PASeasyInstall.cmd [-Config <project.json>] [-Backend Mock]
 #>
 [CmdletBinding()]
@@ -108,7 +107,7 @@ param(
     [ValidateSet('Live', 'Mock')][string]`$Backend = 'Live'
 )
 $common
-Import-Module (Join-Path (Join-Path `$PASPortableRoot 'PASeasyInstall.UI') 'PASeasyInstall.UI.psd1') -Force -ErrorAction Stop
+Import-Module (Join-Path (Join-Path `$PASPortableRoot 'PASeasyInstall') 'PASeasyInstall.psd1') -Force -ErrorAction Stop
 Start-PASeasyInstall -Config `$Config -Backend `$Backend
 "@
 $shellPs1 = @"
@@ -164,8 +163,7 @@ Nothing is installed or changed on the computer. Execution policy enforced by Gr
 
 Contents
 --------
-PASeasyInstall\                       the commands (core module, no dependencies)
-PASeasyInstall.UI\                    the desktop wizard (Start-PASeasyInstall)
+PASeasyInstall\                       the module: the commands and the desktop window (Start-PASeasyInstall)
 NativeHTMLKit\$kitVersion             NativeHTMLKit SDK and native window host (https://nativehtmlkit.github.io/)
 
 Documentation: https://bigbatmanorg.github.io/PASeasyInstall/

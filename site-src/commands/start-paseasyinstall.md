@@ -1,9 +1,10 @@
 # Start-PASeasyInstall
 
-Opens the [desktop](../gui/index.md). The command is in the separate module **PASeasyInstall.UI**:
+Opens the [desktop](../gui/index.md). The command is part of the PASeasyInstall module. The first time, it offers to install NativeHTMLKit,
+the module that draws the window:
 
 ```powershell
-Install-Module PASeasyInstall.UI -Scope CurrentUser
+Install-Module PASeasyInstall -Scope CurrentUser
 Start-PASeasyInstall [-Config <path>] [-Backend Live|Mock]
 ```
 

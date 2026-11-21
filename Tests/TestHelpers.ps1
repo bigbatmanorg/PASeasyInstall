@@ -4,8 +4,8 @@
 $PASRepoRoot = Split-Path -Parent $PSScriptRoot
 $PASModuleRoot = Join-Path $PASRepoRoot 'PASeasyInstall'
 $PASModuleManifest = Join-Path $PASModuleRoot 'PASeasyInstall.psd1'
-$PASUIModuleRoot = Join-Path $PASRepoRoot 'PASeasyInstall.UI'
-$PASUIModuleManifest = Join-Path $PASUIModuleRoot 'PASeasyInstall.UI.psd1'
+# The desktop window is a folder of the module.
+$PASUIModuleRoot = Join-Path (Join-Path $PASRepoRoot 'PASeasyInstall') 'Desktop'
 
 function Import-PASTestModule {
     # Imports the core module from the working tree. Private functions are reachable with

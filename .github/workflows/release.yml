@@ -1,13 +1,12 @@
 name: Release
 
 # Tag vX.Y.Z or vX.Y.Z-rcN to build, create the GitHub release (portable ZIP + SHA256SUMS) and publish
-# both modules to the PowerShell Gallery: PASeasyInstall first, then PASeasyInstall.UI.
-# The tag must match ModuleVersion (+ PSData.Prerelease) in PASeasyInstall/PASeasyInstall.psd1;
-# PASeasyInstall.UI/PASeasyInstall.UI.psd1 must carry the same ModuleVersion.
+# the PASeasyInstall module to the PowerShell Gallery.
+# The tag must match ModuleVersion (+ PSData.Prerelease) in PASeasyInstall/PASeasyInstall.psd1.
 #
-# Publishing again: when the Gallery step failed (for example the API key could not push one of the modules),
+# Publishing again: when the Gallery step failed (for example the API key was refused),
 # run this workflow by hand with publish_tag set to the tag, for example v2.0.0. It builds that tag again and
-# publishes only the module versions that are not on the Gallery yet. The GitHub release is left as it is.
+# publishes the module version when it is not on the Gallery yet. The GitHub release is left as it is.
 on:
   push:
     tags: ['v*']
@@ -49,10 +48,6 @@ jobs:
           PUBLISH_TAG: ${{ inputs.publish_tag }}
         run: |
           $d = Import-PowerShellDataFile .\PASeasyInstall\PASeasyInstall.psd1
-          $ui = Import-PowerShellDataFile .\PASeasyInstall.UI\PASeasyInstall.UI.psd1
-          if ([string]$ui.ModuleVersion -ne [string]$d.ModuleVersion) {
-            throw "PASeasyInstall.UI is $($ui.ModuleVersion) but PASeasyInstall is $($d.ModuleVersion)"
-          }
           $pre = [string]$d['PrivateData']['PSData']['Prerelease']
           $v = [string]$d.ModuleVersion + $(if ($pre) { "-$pre" } else { '' })
           $tag = ''
@@ -67,7 +62,7 @@ jobs:
       - name: Static check and tests
         run: .\Tools\Invoke-CITests.ps1 -ResultPath test-results.xml
 
-      - name: Build both Gallery packages and the portable ZIP
+      - name: Build the Gallery package and the portable ZIP
         run: .\Tools\Build-PortableRelease.ps1 -Output dist | Format-List
 
       - uses: actions/upload-artifact@v4
@@ -100,8 +95,7 @@ jobs:
           PASeasyInstall $VERSION builds CyberArk PAM self-hosted **labs**. Production use is at your own risk.
 
           - **Portable:** download \`PASeasyInstall-$VERSION-portable.zip\`, unblock it, extract it and run \`Start-PASeasyInstall.cmd\`. NativeHTMLKit is included, and nothing is installed.
-          - **PowerShell Gallery, commands:** \`Install-Module PASeasyInstall$( [ "$PRERELEASE" = "true" ] && echo ' -AllowPrerelease')\`, then for example \`Install-PASVault\` or \`Install-PASLab\`.
-          - **PowerShell Gallery, desktop:** \`Install-Module PASeasyInstall.UI$( [ "$PRERELEASE" = "true" ] && echo ' -AllowPrerelease')\`, then \`Start-PASeasyInstall\`.
+          - **PowerShell Gallery:** \`Install-Module PASeasyInstall$( [ "$PRERELEASE" = "true" ] && echo ' -AllowPrerelease')\`. Then \`Start-PASeasyInstall\` opens the desktop window, or use the commands, for example \`Install-PASVault\` or \`Install-PASLab\`.
 
           SHA256: see \`SHA256SUMS\`.
           NOTES
@@ -122,7 +116,7 @@ jobs:
         with:
           name: release
           path: dist
-      - name: Publish PASeasyInstall and PASeasyInstall.UI to the PowerShell Gallery
+      - name: Publish PASeasyInstall to the PowerShell Gallery
         env:
           PSGALLERY_API_KEY: ${{ secrets.POWERSHELL_GALLERY_API_KEY }}
         run: |
@@ -143,8 +137,5 @@ jobs:
             }
             Publish-PSResource -Path "dist/gallery/$Name" -Repository PSGallery -ApiKey $env:PSGALLERY_API_KEY -Verbose
           }
-          # The core module first: it has no dependencies.
+          # One module, without required modules.
           Publish-IfMissing 'PASeasyInstall'
-          # The desktop module requires NativeHTMLKit; its manifest is validated against the installed copy.
-          Install-PSResource -Name NativeHTMLKit -Version 0.1.2 -Repository PSGallery -TrustRepository -Quiet
-          Publish-IfMissing 'PASeasyInstall.UI'

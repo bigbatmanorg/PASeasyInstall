@@ -1,11 +1,7 @@
 # PowerShell Gallery
 
-PASeasyInstall is published as **two modules**.
-
-| Module | What it is | Depends on |
-|---|---|---|
-| `PASeasyInstall` | The commands: `Install-PASVault`, `Install-PASLab`, `Get-PASRun`, ... | Nothing |
-| `PASeasyInstall.UI` | The desktop: `Start-PASeasyInstall` | NativeHTMLKit (installed with it) |
+PASeasyInstall is published as **one module**: the commands (`Install-PASVault`, `Install-PASLab`, `Get-PASRun`, ...)
+and the desktop window (`Start-PASeasyInstall`). The commands depend on nothing.
 
 ## The commands
 
@@ -18,12 +14,11 @@ Install-PASVault -ComputerName 10.10.0.11 -MediaPath C:\CyberArk\media -WhatIf
 
 ```powershell
 Install-Module PASeasyInstall -Scope CurrentUser
-Install-Module PASeasyInstall.UI -Scope CurrentUser
 Start-PASeasyInstall
 ```
 
-The desktop calls the commands of the `PASeasyInstall` module, so install both. `Install-Module PASeasyInstall.UI`
-also installs **NativeHTMLKit**, the desktop runtime.
+The window is drawn by the **NativeHTMLKit** module. When it is not installed, `Start-PASeasyInstall` asks whether
+to install it from the PowerShell Gallery for the current user.
 
 ## A fresh Windows Server
 
@@ -41,8 +36,7 @@ Use `-Scope AllUsers` from an elevated prompt to install it for everyone on the 
 ## Update and remove
 
 ```powershell
-Update-Module PASeasyInstall, PASeasyInstall.UI
-Uninstall-Module PASeasyInstall.UI
+Update-Module PASeasyInstall
 Uninstall-Module PASeasyInstall
 ```
 

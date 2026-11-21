@@ -4,7 +4,7 @@ Static check of the source tree: every PowerShell file parses, both manifests ar
 exported commands are exactly the files in PASeasyInstall\Public.
 .DESCRIPTION
 Read-only. Contacts no server, opens no window and needs no vendor media. It checks:
-  1. every .ps1, .psm1 and .psd1 under PASeasyInstall, PASeasyInstall.UI, Tools and Tests, and
+  1. every .ps1, .psm1 and .psd1 under PASeasyInstall, Tools and Tests, and
      Start-PASeasyInstall.ps1, with the PowerShell parser;
   2. both module manifests (Test-ModuleManifest; the UI manifest needs NativeHTMLKit installed,
      otherwise only its data is read);
@@ -28,13 +28,11 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $coreRoot = Join-Path $repo 'PASeasyInstall'
-$uiRoot = Join-Path $repo 'PASeasyInstall.UI'
 $coreManifest = Join-Path $coreRoot 'PASeasyInstall.psd1'
-$uiManifest = Join-Path $uiRoot 'PASeasyInstall.UI.psd1'
 
 # 1. Parser
 $files = @()
-foreach ($folder in @($coreRoot, $uiRoot, (Join-Path $repo 'Tools'), (Join-Path $repo 'Tests'))) {
+foreach ($folder in @($coreRoot, (Join-Path $repo 'Tools'), (Join-Path $repo 'Tests'))) {
     $files += @(Get-ChildItem -LiteralPath $folder -Recurse -File | Where-Object { $_.Extension -in @('.ps1', '.psm1', '.psd1') })
 }
 $files += Get-Item -LiteralPath (Join-Path $repo 'Start-PASeasyInstall.ps1')
@@ -55,23 +53,8 @@ if ($parseProblems.Count) {
 $core = Test-ModuleManifest -Path $coreManifest -ErrorAction Stop
 $coreData = Import-PowerShellDataFile -Path $coreManifest
 if ($coreData.ContainsKey('RequiredModules') -and @($coreData.RequiredModules).Count) {
-    throw 'PASeasyInstall.psd1 must not require other modules (the core has no GUI dependency)'
+    throw 'PASeasyInstall.psd1 must not require other modules (only Start-PASeasyInstall needs NativeHTMLKit, and it looks for it itself)'
 }
-$uiData = Import-PowerShellDataFile -Path $uiManifest
-if ([string]$uiData.ModuleVersion -ne [string]$coreData.ModuleVersion) {
-    throw "Version mismatch: PASeasyInstall $($coreData.ModuleVersion), PASeasyInstall.UI $($uiData.ModuleVersion)"
-}
-if ((@($uiData.FunctionsToExport) -join ',') -ne 'Start-PASeasyInstall') {
-    throw 'PASeasyInstall.UI must export exactly Start-PASeasyInstall'
-}
-$uiTested = $false
-if (Get-Module -ListAvailable -Name NativeHTMLKit) {
-    Test-ModuleManifest -Path $uiManifest -ErrorAction Stop | Out-Null
-    $uiTested = $true
-} else {
-    Write-Warning 'NativeHTMLKit is not installed: the PASeasyInstall.UI manifest was read but not tested.'
-}
-
 # 3. Export list == Public folder
 $publicFiles = @(Get-ChildItem -LiteralPath (Join-Path $coreRoot 'Public') -Filter '*.ps1' -File)
 $publicNames = @($publicFiles | ForEach-Object { $_.BaseName } | Sort-Object)
@@ -98,7 +81,7 @@ if (($exported -join ',') -ne ($publicNames -join ',')) {
     throw "The imported module exports: $($exported -join ', '). Expected: $($publicNames -join ', ')"
 }
 if (Get-Module -Name NativeHTMLKit) {
-    Write-Warning 'NativeHTMLKit is loaded in this session; the core module itself does not load it.'
+    Write-Warning 'NativeHTMLKit is loaded in this session; importing PASeasyInstall does not load it.'
 }
 
 # 5. PSScriptAnalyzer (optional)
@@ -120,7 +103,7 @@ if ($analyzerAvailable -and -not $SkipAnalyzer) {
         'PSMissingModuleManifestField'
     )
     $findings = @()
-    foreach ($folder in @($coreRoot, $uiRoot)) {
+    foreach ($folder in @($coreRoot)) {
         $findings += @(Invoke-ScriptAnalyzer -Path $folder -Recurse -IncludeRule $rules)
     }
     $analyzerFindings = $findings.Count
@@ -136,9 +119,5 @@ $analyzerText = 'not run'
 if ($analyzerAvailable -and -not $SkipAnalyzer) {
     $analyzerText = "$analyzerFindings finding(s)"
 }
-$uiText = 'read only'
-if ($uiTested) {
-    $uiText = 'tested'
-}
-Write-Output ("PASS: $($files.Count) files parsed; PASeasyInstall $($core.Version) manifest tested, PASeasyInstall.UI manifest $uiText; " +
+Write-Output ("PASS: $($files.Count) files parsed; PASeasyInstall $($core.Version) manifest tested; " +
     "$($publicNames.Count) public commands match the Public folder; PSScriptAnalyzer: $analyzerText. No server was contacted.")

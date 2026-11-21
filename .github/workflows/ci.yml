@@ -31,7 +31,7 @@ jobs:
       - name: Static check and tests
         run: .\Tools\Invoke-CITests.ps1 -ResultPath test-results.xml
 
-      - name: Gallery packages (PASeasyInstall, PASeasyInstall.UI) and portable ZIP build
+      - name: Gallery package and portable ZIP build
         run: |
           $license = if (Test-Path LICENSE) { @{} } else { Write-Warning 'LICENSE missing: building with -AllowMissingLicense'; @{ AllowMissingLicense = $true } }
           .\Tools\Build-PortableRelease.ps1 -Output dist @license | Format-List

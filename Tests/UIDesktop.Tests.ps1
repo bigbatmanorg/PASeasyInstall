@@ -1,4 +1,4 @@
-# The desktop (PASeasyInstall.UI) and the public commands it calls. No window, no server, no vendor
+# The desktop window (PASeasyInstall\Desktop) and the public commands it calls. No window, no server, no vendor
 # execution: synthetic media in TestDrive.
 BeforeAll {
     . (Join-Path $PSScriptRoot 'TestHelpers.ps1')
@@ -85,16 +85,17 @@ Describe 'UI backend contract' {
         }
     }
     It 'defaults the desktop to the real installer and offers only Live and Mock' {
-        foreach ($file in @((Join-Path $repo 'Start-PASeasyInstall.ps1'), (Join-Path $uiRoot 'App.ps1'), (Join-Path $uiRoot 'PASeasyInstall.UI.psm1'))) {
+        foreach ($file in @((Join-Path $repo 'Start-PASeasyInstall.ps1'), (Join-Path $uiRoot 'App.ps1'), (Join-Path (Join-Path $PASModuleRoot 'Public') 'Start-PASeasyInstall.ps1'))) {
             $text = Get-Content -LiteralPath $file -Raw
             $text | Should -Match "ValidateSet\('Live', 'Mock'\)\]\[string\]\`$Backend = 'Live'" -Because $file
             $text | Should -Not -Match '\[switch\]\$Advanced|\$Theme\b' -Because $file
         }
     }
-    It 'exports only Start-PASeasyInstall from the UI module manifest' {
-        $manifest = Import-PowerShellDataFile -Path $PASUIModuleManifest
-        @($manifest.FunctionsToExport) | Should -Be @('Start-PASeasyInstall')
-        @($manifest.RequiredModules | ForEach-Object { $_.ModuleName }) | Should -Be @('NativeHTMLKit')
+    It 'is part of the one module: Start-PASeasyInstall is exported and nothing else is required to import it' {
+        $manifest = Import-PowerShellDataFile -Path $PASModuleManifest
+        @($manifest.FunctionsToExport) | Should -Contain 'Start-PASeasyInstall'
+        $manifest.ContainsKey('RequiredModules') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $repo 'PASeasyInstall.UI') | Should -BeFalse
     }
 }
 

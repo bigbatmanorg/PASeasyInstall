@@ -8,7 +8,7 @@ use is at your own risk. Read `Docs/DESIGN.md` first: it explains the layout and
 
 - `PASeasyInstall/` is the **one core module**. It has **no dependency**, in particular no GUI dependency: it
   must import and work without NativeHTMLKit.
-- `PASeasyInstall.UI/` is the desktop module. It exports `Start-PASeasyInstall` only.
+- `PASeasyInstall/Desktop/` is the desktop window, opened by the public command `Start-PASeasyInstall`. There is one module.
 - `Start-PASeasyInstall.ps1` at the repository root opens the desktop from a source checkout.
 
 ## Rules
@@ -17,9 +17,9 @@ use is at your own risk. Read `Docs/DESIGN.md` first: it explains the layout and
   and customer data are supplied locally by the operator. Never commit or upload them.
 - **No secrets in code, logs, journals, project JSON or rendered UI text.** Passwords exist only as SecureString in
   process memory. A lab-mode password prefill may come only from `$env:PASEASY_LAB_PASSWORD`.
-- **The UI calls only the public commands** listed in `PASeasyInstall.UI/Backend/Backend.Contract.ps1`. It never
+- **The UI calls only the public commands** listed in `PASeasyInstall/Desktop/Backend/Backend.Contract.ps1`. It never
   calls a private function and implements no installer logic. Keep the Mock backend and the contract in sync.
-  It is written directly on the NativeHTMLKit SDK (HTML and CSS in `PASeasyInstall.UI/Web`, no UI library, no web view,
+  It is written directly on the NativeHTMLKit SDK (HTML and CSS in `PASeasyInstall/Desktop/Web`, no UI library, no web view,
   JavaScript or HTTP server): `Model.ps1` is the data, `Views.ps1` the screens as HTML text, `App.ps1` the window and events.
 - **One function prefix: `PAS`.** No `PASeasy`, `PAExec` or `PAE` prefixes in new function names.
 - **One public command per file** in `PASeasyInstall/Public/`, named after the command, with comment-based help
