@@ -16,6 +16,9 @@ function Start-PASeasyInstall {
     When it is not installed you are asked whether to install it from the PowerShell Gallery (for the
     current user). The portable ZIP carries its own copy.
 
+    The window opens in its own process and the command returns at once: the prompt stays usable, and
+    closing the prompt does not close the window. When the window cannot start, the command says why.
+
     Needs Windows PowerShell 5.1. PASeasyInstall builds labs. Production use is at your own risk.
     .PARAMETER Config
     Optional lab file (JSON, saved from the window or by Export-PASLabConfiguration). Its name, Vault
@@ -53,5 +56,29 @@ function Start-PASeasyInstall {
         Install-Module -Name NativeHTMLKit -Scope CurrentUser -Force -ErrorAction Stop
     }
 
-    & (Join-Path $desktop 'App.ps1') -Config $Config -Backend $Backend
+    # The window runs in its own Windows PowerShell process. This prompt stays free, and the window does not
+    # depend on what this session has loaded. (An interactive console loads PSReadLine, whose own copy of a
+    # .NET type makes NativeHTMLKit 0.1.2 fail when it looks for its window host.)
+    $logFolder = Get-PASDataRoot
+    if (-not (Test-Path -LiteralPath $logFolder)) {
+        New-Item -ItemType Directory -Path $logFolder -Force | Out-Null
+    }
+    $outLog = Join-Path $logFolder 'desktop.out.log'
+    $errorLog = Join-Path $logFolder 'desktop.err.log'
+    $exe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $arguments = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy Bypass', '-File', ('"' + (Join-Path $desktop 'App.ps1') + '"'),
+        '-Backend', $Backend, '-StartDirectory', ('"' + (Get-Location).ProviderPath.TrimEnd('\') + '"'))
+    if ($Config) {
+        $arguments += @('-Config', ('"' + $Config + '"'))
+    }
+    $process = Start-Process -FilePath $exe -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput $outLog -RedirectStandardError $errorLog
+
+    # A window that cannot start ends within a few seconds: say why instead of showing nothing.
+    if ($process.WaitForExit(5000) -and $process.ExitCode -ne 0) {
+        $reason = ''
+        if (Test-Path -LiteralPath $errorLog) {
+            $reason = (@(Get-Content -LiteralPath $errorLog -ErrorAction SilentlyContinue | Where-Object { $_ }) | Select-Object -First 6) -join ' '
+        }
+        throw "The desktop window could not start (exit code $($process.ExitCode)). $reason Details: $errorLog"
+    }
 }

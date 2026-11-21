@@ -356,6 +356,28 @@ Describe 'Desktop screens' {
 }
 
 Describe 'Desktop window (headless, simulated installation)' -Skip:(-not [bool](Get-Module -ListAvailable NativeHTMLKit)) {
+    It 'Start-PASeasyInstall opens the window in its own process and returns at once' {
+        # Headless: the window process starts, shows nothing and waits. It is found by its start folder and stopped.
+        $folder = Join-Path $TestDrive 'start-here'
+        New-Item -ItemType Directory -Path $folder | Out-Null
+        $saved = @{ Mode = $env:NATIVEHTMLKIT_TEST_MODE; Root = $env:PAS_EASY_DATA_ROOT }
+        $env:NATIVEHTMLKIT_TEST_MODE = '1'
+        $env:PAS_EASY_DATA_ROOT = Join-Path $TestDrive 'start-data'
+        Push-Location $folder
+        try {
+            $watch = [Diagnostics.Stopwatch]::StartNew()
+            Start-PASeasyInstall -Backend Mock
+            $watch.Elapsed.TotalSeconds | Should -BeLessThan 30
+            $mine = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" | Where-Object { [string]$_.CommandLine -like "*Desktop\App.ps1*" -and [string]$_.CommandLine -like "*start-here*" })
+            $mine.Count | Should -BeGreaterThan 0
+            (Get-Content -LiteralPath (Join-Path $env:PAS_EASY_DATA_ROOT 'desktop.err.log') -Raw -ErrorAction SilentlyContinue) | Should -BeNullOrEmpty
+        } finally {
+            Pop-Location
+            Get-CimInstance Win32_Process | Where-Object { [string]$_.CommandLine -like "*start-here*" -and $_.ProcessId -ne $PID } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+            $env:NATIVEHTMLKIT_TEST_MODE = $saved.Mode
+            $env:PAS_EASY_DATA_ROOT = $saved.Root
+        }
+    }
     It 'walks from the start page to a finished and checked lab' {
         $out = Join-Path $TestDrive 'selftest.out'
         $err = Join-Path $TestDrive 'selftest.err'
