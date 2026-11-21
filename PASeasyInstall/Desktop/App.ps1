@@ -7,7 +7,8 @@
 #   Model.ps1   what the user chose and what follows from it (plain data, testable)
 #   Views.ps1   the screens as HTML text (testable)
 #   App.ps1     this file: the window, the events and the calls to the installer
-# The window talks to the installer ONLY through the commands in Backend/Backend.Contract.ps1.
+# The window talks to the installer ONLY through the public commands listed in Backend/Backend.Contract.ps1.
+# It is started by Start-PASeasyInstall and is part of the PASeasyInstall module (folder Desktop).
 [CmdletBinding()]
 param(
     [string]$Config = '',
@@ -18,7 +19,17 @@ param(
     [string]$SelfTest = ''
 )
 $ErrorActionPreference = 'Stop'
-Import-Module NativeHTMLKit -ErrorAction Stop
+# The window engine: the installed module, or the copy next to the PASeasyInstall folder (portable ZIP).
+if (Get-Module -ListAvailable -Name NativeHTMLKit) {
+    Import-Module NativeHTMLKit -ErrorAction Stop
+} else {
+    $bundledKit = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'NativeHTMLKit'
+    $kitManifest = Get-ChildItem -LiteralPath $bundledKit -Recurse -Filter 'NativeHTMLKit.psd1' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $kitManifest) {
+        throw 'The NativeHTMLKit module is not installed. Install-Module NativeHTMLKit -Scope CurrentUser'
+    }
+    Import-Module $kitManifest.FullName -ErrorAction Stop
+}
 if (-not $StartDirectory) {
     $StartDirectory = (Get-Location).ProviderPath
 }

@@ -39,7 +39,7 @@ into one folder, for example `C:\CyberArk\media`. The VC++ runtimes come from th
 === "PowerShell Gallery"
 
     ```powershell
-    Install-Module PASeasyInstall, PASeasyInstall.UI -Scope CurrentUser
+    Install-Module PASeasyInstall -Scope CurrentUser
     Start-PASeasyInstall
     ```
 

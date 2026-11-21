@@ -10,7 +10,7 @@ BeforeAll {
 
 Describe 'Execution policy on every toolkit-started PowerShell process' {
     It 'passes -ExecutionPolicy Bypass on every launch line in the modules' {
-        $files = @('PASeasyInstall', 'PASeasyInstall.UI') |
+        $files = @('PASeasyInstall') |
             ForEach-Object { Get-ChildItem -Path (Join-Path $root $_) -Recurse -File -Include '*.ps1', '*.psm1' }
         $launches = @($files | Select-String -Pattern '-NoProfile -NonInteractive' -SimpleMatch)
         $launches.Count | Should -BeGreaterThan 4

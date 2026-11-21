@@ -23,8 +23,7 @@ C:\PASeasyInstall\
   Start-PASeasyInstall.cmd / .ps1     the desktop (double-click the .cmd)
   PASeasyInstall-Shell.cmd / .ps1     a PowerShell window with every PASeasyInstall command loaded
   README-PORTABLE.txt, LICENSE.txt, THIRD_PARTY_*.txt
-  PASeasyInstall\                     the commands (core module)
-  PASeasyInstall.UI\                  the desktop module
+  PASeasyInstall\                     the module: commands and desktop window
   NativeHTMLKit\                      the desktop runtime, including its native host
 ```
 

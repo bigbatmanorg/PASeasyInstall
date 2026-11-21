@@ -15,7 +15,7 @@ PASeasyInstall/              core module, no dependencies
   Private/Diagnostics        health, logs, diagnostics export
   Recipes/                   scripts executed ON the servers (Vault, WindowsComponent, LinuxComponent, ActiveDirectory)
   Controllers/               Invoke-PASRunController.ps1, entry script of the detached controller process
-PASeasyInstall.UI/           desktop window; calls only the public commands in Backend/Backend.Contract.ps1
+PASeasyInstall/Desktop/      desktop window; calls only the public commands in Backend/Backend.Contract.ps1
 ```
 
 Names: a **run** is one installation (one controller process, one run id). A **component** is one item of the plan

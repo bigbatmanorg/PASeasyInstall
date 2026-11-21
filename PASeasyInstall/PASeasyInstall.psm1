@@ -7,8 +7,8 @@
 #              journals), Run (run controller, events), Diagnostics (health, export)
 #   Recipes\   scripts that run on the target servers, one folder per component family
 #   Controllers\  entry script of the detached run controller process
-#
-# The desktop wizard is a separate module (PASeasyInstall.UI) that only calls the Public commands.
+#   Desktop\   the window opened by Start-PASeasyInstall (NativeHTMLKit SDK, HTML and CSS). It calls only
+#              Public commands. Nothing in it is loaded when the module is imported.
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $script:PASRoot = $PSScriptRoot

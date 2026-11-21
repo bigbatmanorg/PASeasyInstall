@@ -23,7 +23,8 @@ Describe 'Public command list' {
         @(Get-Command -Module PASeasyInstall -CommandType Alias).Count | Should -Be 0
     }
     It 'uses the PAS prefix and none of the old names' {
-        foreach ($name in $script:publicNames) {
+        # Start-PASeasyInstall, the command that opens the desktop window, is the one name outside the PAS scheme.
+        foreach ($name in @($script:publicNames | Where-Object { $_ -ne 'Start-PASeasyInstall' })) {
             $name | Should -Match '^(Install|New|Test|Get|Export|Import|Wait|Resume|Stop)-PAS[A-Z][A-Za-z]+$'
             $name | Should -Not -Match 'PASeasy|PAExec|PAEasy|PASEnvironment|PASDeployment|PTA'
         }
@@ -67,8 +68,9 @@ Describe 'The core module stands alone' {
         if ($script:manifest.ContainsKey('RequiredModules')) { $required = @($script:manifest.RequiredModules) }
         $required.Count | Should -Be 0
     }
-    It 'never imports NativeHTMLKit or the UI module from its own files' {
+    It 'loads the window engine only from the Desktop folder, which nothing loads at import' {
         $hits = @(Get-ChildItem -LiteralPath $PASModuleRoot -Recurse -File -Include '*.ps1', '*.psm1' |
+                Where-Object { $_.FullName -notmatch '[\\/]Desktop[\\/]' } |
                 Select-String -Pattern 'Import-Module\s+\S*(NativeHTMLKit|PASeasyInstall\.UI)')
         $hits | Should -BeNullOrEmpty
     }

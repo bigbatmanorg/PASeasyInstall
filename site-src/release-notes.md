@@ -1,5 +1,12 @@
 # Release notes
 
+## 2.0.1
+
+- **One module again.** The desktop window is part of `PASeasyInstall`: `Install-Module PASeasyInstall`, then
+  `Start-PASeasyInstall`. There is no separate `PASeasyInstall.UI` module (it was never published to the Gallery).
+  The commands still need nothing else; only `Start-PASeasyInstall` needs NativeHTMLKit and offers to install it.
+- `PASeasyInstall` 2.0.0 on the Gallery has the commands but not the window; use 2.0.1.
+
 ## 2.0.0
 
 !!! note "Lab-tested on 2026-11-21, Lab profile only"
@@ -29,8 +36,8 @@ replaces the command set and simplifies the controller.
 
 ### Breaking changes
 
-- **Two modules instead of one.** `PASeasyInstall` holds the commands and has no dependencies. The desktop moved to
-  `PASeasyInstall.UI` (`Install-Module PASeasyInstall.UI`), which requires NativeHTMLKit.
+- **The commands have no dependencies.** Only `Start-PASeasyInstall` needs NativeHTMLKit. (2.0.0 planned a separate
+  `PASeasyInstall.UI` module for the desktop; 2.0.1 keeps everything in one module.)
 - **All 1.0 command names are gone.** See the mapping below. There are no aliases.
 - **No parallel installation.** Components are installed one after the other. `execution.mode = Parallel` in an old
   project file is accepted with a warning and runs sequentially.
@@ -50,7 +57,7 @@ replaces the command set and simplifies the controller.
 
 | 1.0 | 2.0 |
 |---|---|
-| `Start-PASeasyInstall` (module PASeasyInstall) | `Start-PASeasyInstall` (module **PASeasyInstall.UI**) |
+| `Start-PASeasyInstall` | `Start-PASeasyInstall` (same module, new window) |
 | `Invoke-PASeasyInstall -Config <file>` | `Install-PASLab -Path <file>` |
 | `Invoke-PASeasyInstall -Config <file> -PlanOnly` | `Get-PASLabPlan -Path <file>` |
 | `Invoke-PASeasyInstall -Resume <id>` | `Resume-PASRun -RunId <id>` |

@@ -1,17 +1,17 @@
 <#
 .SYNOPSIS
-Stages the two PowerShell Gallery packages (PASeasyInstall and PASeasyInstall.UI) and checks them.
+Stages the PowerShell Gallery package of the PASeasyInstall module and checks it.
 .DESCRIPTION
-Copies each module folder of the repository into <Output>\gallery\<module name>:
-  PASeasyInstall       the core module (commands, recipes, help, license files); no dependencies
-  PASeasyInstall.UI    the desktop window; requires NativeHTMLKit
-Tests, tools, docs and screenshots are not part of a package.
-For both packages it then:
+Copies the module folder of the repository into <Output>\gallery\PASeasyInstall: the commands, the
+recipes, the desktop window (Desktop folder), help and license files. The module has no required
+modules; Start-PASeasyInstall looks for NativeHTMLKit itself.
+Tests, tools, docs and screenshots are not part of the package.
+It then:
   - refuses vendor media, binaries, keys and license files, and content that looks like a private key,
     the lab password, a lab address or a lab host name;
   - writes a file inventory with SHA256 hashes (<Output>\gallery\<module name>.inventory.json);
-  - checks the manifest, and that both manifests carry the same version.
-With -LocalRepositoryPath both packages are published to a local folder repository (core first), to
+  - checks the manifest.
+With -LocalRepositoryPath the package is published to a local folder repository, to
 test Install-Module without the PowerShell Gallery. -MirrorDependencies also copies NativeHTMLKit
 there. This script never publishes to the PowerShell Gallery; .github/workflows/release.yml does that.
 .OUTPUTS
@@ -38,8 +38,8 @@ if (-not $Output) {
 }
 $Output = [IO.Path]::GetFullPath($Output)
 $galleryRoot = Join-Path $Output 'gallery'
-# Core first: the UI package depends on it at run time, and publishing follows this order.
-$moduleNames = @('PASeasyInstall', 'PASeasyInstall.UI')
+# One module: the commands and the desktop window.
+$moduleNames = @('PASeasyInstall')
 $nativeKitVersion = '0.1.2'
 
 function Get-PackageVersion {
@@ -164,15 +164,10 @@ foreach ($name in $moduleNames) {
     $inventoryPath = Join-Path $galleryRoot ($name + '.inventory.json')
     [IO.File]::WriteAllText($inventoryPath, ($inventory | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding($false)))
 
-    # 5. Manifest. Test-ModuleManifest needs the required modules to be installed; the UI package
-    #    requires NativeHTMLKit, so without it only the manifest data is checked.
+    # 5. Manifest.
     $stagedManifest = Join-Path $stage ($name + '.psd1')
     $stagedData = Import-PowerShellDataFile -Path $stagedManifest
     $canTest = $true
-    if ($name -eq 'PASeasyInstall.UI' -and -not (Get-Module -ListAvailable -Name NativeHTMLKit)) {
-        $canTest = $false
-        Write-Warning 'NativeHTMLKit is not installed: the PASeasyInstall.UI manifest was read but not tested with Test-ModuleManifest.'
-    }
     if ($canTest) {
         $tested = Test-ModuleManifest -Path $stagedManifest -ErrorAction Stop
         if ([string]$tested.Version -ne [string]$stagedData.ModuleVersion) {

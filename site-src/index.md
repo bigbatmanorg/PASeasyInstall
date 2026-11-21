@@ -34,8 +34,8 @@ installed, registered, hardened and verified on its own server.
 
 -   **[PowerShell Gallery](getting-started/gallery.md)**
 
-    Two modules: `Install-Module PASeasyInstall` for the commands, `Install-Module PASeasyInstall.UI` for the
-    desktop (`Start-PASeasyInstall`). Updates come with `Update-Module`.
+    One module: `Install-Module PASeasyInstall`. Then `Start-PASeasyInstall` opens the desktop, or use the
+    commands. Updates come with `Update-Module`.
 
 -   **[Command line](commands/index.md)**
 

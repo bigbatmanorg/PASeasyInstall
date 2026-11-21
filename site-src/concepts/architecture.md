@@ -2,7 +2,7 @@
 
 ```mermaid
 flowchart LR
-  UI["Desktop<br/>(PASeasyInstall.UI, NativeHTMLKit)"] --> PUB["Public commands<br/>Install-PAS* · lab configuration · runs"]
+  UI["Desktop<br/>(Start-PASeasyInstall, NativeHTMLKit)"] --> PUB["Public commands<br/>Install-PAS* · lab configuration · runs"]
   CLI["PowerShell prompt / scripts"] --> PUB
   PUB --> RUN["Run controller<br/>one detached process per run"]
   RUN --> ENG["Engine<br/>workflow · step attempts · journal · locks"]
@@ -21,7 +21,7 @@ There are two modules:
     - `Private\Engine` runs one workflow on one server: transports (WinRM HTTPS, SSH), step attempts, the journal
       and the locks;
     - `Recipes` holds the scripts that run on the servers.
-- **PASeasyInstall.UI** is the desktop. It calls only the public commands, and the same window runs against the
+- **The desktop** (`Start-PASeasyInstall`, folder `Desktop` of the module) calls only the public commands, and the same window runs against the
   real module or the Mock simulator.
 
 Everything runs in **Windows PowerShell 5.1** on the controller. There is no web server, database, browser engine or
