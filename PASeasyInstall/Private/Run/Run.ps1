@@ -893,11 +893,17 @@ function Stop-PASDeployment {
                 $note = ''
                 try {
                     # The server removes the lock only when its owner file names this RunId.
-                    [void](Invoke-PASRemoteLock ([pscustomobject]@{
+                    $answer = [string](Invoke-PASRemoteLock ([pscustomobject]@{
                                 Target = $entry.Target
                                 TargetName = $entry.Name
                             }) $credentials $RunId -Release)
-                    $released = $true
+                    if ($answer -like 'held:*') {
+                        $note = "The server is locked by another run ($($answer.Substring(5))); that lock was left alone. Release it with Stop-PASRun -RunId $($answer.Substring(5)) -CredentialMap ..."
+                    } elseif ($answer -eq 'none') {
+                        $note = 'There was no lock on the server.'
+                    } else {
+                        $released = $true
+                    }
                 } catch {
                     $note = [string]$_.Exception.Message
                     Write-Warning "The lock of $($entry.Name) on $($entry.Computer) was not released: $note. If it still names run $RunId, delete the folder $($entry.LockFolder) there."

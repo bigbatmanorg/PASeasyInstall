@@ -138,6 +138,7 @@ function Get-PASRemoteLockedMessage {
 }
 function Invoke-PASRemoteLock {
     # Target lock: one run per server. Acquired when a workflow starts, released when it succeeds.
+    # -Release returns 'released', 'none' or 'held:<run id>'; a lock of another run is never removed.
     # It stays on the server after a failure and is taken again by the same RunId on resume.
     param($Plan, [hashtable]$Credentials, [string]$RunId, [switch]$Release)
     $protocol = [string]$Plan.Target.Protocol
@@ -145,12 +146,13 @@ function Invoke-PASRemoteLock {
     $targetName = [string](Get-PASValue $Plan.Target 'LockKey' $Plan.TargetName)
     if ($targetName -notmatch '^[A-Za-z0-9_.-]{1,64}$') { throw 'Invalid canonical host lock key' }
     if ($Plan.Target.Runtime -eq 'Bash') {
-        if ($Release) { $cmd = 'd=~/.paeasyinstall/locks/{0}; if [ "$(cat "$d/owner" 2>/dev/null)" = "{1}" ]; then rm -rf "$d"; fi; echo released' -f $targetName, $RunId }
+        if ($Release) { $cmd = 'd=~/.paeasyinstall/locks/{0}; if [ ! -d "$d" ]; then echo none; elif [ "$(cat "$d/owner" 2>/dev/null)" = "{1}" ]; then rm -rf "$d"; echo released; else echo "held:$(cat "$d/owner" 2>/dev/null)"; fi' -f $targetName, $RunId }
         else { $cmd = 'mkdir -p ~/.paeasyinstall/locks && d=~/.paeasyinstall/locks/{0}; if mkdir "$d" 2>/dev/null; then echo {1} > "$d/owner"; echo acquired; elif [ "$(cat "$d/owner" 2>/dev/null)" = "{1}" ]; then echo acquired; else echo "locked:$(cat "$d/owner" 2>/dev/null)"; fi' -f $targetName, $RunId }
         $r = Invoke-PASRawSSH $Plan.Target $cmd
         if ($r.ExitCode -ne 0) { throw "Remote lock operation failed ($($r.ExitCode)): $($r.Output)" }
         if (-not $Release -and
             $r.Output -notmatch 'acquired') { throw (Get-PASRemoteLockedMessage $Plan.Target $targetName ([string]$r.Output)) }
+        if ($Release) { return ([string]$r.Output).Trim() }
         return $true
     }
     $root = [string](Get-PASValue $Plan.Target 'StageRoot' 'C:\ProgramData\PAExec')
@@ -160,6 +162,8 @@ function Invoke-PASRemoteLock {
     $res = Invoke-Command -Session $session -ScriptBlock (Get-PASWindowsStagePreparation) -ArgumentList $root, $targetName, $RunId, ([bool]$Release), $user -ErrorAction Stop
     $message = [string]$res.Message
     if (-not $Release -and $message -ne 'acquired') { throw (Get-PASRemoteLockedMessage $Plan.Target $targetName $message) }
+    # A release answers 'released', 'none' (there was no lock) or 'held:<run id>' (another run owns it; left alone).
+    if ($Release) { return $message }
     return $true
 }
 function Test-PASStepCompleted {

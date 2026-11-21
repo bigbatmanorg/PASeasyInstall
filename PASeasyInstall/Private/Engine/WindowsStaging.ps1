@@ -60,9 +60,12 @@ function Get-PASWindowsStagePreparation {
                     if (@(Get-ChildItem $dir -Force | Where-Object { $_.Name -ne 'owner.txt' }).Count) { throw 'Unexpected lease contents; refusing recursive cleanup' }
                     [IO.File]::Delete($ownerPath)
                     [IO.Directory]::Delete($dir)
+                    return [pscustomobject]@{Message = 'released' }
                 }
+                # The lock belongs to another run: it is left alone and its owner is reported.
+                return [pscustomobject]@{Message = ('held:' + $owner) }
             }
-            return [pscustomobject]@{Message = 'released' }
+            return [pscustomobject]@{Message = 'none' }
         }
         if (-not(Test-Path -LiteralPath $dir)) { Invoke-PASeasyWithRestorePrivilege { [void][IO.Directory]::CreateDirectory($dir, $acl) } }
         Assert-StageEntry $dir

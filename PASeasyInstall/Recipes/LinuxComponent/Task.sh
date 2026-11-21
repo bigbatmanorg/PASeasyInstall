@@ -687,12 +687,20 @@ case "$stage" in
       [[ -s $cred && -s $cred.entropy ]] || { echo 'Encrypted credential/entropy file missing' >&2; exit 6; }
       chmod 600 "$cred" "$cred.entropy"
       sed -i -E "s/^ADDRESS=.*/ADDRESS=${vault}/" /etc/opt/CARKpsmp/vault/vault.ini
+      register_rc=0
       if [[ $ID = ubuntu ]]; then
-        DEBIAN_FRONTEND=noninteractive /opt/CARKpsmp/bin/psmp_setup.sh --finalize --credfile "$cred"
+        DEBIAN_FRONTEND=noninteractive /opt/CARKpsmp/bin/psmp_setup.sh --finalize --credfile "$cred" || register_rc=$?
       else
         /opt/CARKpsmp/bin/envmanager CreateEnv --AcceptEULA Y --CredFile "$cred" \
           --PSMPServerId "PSMPServer_${id_suffix}" --PSMPAppUser "PSMPApp_${id_suffix}" --PSMPGWUser "PSMPGW_${id_suffix}" \
-          --ICUFolder /opt/CARKpsmp/bin/ --VaultEnvPath /etc/opt/CARKpsmp/vault/
+          --ICUFolder /opt/CARKpsmp/bin/ --VaultEnvPath /etc/opt/CARKpsmp/vault/ || register_rc=$?
+      fi
+      if (( register_rc )); then
+        # The most common cause in a new lab: PSMP was started before any PVWA was installed for this Vault.
+        if grep -q "ITATS020E Safe Name PVWAConfig" /var/opt/CARKpsmp/temp/EnvManager.log 2>/dev/null; then
+          echo 'PSMP registration failed: the Vault has no PVWA environment yet (Safe PVWAConfig is missing). Install PVWA first, then run this step again with Resume-PASRun -RetryStep.' >&2
+        fi
+        exit "$register_rc"
       fi
       shred -u "$cred" "$cred.entropy" 2>/dev/null || rm -f "$cred" "$cred.entropy"
       trap - EXIT
