@@ -525,7 +525,7 @@ function Invoke-PASVaultSequence {
     $profile = New-PASProfile -Mode $mode -PrimaryIP ([string]$winHost.address) -DRIP $(if ($drHost) { [string]$drHost.address }else { '' }) `
         -ControllerIP ([string]$Config.controllerAddress) -PrimaryUser ([string]$winHost.user) `
         -DRUser $(if ($drHost) { [string]$drHost.user }else { 'Administrator' }) -MediaPath ([string]$Config.mediaRoot) -MediaOverrides $Config.media
-    $profile = Resolve-PASMediaProfile -Profile $profile
+    $profile = Resolve-PASMediaProfile -Profile $profile -ComponentPackages (Get-PASComponentPackagePaths $Config)
     $inventoryPath = Join-Path $Run.Directory 'vault-inventory.psd1'
     if (-not(Test-Path $inventoryPath)) {
         Export-PASInventory -Profile $profile -Path $inventoryPath | Out-Null

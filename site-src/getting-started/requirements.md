@@ -65,6 +65,7 @@ Supply the CyberArk PAM Self-Hosted media yourself. PASeasyInstall recognises it
   response templates and the VC++ 2013 runtime from it. Without it the validation reports the Vault media files as missing.
 - **`license.xml`**, and the **public** recovery key `recpub.key`. A keys ZIP is accepted, but only `recpub.key`
   is ever read from it.
-- **VC++ redistributables** (`VC_redist.x64.exe`, `VC_redist.x86.exe`) in the same folder.
+- **VC++ redistributables** (`VC_redist.x64.exe`, `VC_redist.x86.exe`): needed for the Vault. They are taken from the CPM, PVWA or PSM
+  package when one of them is part of the lab. Only for a Vault on its own, put the two files into the same folder.
 
 Put everything in one folder (for example `C:\CyberArk\media`) and add that folder on the first step of the desktop.

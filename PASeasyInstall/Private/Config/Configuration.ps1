@@ -175,6 +175,9 @@ function Test-PASConfiguration {
                 if ($row.Key -in @('PAKeyGenExe', 'PAKeyGenDll1', 'PAKeyGenDll2', 'VaultTemplate', 'DRTemplate', 'VC2013x86')) {
                     $hint = ' (it comes from the "Vault Ansible Role" ZIP of the CyberArk media; put that ZIP into the media folder)'
                 }
+                if ($row.Key -in @('VCx86', 'VCx64')) {
+                    $hint = ' (put the CPM, PVWA or PSM ZIP into the media folder: it contains the runtime. Or download VC_redist.x86.exe and VC_redist.x64.exe from Microsoft and put them there)'
+                }
                 $issues.Add("Vault media file '$($row.Label)' is $($row.Status)$hint")
             }
         } catch {

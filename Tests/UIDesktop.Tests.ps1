@@ -292,6 +292,13 @@ Describe 'Desktop model' {
         $progress.Percent | Should -Be 70
         (Get-PASUIFailure $snapshot).RetryStep | Should -Be 'pvwa01:register'
     }
+    It 'takes one dropped folder as the media folder and adds dropped files to it' {
+        $state = New-PASUIState
+        Add-PASUIMediaDrop -State $state -Paths @('D:\Media') -IsFolder @($true)
+        $state.MediaPath | Should -Be 'D:\Media'
+        Add-PASUIMediaDrop -State $state -Paths @('D:\x\license.xml', 'D:\x\keys.zip') -IsFolder @($false, $false)
+        @(Get-PASUIMediaPaths $state) -join '|' | Should -Be 'D:\Media|D:\x\license.xml|D:\x\keys.zip'
+    }
     It 'writes the PowerShell equivalent without any password' {
         $state = New-PASUIState
         Set-PASUIPreset $state 'starter'
@@ -355,8 +362,11 @@ Describe 'Desktop window (headless, simulated installation)' -Skip:(-not [bool](
         $env:NATIVEHTMLKIT_TEST_MODE = '1'
         $env:PASUI_MOCK_STAGE_SECONDS = '0.05'
         try {
+            # Components are added to an existing Vault: the synthetic media has no real Vault installer.
+            $scenario = Join-Path $TestDrive 'scenario.json'
+            @{ media = $media; labName = 'SelfTest'; preset = 'custom'; existingVault = '192.0.2.5' } | ConvertTo-Json | Set-Content -LiteralPath $scenario -Encoding UTF8
             $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + (Join-Path $uiRoot 'App.ps1') + '"'), '-Backend', 'Mock',
-                '-StartDirectory', ('"' + $TestDrive + '"'), '-SelfTestMedia', ('"' + $media + '"'), '-SelfTestExistingVault')
+                '-StartDirectory', ('"' + $TestDrive + '"'), '-SelfTest', ('"' + $scenario + '"'))
             $process = Start-Process powershell.exe -ArgumentList $arguments -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
             if (-not $process.WaitForExit(240000)) {
                 $process.Kill()

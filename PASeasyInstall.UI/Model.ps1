@@ -56,6 +56,7 @@ function New-PASUIState {
         Notice = $null
 
         MediaPath = ''
+        MediaSources = @()
         MediaItems = @()
         MediaSelection = @{}
         MediaScanned = $false
@@ -296,6 +297,38 @@ function Get-PASUIMissingMedia {
     return @($missing)
 }
 
+function Get-PASUIMediaPaths {
+    # Everything the media is read from: the folder in the text field and what was dropped on the window.
+    param([hashtable]$State)
+    $paths = @()
+    $typed = ([string]$State.MediaPath).Trim().Trim('"')
+    if ($typed) {
+        $paths += $typed
+    }
+    foreach ($source in @($State.MediaSources)) {
+        if ($source -and $paths -notcontains [string]$source) {
+            $paths += [string]$source
+        }
+    }
+    return @($paths)
+}
+
+function Add-PASUIMediaDrop {
+    # Files or folders dropped on the window. One folder alone becomes the media folder;
+    # anything else is added to the list of sources.
+    param([hashtable]$State, [string[]]$Paths, [bool[]]$IsFolder)
+    $list = @($Paths | Where-Object { $_ })
+    if ($list.Count -eq 1 -and $IsFolder.Count -eq 1 -and $IsFolder[0] -and -not @($State.MediaSources).Count) {
+        $State.MediaPath = [string]$list[0]
+        return
+    }
+    foreach ($path in $list) {
+        if (@($State.MediaSources) -notcontains $path) {
+            $State.MediaSources = @($State.MediaSources) + $path
+        }
+    }
+}
+
 function Get-PASUIMediaRows {
     # One row per kind of media: Kind, Label, Found, Detail (file name and version).
     param([hashtable]$State)
@@ -312,10 +345,19 @@ function Get-PASUIMediaRows {
         } elseif ($found.Count) {
             $detail = (@($found | ForEach-Object { [string]$_.Name } | Select-Object -Unique) -join ', ')
         }
+        $isFound = [bool]$found.Count
+        if ($kind -eq 'Prerequisite' -and -not $isFound) {
+            # The CPM, PVWA and PSM installers carry the runtimes; the Vault installation takes them from there.
+            $carrier = @('CPM', 'PVWA', 'PSM' | Where-Object { $State.MediaSelection.ContainsKey($_) } | Select-Object -First 1)
+            if ($carrier.Count) {
+                $isFound = $true
+                $detail = 'taken from the ' + $carrier[0] + ' installer'
+            }
+        }
         [void]$rows.Add([pscustomobject]@{
                 Kind = [string]$kind
                 Label = [string]$script:PASUIMediaNames[$kind]
-                Found = [bool]$found.Count
+                Found = $isFound
                 Detail = $detail
             })
     }
@@ -343,7 +385,8 @@ function Get-PASUICommandText {
     # The same installation from the PowerShell prompt, for the advanced view. No password in it.
     param([hashtable]$State)
     $lines = New-Object System.Collections.ArrayList
-    [void]$lines.Add('$media = Get-PASMediaInventory -Path ''' + [string]$State.MediaPath + ''' | Get-PASMediaSelection')
+    $paths = (@(Get-PASUIMediaPaths $State | ForEach-Object { "'" + $_ + "'" }) -join ', ')
+    [void]$lines.Add('$media = Get-PASMediaInventory -Path ' + $paths + ' | Get-PASMediaSelection')
     $instances = @(Get-PASUIInstances $State | ForEach-Object { "@{Type='$($_.Type)';Name='$($_.Name)';Address='$($_.Address)'}" })
     $command = '$lab = New-PASLabConfiguration -Environment ' + [string]$State.LabName + ' -VaultMode ' + [string]$State.VaultMode
     foreach ($slot in Get-PASUIServerSlots $State) {

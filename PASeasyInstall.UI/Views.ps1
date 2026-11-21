@@ -110,11 +110,24 @@ function Get-PASUIMediaHtml {
     $html = New-Object System.Text.StringBuilder
     [void]$html.Append('<div class="page"><h1>Where is the installer media?</h1>')
     [void]$html.Append('<p class="lead">Choose the folder that holds what you downloaded from CyberArk: the one big ZIP or the separate ZIPs, plus your license file and the recovery public key. Nothing is unpacked or changed.</p>')
-    [void]$html.Append('<div class="card"><div class="row"><div class="grow"><label for="f-mediapath">Media folder</label>')
+    [void]$html.Append('<div class="card"><div id="media-drop" class="drop" data-nativehtmlkit-drop="files"><strong>Drop the media folder or the ZIP files here</strong><span>or type the folder below</span></div>')
+    [void]$html.Append('<div class="row"><div class="grow"><label for="f-mediapath">Media folder</label>')
     [void]$html.Append('<input type="text" id="f-mediapath" placeholder="D:\CyberArkMedia" value="' + (ConvertTo-PASUIText $State.MediaPath) + '"></div>')
-    [void]$html.Append('<button id="act-browse" class="btn">Browse</button><button id="act-scan" class="btn primary">Look for installers</button></div></div>')
+    [void]$html.Append('<button id="act-browse" class="btn">Browse</button><button id="act-scan" class="btn primary">Look for installers</button></div>')
+    [void]$html.Append('<div id="media-sources">' + (Get-PASUIMediaSourcesHtml $State) + '</div></div>')
     [void]$html.Append('<div id="media-result">' + (Get-PASUIMediaResultHtml $State) + '</div></div>')
     return $html.ToString()
+}
+
+function Get-PASUIMediaSourcesHtml {
+    # The files and folders that were dropped, with a button to forget them.
+    param([hashtable]$State)
+    $sources = @($State.MediaSources)
+    if (-not $sources.Count) {
+        return ''
+    }
+    $items = ($sources | ForEach-Object { '<li>' + (ConvertTo-PASUIText $_) + '</li>' }) -join ''
+    return '<p class="hint" style="margin-top:12px">Also used:</p><ul class="sources">' + $items + '</ul><button id="act-media-clear" class="btn small">Remove these</button>'
 }
 
 function Get-PASUIMediaResultHtml {

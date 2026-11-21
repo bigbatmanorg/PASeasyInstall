@@ -254,14 +254,33 @@ function Get-PASCacheKey {
     return ( -join ($b[0..9] | ForEach-Object { $_.ToString('x2') }))
 }
 
+function Get-PASComponentPackagePaths {
+    # The installer ZIPs of the CPM, PVWA and PSM components of a configuration (they carry the VC++ runtimes).
+    param($Configuration)
+    $paths = @()
+    foreach ($component in @($Configuration.components | Where-Object { $_ -and [string]$_.type -in @('CPM', 'PVWA', 'PSM') })) {
+        $media = ''
+        if ($component -is [System.Collections.IDictionary] -and $component.Contains('media')) {
+            $media = [string]$component['media']
+        }
+        if ($media -and $paths -notcontains $media) {
+            $paths += $media
+        }
+    }
+    return @($paths)
+}
+
 function Resolve-PASMediaProfile {
     # Resolves media that is not visible as loose files, without ever guessing between differing candidates:
     #  1. a nested distribution bundle (ZIP of ZIPs) supplies missing Server/DR/PACLI packages;
     #  2. a licensed Vault Ansible Role ZIP supplies PAKeyGen, its DLLs, VC++ 2013 x86 and the ISS templates;
+    #  2b. a CPM, PVWA or PSM package supplies the VC++ 2015-2022 runtimes when they are not there as files;
     #  3. a key archive supplies recpub.key ONLY (private keys are never read or extracted) when every copy is identical.
     # Explicit operator overrides always win and are never replaced.
     [CmdletBinding()]
-    param([Parameter(Mandatory)]$Profile, [string]$DataRoot = (Get-PASDataRoot))
+    param([Parameter(Mandatory)]$Profile, [string]$DataRoot = (Get-PASDataRoot),
+        # Component packages of the same deployment (CPM, PVWA, PSM ZIPs): searched for the VC++ runtimes.
+        [string[]]$ComponentPackages = @())
     Add-Type -AssemblyName System.IO.Compression -ErrorAction SilentlyContinue
     Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
     if ($null -eq $Profile.MediaOverrides) { $Profile.MediaOverrides = @{} }
@@ -350,6 +369,66 @@ function Resolve-PASMediaProfile {
             foreach ($r in $needed) {
                 $path = Join-Path $dest $map[$r.Key].Relative
                 if (Test-Path -LiteralPath $path) { $Profile.MediaOverrides[$r.Key] = $path }
+            }
+        }
+    }
+
+    # 2b. VC++ 2015-2022 runtimes. CyberArk ships them inside the CPM, PVWA and PSM packages but not with the
+    # Vault. When they are not in the media folder as files, they are taken from the first of those packages
+    # that is there (CPM, then PVWA, then PSM; the newest file name first).
+    $runtimeMap = @{
+        VCx86 = @{ Pattern = '(?i)(^|/)ISSetupPrerequisites/[^/]+/(vc_redist\.x86|vcredist_x86)\.exe$'; Name = 'VC_redist.x86.exe' }
+        VCx64 = @{ Pattern = '(?i)(^|/)ISSetupPrerequisites/[^/]+/(vc_redist\.x64|vcredist_x64)\.exe$'; Name = 'VC_redist.x64.exe' }
+    }
+    $runtimes = @($current | Where-Object { $_.Status -eq 'Missing' -and $runtimeMap.ContainsKey($_.Key) -and -not $Profile.MediaOverrides[$_.Key] })
+    if ($runtimes.Count) {
+        $source = $null
+        $packages = @($zips)
+        foreach ($package in @($ComponentPackages | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) })) {
+            $packages += Get-Item -LiteralPath $package
+        }
+        foreach ($prefix in @('Central Policy Manager', 'Password Vault Web Access', 'Privileged Session Manager')) {
+            foreach ($candidate in @($packages | Where-Object { $_.Name -like ($prefix + '-Rls*.zip') } | Sort-Object Name -Descending)) {
+                $names = @(Get-PASZipEntryNames $candidate.FullName)
+                $complete = $true
+                foreach ($runtime in $runtimes) {
+                    if (@($names | Where-Object { $_ -match $runtimeMap[$runtime.Key].Pattern }).Count -ne 1) {
+                        $complete = $false
+                    }
+                }
+                if ($complete) {
+                    $source = $candidate
+                    break
+                }
+            }
+            if ($source) {
+                break
+            }
+        }
+        if ($source) {
+            $dest = Join-Path (Join-Path $DataRoot 'MediaAssets') (Get-PASCacheKey $source 'vcruntime-v1')
+            if (-not (Test-Path -LiteralPath $dest)) {
+                New-Item -ItemType Directory -Force -Path $dest | Out-Null
+            }
+            $zip = [IO.Compression.ZipFile]::OpenRead($source.FullName)
+            try {
+                foreach ($runtime in $runtimes) {
+                    $to = Join-Path $dest $runtimeMap[$runtime.Key].Name
+                    if (-not (Test-Path -LiteralPath $to)) {
+                        $entry = @($zip.Entries | Where-Object { $_.FullName.Replace('\', '/') -match $runtimeMap[$runtime.Key].Pattern })[0]
+                        $entryStream = $entry.Open()
+                        $outputStream = [IO.File]::Create($to)
+                        try {
+                            $entryStream.CopyTo($outputStream)
+                        } finally {
+                            $entryStream.Dispose()
+                            $outputStream.Dispose()
+                        }
+                    }
+                    $Profile.MediaOverrides[$runtime.Key] = $to
+                }
+            } finally {
+                $zip.Dispose()
             }
         }
     }

@@ -42,6 +42,9 @@
 
 * { box-sizing: border-box; }
 
+/* The hidden attribute must win over the display values set below. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   height: 100vh;
@@ -222,6 +225,20 @@ input:focus-visible, select:focus-visible, .btn:focus-visible, .choice:focus-vis
 .list .name { font-weight: 600; }
 .list .grow { flex: 1; min-width: 0; }
 .list .when { color: var(--muted); font-size: 12.5px; }
+
+/* ---- drop zone of the media step (a dashed rounded border is not drawn by the engine: solid) ---- */
+.drop {
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  background: var(--idle-soft);
+  padding: 18px;
+  text-align: center;
+  margin-bottom: 16px;
+}
+.drop strong { display: block; }
+.drop span { color: var(--muted); font-size: 12.5px; }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.sources { margin: 0 0 8px 18px; padding: 0; font-size: 12.5px; }
 
 /* ---- choices (preset cards) ---- */
 .choices { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }

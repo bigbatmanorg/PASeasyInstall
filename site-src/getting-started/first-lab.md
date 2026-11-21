@@ -27,8 +27,8 @@ sudo apt-get update && sudo apt-get install -y unzip
 
 ## 2. Put the media on the controller
 
-Copy the CyberArk bundle ZIP (or the single component ZIPs), `license.xml`, `recpub.key` and the VC++
-redistributables into one folder, for example `C:\CyberArk\media`.
+Copy the CyberArk bundle ZIP (or the single component ZIPs), `license.xml` and `recpub.key`
+into one folder, for example `C:\CyberArk\media`. The VC++ runtimes come from the component packages.
 
 ## 3. Open the desktop and follow the four steps
 

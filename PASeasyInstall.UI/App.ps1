@@ -13,10 +13,9 @@ param(
     [string]$Config = '',
     [ValidateSet('Live', 'Mock')][string]$Backend = 'Live',
     [string]$StartDirectory = '',
-    # Runs a scripted walk through the screens against the Mock backend and quits. For automated tests.
-    [string]$SelfTestMedia = '',
-    # Self-test variant that adds components to an existing Vault (needs no real Vault media).
-    [switch]$SelfTestExistingVault
+    # A scenario file (JSON). The window then walks through its own screens as described there, checks
+    # what it shows and quits. For automated tests; see SelfTest.ps1.
+    [string]$SelfTest = ''
 )
 $ErrorActionPreference = 'Stop'
 Import-Module NativeHTMLKit -ErrorAction Stop
@@ -27,11 +26,8 @@ $launchArgs = @('-Backend', $Backend, '-StartDirectory', $StartDirectory)
 if ($Config) {
     $launchArgs += @('-Config', $Config)
 }
-if ($SelfTestMedia) {
-    $launchArgs += @('-SelfTestMedia', $SelfTestMedia)
-}
-if ($SelfTestExistingVault) {
-    $launchArgs += '-SelfTestExistingVault'
+if ($SelfTest) {
+    $launchArgs += @('-SelfTest', $SelfTest)
 }
 $app = Start-NativeHTMLKitScript -Name 'PASeasyInstall' -ScriptPath $PSCommandPath -ArgumentList $launchArgs
 # ---- side effects are allowed below this line ----
@@ -243,16 +239,17 @@ function Update-PASUIPlan {
 }
 
 function Invoke-PASUIMediaScan {
-    $path = ([string]$S.MediaPath).Trim().Trim('"')
-    if (-not $path) {
-        throw 'Type or choose the media folder first.'
+    $paths = @(Get-PASUIMediaPaths $S)
+    if (-not $paths.Count) {
+        throw 'Type, choose or drop the media folder first.'
     }
-    if (-not (Test-Path -LiteralPath $path)) {
-        throw "This folder does not exist: $path"
+    foreach ($path in $paths) {
+        if (-not (Test-Path -LiteralPath $path)) {
+            throw "This does not exist: $path"
+        }
     }
-    $S.MediaPath = $path
     Set-PASUINotice 'busy' 'Looking for installers...'
-    $S.MediaItems = @(Get-PASMediaInventory -Path $path)
+    $S.MediaItems = @(Get-PASMediaInventory -Path $paths)
     $selection = @{}
     if ($S.MediaItems.Count) {
         $selection = Get-PASMediaSelection -Inventory $S.MediaItems
@@ -476,6 +473,12 @@ function Invoke-PASUIClick {
             Invoke-PASUIMediaScan
             return
         }
+        '^act-media-clear$' {
+            $S.MediaSources = @()
+            $S.MediaScanned = $false
+            Show-PASUIScreen 'media'
+            return
+        }
         '^act-back$' {
             $order = @('home', 'media', 'lab', 'servers', 'review')
             $position = [array]::IndexOf($order, [string]$S.Screen)
@@ -601,7 +604,7 @@ function Invoke-PASUINext {
     # Next on the bottom bar: the step must be complete, then the following screen is drawn.
     switch ([string]$S.Screen) {
         'media' {
-            if (-not $S.MediaScanned -and ([string]$S.MediaPath).Trim()) {
+            if (-not $S.MediaScanned -and @(Get-PASUIMediaPaths $S).Count) {
                 Invoke-PASUIMediaScan
             }
             if (Show-PASUIIssues 'media') {
@@ -683,105 +686,6 @@ function Set-PASUIToggle {
     }
 }
 
-# ------------------------------------------------------------------ self-test (headless, Mock backend)
-
-function Invoke-PASUISelfTest {
-    # Walks the screens the way a user would, by calling the same functions the events call, and
-    # checks what the window shows. Prints PASS or FAIL lines; used by Tests/UIDesktop.Tests.ps1.
-    param([string]$MediaPath, [switch]$ExistingVault)
-    function Assert-Shown([string]$Element, [string]$Pattern, [string]$What) {
-        $text = [string](Get-NativeHTMLKitDocumentText -Document $doc -Element $Element)
-        if ($text -cmatch $Pattern) {
-            [Console]::Out.WriteLine("PASS $What")
-        } else {
-            [Console]::Out.WriteLine("FAIL $What :: expected /$Pattern/ in: " + $text.Substring(0, [Math]::Min(300, $text.Length)))
-            $script:selfTestFailures++
-        }
-    }
-    $script:selfTestFailures = 0
-    function Save-Snapshot([string]$Name) {
-        # With PASUI_SNAPSHOT_DIR set, every screen is also written as a plain HTML file for a look in a browser.
-        if (-not $env:PASUI_SNAPSHOT_DIR) {
-            return
-        }
-        $web = Join-Path $PSScriptRoot 'Web'
-        $page = [IO.File]::ReadAllText((Join-Path $web 'index.html'))
-        $page = $page.Replace('<nav id="steps" aria-label="Steps"></nav>', '<nav id="steps">' + (Get-PASUIStepsHtml $S) + '</nav>')
-        $page = $page.Replace('<main id="view"></main>', '<main id="view">' + [string](Invoke-NativeHTMLKitDocumentCommand -Document $doc -Operation get_html -Parameters @{ element = 'view' }).html + '</main>')
-        $page = $page.Replace('<footer id="bar"></footer>', '<footer id="bar">' + (Get-PASUIBarHtml $S) + '</footer>')
-        [IO.File]::WriteAllText((Join-Path $env:PASUI_SNAPSHOT_DIR ($Name + '.html')), $page, (New-Object Text.UTF8Encoding($false)))
-        Copy-Item -LiteralPath (Join-Path $web 'style.css') -Destination $env:PASUI_SNAPSHOT_DIR -Force
-    }
-    Assert-Shown 'view' 'Build a CyberArk PAM lab' 'start page'
-    Save-Snapshot '1-start'
-    $dropped = @((Invoke-NativeHTMLKitDocumentCommand -Document $doc -Operation get_diagnostics).diagnostics)
-    [Console]::Out.WriteLine("INFO the page engine reports $($dropped.Count) dropped or refused item(s)")
-    foreach ($entry in ($dropped | Select-Object -First 12)) {
-        [Console]::Out.WriteLine('INFO   ' + (($entry | ConvertTo-Json -Compress -Depth 4)))
-    }
-    Invoke-PASUIClick 'act-new'
-    Assert-Shown 'view' 'Where is the installer media' 'media step'
-    $S.MediaPath = $MediaPath
-    Invoke-PASUIClick 'act-scan'
-    Assert-Shown 'media-result' 'PVWA' 'media found'
-    Save-Snapshot '2-media'
-    Invoke-PASUINext
-    Assert-Shown 'view' 'What do you want to build' 'lab step'
-    Invoke-PASUIClick 'preset-full'
-    Assert-Shown 'view' '5 servers' 'preset cards'
-    Save-Snapshot '3-lab'
-    $expected = 'DR Vault'
-    if ($ExistingVault) {
-        Invoke-PASUIClick 'preset-custom'
-        Invoke-PASUIClick 'vault-Existing'
-        Assert-Shown 'view' 'A Vault I already have' 'custom lab'
-        Set-PASUIField 'f-existing' '192.0.2.5'
-        $expected = 'PSMP'
-    }
-    $S.LabName = 'SelfTest'
-    Invoke-PASUINext
-    Assert-Shown 'view' 'Which servers' 'servers step'
-    Invoke-PASUINext
-    Assert-Shown 'servers-issues' 'Enter the address' 'missing entries are listed'
-    $number = 10
-    foreach ($slot in Get-PASUIServerSlots $S) {
-        $number++
-        Set-PASUIField "srv-$($slot.Key)-addr" "192.0.2.$number"
-    }
-    Set-PASUIField 'f-labpassword' 'SelfTest-Password-1'
-    Set-PASUIToggle 'f-eula' $true
-    Invoke-PASUIClick 'act-preflight'
-    Assert-Shown 'preflight-result' 'look ready' 'server check'
-    Save-Snapshot '4-servers'
-    Invoke-PASUINext
-    Assert-Shown 'view' 'Review and install' 'review step'
-    Assert-Shown 'view' $expected 'plan lists the chosen parts'
-    Save-Snapshot '5-review'
-    Start-PASUIInstall
-    Assert-Shown 'view' 'SelfTest' 'run page'
-    Start-Sleep -Milliseconds 1500
-    Update-PASUIRun
-    Save-Snapshot '6-run-installing'
-    $deadline = [datetime]::UtcNow.AddSeconds(120)
-    while ((Test-PASUIRunActive ([string]$S.Run.Status)) -and [datetime]::UtcNow -lt $deadline) {
-        Start-Sleep -Milliseconds 500
-        Update-PASUIRun
-    }
-    Assert-Shown 'run-status' 'The lab is installed' 'run finished'
-    Invoke-PASUIHealth -Password 'SelfTest-Password-1'
-    Assert-Shown 'run-status' 'Healthy\.' 'lab check'
-    Save-Snapshot '7-run-finished'
-    if ($S.LabPassword -or $S.Passwords.Count) {
-        [Console]::Out.WriteLine('FAIL the window still holds a password after the installation started')
-        $script:selfTestFailures++
-    } else {
-        [Console]::Out.WriteLine('PASS no password is kept after the installation started')
-    }
-    Invoke-PASUIClick 'nav-home'
-    Assert-Shown 'view' 'SelfTest' 'start page lists the installation'
-    [Console]::Out.WriteLine("SELFTEST failures=$($script:selfTestFailures)")
-}
-
 # ------------------------------------------------------------------ window
 
 try {
@@ -809,6 +713,24 @@ try {
             Invoke-PASUISafe { Set-PASUIToggle $id ([bool]$evt.checked) }
         }
     }
+    # Files and folders dropped from Explorer onto the media step (the element marked data-nativehtmlkit-drop).
+    $null = Register-NativeHTMLKitDocumentEvent -Document $doc -Type drop -Callback {
+        param($evt)
+        $paths = @()
+        $property = $evt.PSObject.Properties['paths']
+        if ($property) {
+            $paths = @($property.Value | ForEach-Object { [string]$_ })
+        }
+        if (-not $paths.Count -or $S.Screen -ne 'media') {
+            return
+        }
+        Invoke-PASUISafe {
+            $folders = @($paths | ForEach-Object { [bool](Test-Path -LiteralPath $_ -PathType Container) })
+            Add-PASUIMediaDrop -State $S -Paths $paths -IsFolder $folders
+            Show-PASUIScreen 'media'
+            Invoke-PASUIMediaScan
+        }
+    }
     $null = Register-NativeHTMLKitDocumentEvent -Document $doc -Type submit -Element 'dlg-password-form' -Callback {
         $password = [string](Get-NativeHTMLKitValue -Document $doc -Element 'dlg-password-value')
         $action = $S.Pending
@@ -826,13 +748,9 @@ try {
     $S.Runs = @(Get-PASRun)
     Show-PASUIScreen 'home'
     Set-NativeHTMLKitReady -Application $app
-    if ($SelfTestMedia) {
-        try {
-            Invoke-PASUISelfTest -MediaPath $SelfTestMedia -ExistingVault:$SelfTestExistingVault
-        } catch {
-            [Console]::Out.WriteLine('FAIL self-test stopped: ' + $_.Exception.Message + ' @ ' + $_.ScriptStackTrace)
-            [Console]::Out.WriteLine('SELFTEST failures=1')
-        }
+    if ($SelfTest) {
+        . (Join-Path $PSScriptRoot 'SelfTest.ps1')
+        Invoke-PASUISelfTest -ScenarioPath $SelfTest
         $null = Request-NativeHTMLKitQuit -Application $app
     }
     Wait-NativeHTMLKit -Application $app -UntilShutdown

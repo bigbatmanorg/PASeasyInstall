@@ -609,7 +609,7 @@ function Get-PASVaultMediaStatus {
     $profile = New-PASProfile -Mode $mode -PrimaryIP ([string]$Configuration.vault.address) `
         -ControllerIP ([string]$Configuration.controllerAddress) -MediaPath ([string]$Configuration.mediaRoot) `
         -MediaOverrides $Configuration.media
-    $profile = Resolve-PASMediaProfile -Profile $profile
+    $profile = Resolve-PASMediaProfile -Profile $profile -ComponentPackages (Get-PASComponentPackagePaths $Configuration)
     return @(Find-PASMedia -Path $profile.MediaPath -Mode $mode -Overrides $profile.MediaOverrides)
 }
 
