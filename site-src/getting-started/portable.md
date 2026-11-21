@@ -38,7 +38,7 @@ Double-click `PASeasyInstall-Shell.cmd` for a PowerShell window with every comma
 [command reference](../commands/index.md) loaded:
 
 ```powershell
-Get-PASLabPlan -Path C:\Labs\Lab01.json
+(Get-PASLabPlan -Path C:\Labs\Lab01.json).Items | Format-Table Id, Type, Address, Media
 Install-PASLab -Path C:\Labs\Lab01.json -Wait
 Resume-PASRun -RunId <run id> -Wait
 ```

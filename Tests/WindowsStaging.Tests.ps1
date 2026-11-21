@@ -52,9 +52,10 @@ Describe 'Stable remote stage and lease ownership' {
             (Get-Acl $entry).GetOwner([Security.Principal.SecurityIdentifier]).Value | Should -Be 'S-1-5-32-544'
         }
         (& $prepare -Root $path -LockKey host -RunId run0002).Message | Should -Be 'locked:run0001'
-        (& $prepare -Root $path -LockKey host -RunId run0002 -Release $true).Message | Should -Be 'released'
+        (& $prepare -Root $path -LockKey host -RunId run0002 -Release $true).Message | Should -Be 'held:run0001'
         Test-Path (Join-Path $path 'locks/host/owner.txt') | Should -BeTrue
-        $null = & $prepare -Root $path -LockKey host -RunId run0001 -Release $true
+        (& $prepare -Root $path -LockKey host -RunId run0001 -Release $true).Message | Should -Be 'released'
+        (& $prepare -Root $path -LockKey host -RunId run0001 -Release $true).Message | Should -Be 'none'
         Test-Path (Join-Path $path 'locks/host') | Should -BeFalse
         (Get-PASeasyRestorePrivilegeState).Attributes | Should -Be $before
     }

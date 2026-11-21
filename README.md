@@ -13,8 +13,8 @@ Each component is installed, registered, hardened and verified on its own server
 > supply your own licensed CyberArk installation media and license.
 
 > [!NOTE]
-> **Version 2.0.0 is a rewrite of the command set and the module layout.** It has not yet been tested end to end
-> in a lab. The 1.0 command names are gone; see the
+> **Version 2.0.0 is a rewrite of the command set and the module layout.** It was tested once end to end in a lab
+> (CyberArk 15.0, Windows Server 2022, Ubuntu 24.04); the desktop has not been clicked through yet. The 1.0 command names are gone; see the
 > [release notes](https://bigbatmanorg.github.io/PASeasyInstall/release-notes/) for the mapping.
 
 ![The Review plan step of the PASeasyInstall desktop](Docs/screenshots/integrated/5-review.png)
@@ -61,7 +61,7 @@ $cfg = New-PASLabConfiguration -Environment MyLab -VaultMode PrimaryDR `
 Export-PASLabConfiguration -Configuration $cfg -Path .\MyLab.json
 
 Test-PASLabConfiguration -Path .\MyLab.json -CheckMedia    # is it complete?
-Get-PASLabPlan -Path .\MyLab.json                          # what would be installed, in which order
+(Get-PASLabPlan -Path .\MyLab.json).Items | Format-Table Id, Type, Address, Media   # what would be installed, in which order
 Test-PASPreflight -Path .\MyLab.json                       # are the servers reachable and ready?
 Install-PASLab -Path .\MyLab.json -Wait                    # install
 ```

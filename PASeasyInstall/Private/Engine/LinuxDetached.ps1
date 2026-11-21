@@ -202,6 +202,8 @@ function Finish-PASLinuxDetached {
     param([hashtable]$Target, [string]$AttemptId)
     $dir = Get-PASLinuxAttemptRoot $AttemptId
     $status = Get-PASLinuxDetachedStatus $Target $AttemptId
-    if ($status.state -notin @('Succeeded', 'Failed')) { throw 'Cannot clean an unresolved Linux attempt' }
+    # A step that staged nothing on the server (a file transfer, a direct check) has nothing to clean.
+    if ($status.state -eq 'Missing') { return }
+    if ($status.state -notin @('Succeeded', 'Failed')) { throw "Cannot clean an unresolved Linux attempt (state $($status.state))" }
     [void](Invoke-PASLinuxControl $Target ((Get-PASLinuxAttemptGuard $AttemptId -ExistingOnly -Secrets) + 'rm -f ' + $dir + '/inputs.json /run/paeasyinstall/attempts/' + $AttemptId + '/inputs.json /etc/systemd/system/paeasy-' + $AttemptId + '.service; systemctl daemon-reload'))
 }

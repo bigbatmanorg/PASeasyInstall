@@ -13,7 +13,8 @@ replicated Primary + DR pair), PVWA, CPM, PSM, PSMP and an optional Active Direc
 installed, registered, hardened and verified on its own server.
 
 !!! note "Version 2.0.0"
-    2.0.0 has a new, simpler command set and module layout. It has **not yet been tested end to end in a lab**.
+    2.0.0 has a new, simpler command set and module layout. It was tested once end to end in a lab (CyberArk 15.0, Windows Server 2022,
+    Ubuntu 24.04); the desktop has not been clicked through yet.
     The 1.0 command names are gone: see the [release notes](release-notes.md).
 
 !!! warning "Made for labs"

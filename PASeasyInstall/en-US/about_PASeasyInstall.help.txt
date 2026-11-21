@@ -42,7 +42,8 @@ LONG DESCRIPTION
         Export-PASLabConfiguration -Configuration $cfg -Path .\MyLab.json
 
         Test-PASLabConfiguration -Path .\MyLab.json -CheckMedia     is the configuration complete?
-        Get-PASLabPlan -Path .\MyLab.json                           what would be installed, in which order
+        (Get-PASLabPlan -Path .\MyLab.json).Items | Format-Table Id, Type, Address, Media
+                                                                    what would be installed, in which order
         Get-PASCredentialRequirement -Path .\MyLab.json             which accounts and passwords are needed
         Test-PASPreflight -Path .\MyLab.json                        are the servers reachable and ready?
         Install-PASLab -Path .\MyLab.json -Wait                     install

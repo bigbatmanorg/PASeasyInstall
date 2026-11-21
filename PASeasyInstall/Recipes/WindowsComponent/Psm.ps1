@@ -209,6 +209,40 @@ function Protect-PASeasyPsmTempDirectory {
     Assert-PASeasyPsmTempDirectory $DirectoryPath
     Write-Information 'PSM security control: untrusted WindowsTemp root creation restricted; child permissions preserved' -InformationAction Continue
 }
+function Start-PASeasyPsmStoppedService {
+    # After a restart the PSM service ends itself when it cannot reach the Vault at once (PSMSR100E in
+    # PSMConsole.log) and Windows does not start it again. Start it and wait until it stays up for 20
+    # seconds. Returns the names of the services that were started. The Verify stage does the real check.
+    $pattern = 'Cyber-?Ark.*(PSM|Privileged Session Manager)'
+    $started = @()
+    foreach ($service in @(Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.Name -match $pattern -or $_.DisplayName -match $pattern })) {
+        if ($service.Status -eq 'Running') {
+            continue
+        }
+        $deadline = [DateTime]::UtcNow.AddSeconds(150)
+        $stableSince = $null
+        while ([DateTime]::UtcNow -lt $deadline) {
+            $service.Refresh()
+            if ($service.Status -eq 'Running') {
+                if (-not $stableSince) {
+                    $stableSince = [DateTime]::UtcNow
+                }
+                if (([DateTime]::UtcNow - $stableSince).TotalSeconds -ge 20) {
+                    break
+                }
+            } else {
+                $stableSince = $null
+                if ($service.Status -eq 'Stopped') {
+                    Start-Service -InputObject $service -ErrorAction SilentlyContinue
+                }
+            }
+            Start-Sleep -Seconds 3
+        }
+        $started += $service.Name
+    }
+    return $started
+}
+
 function Invoke-PASeasyPsmStage {
     [CmdletBinding()]
     param([Parameter(Mandatory)][ValidateSet('Prerequisites', 'Install', 'Register', 'Harden', 'PostInstall')][string]$Stage,
@@ -248,10 +282,18 @@ function Invoke-PASeasyPsmStage {
         $saved = Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json
         if ($saved.schemaVersion -ne 2 -or $saved.stage -ne $Stage) { throw 'Unrecognized PSM stage checkpoint; reconcile before retry' }
         if (-not $saved.restartRequired) {
+            $started = @()
+            if ($Stage -eq 'PostInstall') {
+                $started = @(Start-PASeasyPsmStoppedService)
+            }
+            $note = ''
+            if ($started.Count) {
+                $note = '; started stopped service ' + ($started -join ', ')
+            }
             return [pscustomobject]@{
-                Changed = $false
+                Changed = [bool]$started.Count
                 Data = @{RebootRequired = $false }
-                Message = "PSM $Stage already completed; no repeated vendor launch"
+                Message = "PSM $Stage already completed; no repeated vendor launch$note"
             }
         }
         if ($saved.bootUtc -eq $boot) { throw "PSM $Stage requires a controller-confirmed reboot before continuation" }

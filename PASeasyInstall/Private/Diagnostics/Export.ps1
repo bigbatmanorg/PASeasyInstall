@@ -186,6 +186,21 @@ function Test-PASDeploymentHealth {
         $pin = (New-Object Security.Cryptography.X509Certificates.X509Certificate2($pinFile)).Thumbprint
         $result.TlsValidation = 'PinnedCertificate+HostName'
     } else { $result.TlsValidation = 'SystemTrust+HostName' }
+    # The PVWA presents its certificate only under its server name (IIS binding with SNI), so the name of the
+    # URL must resolve on this controller. Say so before a confusing network error appears.
+    $nameMustMatch = $true
+    $nameProblem = ''
+    try {
+        [void][Net.Dns]::GetHostAddresses($base.Host)
+    } catch {
+        $address = ''
+        $pvwa = @($c.components | Where-Object { $_ -and $_.type -eq 'PVWA' })[0]
+        if ($pvwa -and $c.hosts.Contains([string]$pvwa.host)) {
+            $address = [string]$c.hosts[[string]$pvwa.host].address
+        }
+        $nameProblem = "The PVWA name '$($base.Host)' does not resolve on this controller. Add it to DNS or to " +
+            "$env:SystemRoot\System32\drivers\etc\hosts (line: '$address $($base.Host)'), then run the check again."
+    }
     $vaultLock = $null
     $previousCallback = [Net.ServicePointManager]::ServerCertificateValidationCallback
     $previousProtocol = [Net.ServicePointManager]::SecurityProtocol
@@ -195,10 +210,35 @@ function Test-PASDeploymentHealth {
         $vaultLock = Enter-PASVaultLock -Address ([string]$c.vault.address) -TimeoutSeconds 60
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         if ($pin) {
-            $expected = $pin
-            [Net.ServicePointManager]::ServerCertificateValidationCallback = { param($s, $cert, $chain, $errors)
-                ($cert.GetCertHashString() -eq $expected) -and (($errors -band [Net.Security.SslPolicyErrors]::RemoteCertificateNameMismatch) -eq 0) }.GetNewClosure()
+            # A script block cannot be the callback: .NET calls it on a thread without a PowerShell runspace.
+            if (-not ('PASeasyInstall.PinnedCertificateCheck' -as [type])) {
+                Add-Type -TypeDefinition @'
+using System;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+namespace PASeasyInstall {
+    // Accepts exactly one certificate (by thumbprint); optionally its name must match the address too.
+    public sealed class PinnedCertificateCheck {
+        private readonly string thumbprint;
+        private readonly bool nameMustMatch;
+        public PinnedCertificateCheck(string thumbprint, bool nameMustMatch) {
+            this.thumbprint = thumbprint;
+            this.nameMustMatch = nameMustMatch;
         }
+        public bool Validate(object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors errors) {
+            if (certificate == null) { return false; }
+            if (!string.Equals(certificate.GetCertHashString(), thumbprint, StringComparison.OrdinalIgnoreCase)) { return false; }
+            return !nameMustMatch || (errors & SslPolicyErrors.RemoteCertificateNameMismatch) == 0;
+        }
+        public RemoteCertificateValidationCallback Callback { get { return Validate; } }
+    }
+}
+'@
+            }
+            $check = New-Object PASeasyInstall.PinnedCertificateCheck($pin, $nameMustMatch)
+            [Net.ServicePointManager]::ServerCertificateValidationCallback = $check.Callback
+        }
+        if ($nameProblem) { throw $nameProblem }
         $api = $base.AbsoluteUri.TrimEnd('/')
         $body = @{
             username = $VaultCredential.UserName
