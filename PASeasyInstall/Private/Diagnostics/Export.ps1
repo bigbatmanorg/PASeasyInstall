@@ -66,6 +66,17 @@ function Get-PASHealthPinnedCertificate {
             if (Test-Path -LiteralPath $cer -PathType Leaf) { return $cer }
         }
     }
+    # A lab PVWA without a CPM that pins it: its certificate was saved with the run when the PVWA was installed.
+    # The first PVWA of the configuration is the one the health check asks.
+    $firstPvwa = @($Configuration.components | Where-Object { $_ -and $_.type -eq 'PVWA' }) | Select-Object -First 1
+    if ($firstPvwa -and [string]$firstPvwa.id -match '^[a-z0-9][a-z0-9_-]{0,63}$') {
+        foreach ($run in @(Get-PASRunRecords | Where-Object { [string]$_.name -eq [string]$Configuration.name })) {
+            $cer = Join-Path (Get-PASRunDirectory ([string]$run.id)) ('pvwa-trust-' + [string]$firstPvwa.id + '.cer')
+            if (Test-Path -LiteralPath $cer -PathType Leaf) {
+                return $cer
+            }
+        }
+    }
     return ''
 }
 

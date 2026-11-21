@@ -590,6 +590,15 @@ function Invoke-PASComponent {
         $retry = @(Get-PASFailedPreflightRetry -WorkflowPath $files.Workflow -InventoryPath $files.Inventory -StatePath $files.State -Credentials $Run.Credentials)
     }
     Invoke-PASRunTarget -Run $Run -Target $id -WorkflowPath $files.Workflow -InventoryPath $files.Inventory -Retry $retry
+    if ($type -eq 'PVWA' -and [bool](Get-PASValue (Get-PASValue $Component 'options' $null) 'createLabCertificate' $false)) {
+        # Keep the public certificate of a lab PVWA with the run, also when no CPM pins it:
+        # Test-PASHealth needs it to reach a PVWA whose certificate is self-signed.
+        try {
+            $null = Get-PASPvwaCertificate -Configuration $Run.Config -PvwaId $id -Credentials $Run.Credentials -Directory $Run.Directory
+        } catch {
+            Write-PASRunEvent $Run.Directory 'Warning' ("The PVWA certificate could not be saved for the health check: " + $_.Exception.Message) $id -Level Warning
+        }
+    }
     Write-PASRunEvent $Run.Directory 'ComponentCompleted' "Verified $type" $id
 }
 function Get-PASFailedPreflightRetry {

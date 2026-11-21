@@ -4,9 +4,13 @@
 shows the installation while it runs. The window only calls the [commands](../commands/index.md) of the
 PASeasyInstall module, so everything it does can also be done from PowerShell.
 
-!!! warning "New in 2.0, not yet used against real servers"
-    The window was rewritten for 2.0. It was tested with the simulated installation (`-Backend Mock`), not yet with
-    a real one. The commands it calls were lab-tested.
+!!! note "New in 2.0"
+    The window was rewritten for 2.0. On 2026-11-21 it installed a Full lab (CyberArk 15.2) on real servers, was
+    stopped by an error on purpose, continued with *Try again*, and ran the lab check. That run was driven by a
+    script that calls the same functions as the buttons, so mouse and keyboard use is tested less than the logic.
+
+The window is small on purpose (800 x 560, usable down to 480 x 340) and uses one dim colour scheme, so it can sit
+beside other windows or in a remote desktop session while an installation runs.
 
 ## Start page
 
@@ -16,7 +20,11 @@ computer. **Open** on an installation shows its page: progress while it runs, wh
 ## Step 1: Media { #media }
 
 Choose the folder with the CyberArk installer media: the one big ZIP or the separate ZIPs, your `license.xml` and
-the recovery public key. **Look for installers** lists what was found. Nothing is unpacked or changed.
+the recovery public key. Type the folder, **Browse** to it, or drop the folder or the files on the window.
+**Look for installers** lists what was found. Nothing is changed in that folder.
+
+The VC++ runtimes the Vault needs are taken from the CPM, PVWA or PSM package of the lab. Only a Vault on its own
+needs `VC_redist.x86.exe` and `VC_redist.x64.exe` in the folder.
 
 ## Step 2: Lab { #lab }
 
@@ -57,7 +65,8 @@ you can close the window and open it again later.
   server, then **Try this step again**, or **Continue without repeating it**. **Save the logs as a ZIP** collects
   the diagnostics.
 - **Finished:** **Check the lab** asks the Vault whether every component is connected.
-- **Activity log** shows the events of the run, newest first.
+- **Activity log** shows the events of the run, newest first: time, component, step and message. A coloured bar
+  marks finished, started, warning and failed lines. Folded, it shows the newest event.
 
 The window keeps no password after an installation has started, so it asks for the lab password again when you
 continue an installation or check the lab.

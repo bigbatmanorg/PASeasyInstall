@@ -90,6 +90,7 @@ function New-PASUIState {
         Health = $null
         Pending = $null
         Polling = $false
+        ResumeUntil = $null
     }
 }
 

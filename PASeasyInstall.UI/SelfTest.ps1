@@ -9,9 +9,11 @@
 #   labName          name of the lab
 #   preset           starter | standard | full | custom
 #   existingVault    address of an existing Vault (preset custom: components are added to it)
+#   counts           preset custom: { "PVWA": 1, "CPM": 0, "PSM": 0, "PSMP": 1 }
 #   servers          { "<slot key>": { "name": "...", "address": "..." } }; slot keys as in Get-PASUIServerSlots.
 #                    Left out: made-up addresses 192.0.2.x (Mock backend only)
 #   timeoutMinutes   how long to wait for the installation (default 5)
+#   openRun          a run id: only open that installation from the start page and check the lab
 #   continueFile     when the installation stops with an error: wait until this file exists (somebody
 #                    corrected the cause), then press "Try this step again". Left out: an error ends the walk
 #   log              file that receives the PASS / FAIL lines as well
@@ -72,7 +74,7 @@ function Wait-PASUITestRun {
         $pause = 5000
     }
     $lastLine = ''
-    while ((Test-PASUIRunActive ([string]$S.Run.Status)) -and [datetime]::UtcNow -lt $deadline) {
+    while (((Test-PASUIRunActive ([string]$S.Run.Status)) -or ($S.ResumeUntil -and [datetime]::UtcNow -lt $S.ResumeUntil)) -and [datetime]::UtcNow -lt $deadline) {
         Start-Sleep -Milliseconds $pause
         Update-PASUIRun
         $line = [string]$S.Run.CurrentComponent + ' ' + [string]$S.Run.LastStep
@@ -125,6 +127,17 @@ function Invoke-PASUITestWalk {
 
     Assert-PASUIShown 'view' 'Build a CyberArk PAM lab' 'start page'
     Save-PASUISnapshot '1-start'
+    if ($Scenario.PSObject.Properties['openRun']) {
+        # Short walk: open an installation from the list on the start page and check the lab.
+        $runId = [string]$Scenario.openRun
+        Invoke-PASUIClick "run-$runId"
+        Assert-PASUIShown 'run-status' 'The lab is installed' 'an earlier installation opens from the list'
+        Invoke-PASUIClick 'act-health'
+        Submit-PASUITestPassword $password
+        Assert-PASUIShown 'run-status' 'Healthy\.' 'lab check'
+        Save-PASUISnapshot '8-lab-checked'
+        return
+    }
     $dropped = @((Invoke-NativeHTMLKitDocumentCommand -Document $doc -Operation get_diagnostics).diagnostics)
     Write-PASUITestLine "INFO the page engine reports $($dropped.Count) dropped or refused item(s)"
 
@@ -145,6 +158,20 @@ function Invoke-PASUITestWalk {
     if ($existing) {
         Invoke-PASUIClick 'vault-Existing'
         Assert-PASUIShown 'view' 'A Vault I already have' 'custom lab'
+    }
+    if ($Scenario.PSObject.Properties['counts']) {
+        foreach ($type in $script:PASUIComponentTypes) {
+            if (-not $Scenario.counts.PSObject.Properties[$type]) {
+                continue
+            }
+            $wanted = [int]$Scenario.counts.PSObject.Properties[$type].Value
+            while ([int]$S.Counts[$type] -lt $wanted) {
+                Invoke-PASUIClick "cnt-$type-inc"
+            }
+            while ([int]$S.Counts[$type] -gt $wanted) {
+                Invoke-PASUIClick "cnt-$type-dec"
+            }
+        }
     }
     Set-PASUIField 'f-labname' $labName
     Save-PASUISnapshot '3-lab'

@@ -14,6 +14,11 @@ replaces the command set and simplifies the controller.
 
 ### What is new
 
+- **New desktop:** rewritten directly on the NativeHTMLKit SDK. Four steps (media, lab, servers, install), a page per
+  installation with progress, retry and a lab check, an **Advanced** switch, a compact window with a dim colour scheme.
+- **VC++ runtimes** for the Vault are taken from the CPM, PVWA or PSM package; they no longer have to be downloaded
+  when one of those is part of the lab.
+
 - **One command per component:** `Install-PASVault`, `Install-PASPVWA`, `Install-PASCPM`, `Install-PASPSM`,
   `Install-PASPSMP`, `Install-PASDomainController`. `Install-PASLab` installs a whole lab from one configuration.
 - **Run commands:** `Get-PASRun`, `Get-PASRunEvent`, `Wait-PASRun`, `Resume-PASRun`, `Stop-PASRun`.

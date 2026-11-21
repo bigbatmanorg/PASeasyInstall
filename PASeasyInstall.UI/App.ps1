@@ -331,6 +331,11 @@ function Update-PASUIRun {
         return
     }
     $S.RunSignature = $signature
+    if ($S.ResumeUntil -and (Test-PASUIRunActive ([string]$S.Run.Status))) {
+        # The installer process has the run again.
+        $S.ResumeUntil = $null
+        Set-PASUINotice
+    }
     Set-PASUIHtml 'run-status' (Get-PASUIRunStatusHtml $S $Catalog)
     Set-PASUIHtml 'run-comps' (Get-PASUIRunComponentsHtml $S $Catalog)
     Set-PASUIHtml 'run-log' (Get-PASUIRunLogHtml $S)
@@ -343,7 +348,13 @@ function Start-PASUIPoll {
     if ($S.Polling) {
         return
     }
-    if (-not $S.Run -or -not (Test-PASUIRunActive ([string]$S.Run.Status)) -or $S.Screen -ne 'run') {
+    # After "continue" the run still reads as stopped for a few seconds, until the installer process has
+    # taken it over again: keep looking for a while.
+    $waitingForResume = ($S.ResumeUntil -and [datetime]::UtcNow -lt $S.ResumeUntil)
+    if (-not $S.Run -or $S.Screen -ne 'run') {
+        return
+    }
+    if (-not (Test-PASUIRunActive ([string]$S.Run.Status)) -and -not $waitingForResume) {
         return
     }
     $S.Polling = $true
@@ -364,7 +375,9 @@ function Resume-PASUIRun {
     }
     Set-PASUINotice 'busy' 'Continuing the installation...'
     $null = Resume-PASRun @arguments -Confirm:$false
-    Set-PASUINotice
+    $S.ResumeUntil = [datetime]::UtcNow.AddSeconds(90)
+    $S.Health = $null
+    Set-PASUINotice 'info' 'The installation continues. Finished steps are checked again first; this page updates by itself.'
     $S.RunSignature = ''
     Update-PASUIRun
     Start-PASUIPoll
@@ -383,7 +396,14 @@ function Invoke-PASUIHealth {
         $arguments.DRCredential = $credential
     }
     Set-PASUINotice 'busy' 'Checking the lab...'
-    $S.Health = Test-PASHealth @arguments
+    try {
+        $S.Health = Test-PASHealth @arguments
+    } catch {
+        if ([string]$_.Exception.Message -match 'configuration has no PVWA') {
+            throw 'This installation has no PVWA of its own, and the lab check asks the Vault through PVWA. Check the lab from the installation that has the PVWA.'
+        }
+        throw
+    }
     Set-PASUINotice
     Set-PASUIHtml 'run-status' (Get-PASUIRunStatusHtml $S $Catalog)
 }
