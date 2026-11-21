@@ -26,7 +26,7 @@ replaces the command set and simplifies the controller.
 ### Breaking changes
 
 - **Two modules instead of one.** `PASeasyInstall` holds the commands and has no dependencies. The desktop moved to
-  `PASeasyInstall.UI` (`Install-Module PASeasyInstall.UI`), which requires NativeHTMLKit.UI.
+  `PASeasyInstall.UI` (`Install-Module PASeasyInstall.UI`), which requires NativeHTMLKit.
 - **All 1.0 command names are gone.** See the mapping below. There are no aliases.
 - **No parallel installation.** Components are installed one after the other. `execution.mode = Parallel` in an old
   project file is accepted with a warning and runs sequentially.

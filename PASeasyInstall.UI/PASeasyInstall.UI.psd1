@@ -8,7 +8,7 @@ PowerShellVersion='5.1'
 CompatiblePSEditions=@('Desktop')
 # The PASeasyInstall module itself is not listed: it is imported when the window starts, from the
 # folder next to this module (source checkout, portable ZIP) or else as an installed module.
-RequiredModules=@(@{ModuleName='NativeHTMLKit.UI';ModuleVersion='0.1.1'})
+RequiredModules=@(@{ModuleName='NativeHTMLKit';ModuleVersion='0.1.2'})
 FunctionsToExport=@('Start-PASeasyInstall')
 CmdletsToExport=@()
 VariablesToExport=@()

@@ -30,7 +30,7 @@ sudo apt-get update && sudo apt-get install -y unzip
 Copy the CyberArk bundle ZIP (or the single component ZIPs), `license.xml`, `recpub.key` and the VC++
 redistributables into one folder, for example `C:\CyberArk\media`.
 
-## 3. Open the desktop and fill in the six steps
+## 3. Open the desktop and follow the four steps
 
 === "Portable ZIP"
 

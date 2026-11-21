@@ -3,7 +3,8 @@
 # Everything that only computes (media inventory and selection, configuration, validation, plan,
 # stage catalog, credential requirements, project files) is the real PASeasyInstall module: this
 # module imports it and passes those commands through unchanged. Only the run is simulated:
-# Install-PASLab, Get-PASRun, Get-PASRunEvent, Resume-PASRun, Stop-PASRun and Export-PASDiagnostics.
+# Install-PASLab, Get-PASRun, Get-PASRunEvent, Resume-PASRun, Stop-PASRun, Export-PASDiagnostics,
+# Test-PASPreflight and Test-PASHealth.
 #
 # A simulated run walks the plan one component after another; every stage of the real stage catalog
 # takes $env:PASUI_MOCK_STAGE_SECONDS seconds (default 1). The lab name selects the scenario:
@@ -235,13 +236,17 @@ function Install-PASLab {
     <# Simulated: validates with the real module, checks that every required credential and secret
        was handed over, then starts a timed fake run. Returns the run id. #>
     [CmdletBinding(SupportsShouldProcess = $true)]
-    param([Parameter(Mandatory)]$Configuration, [hashtable]$CredentialMap = @{}, [hashtable]$SecretMap = @{})
+    param([Parameter(Mandatory)]$Configuration, [hashtable]$CredentialMap = @{}, [hashtable]$SecretMap = @{}, [securestring]$LabPassword)
     $checked = Test-PASLabConfiguration -Configuration $Configuration -CheckMedia
     if (-not $checked.Valid) {
         throw ('Configuration invalid: ' + ($checked.Issues -join '; '))
     }
     $cfg = $checked.Configuration
     foreach ($requirement in @(Get-PASCredentialRequirement -Configuration $cfg)) {
+        if ($LabPassword) {
+            # One lab password stands for every account and Vault password.
+            continue
+        }
         if ($requirement.Kind -eq 'Credential') {
             $given = $CredentialMap.ContainsKey([string]$requirement.Key)
             if (-not $given -and $requirement.HostId) {
@@ -349,7 +354,7 @@ function Resume-PASRun {
     <# Simulated: a run that failed or was stopped continues with the stages that did not complete,
        this time without the simulated failure. Returns the run id. #>
     [CmdletBinding(SupportsShouldProcess = $true)]
-    param([Parameter(Mandatory)][string]$RunId, $RetryStep, [hashtable]$CredentialMap, [hashtable]$SecretMap)
+    param([Parameter(Mandatory)][string]$RunId, $RetryStep, [hashtable]$CredentialMap, [hashtable]$SecretMap, [securestring]$LabPassword)
     $run = Get-PASMockRun $RunId
     $clock = Get-PASMockClock $run
     if (-not $clock.Finished -or $clock.Status -eq 'Succeeded') {
@@ -386,11 +391,14 @@ function Resume-PASRun {
 function Export-PASDiagnostics {
     <# Simulated: writes a ZIP that holds the run snapshot as run.json. Returns the full path. #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$RunId, [Parameter(Mandatory)][string]$Path)
+    param([Parameter(Mandatory)][string]$RunId, [Parameter(Mandatory)][string]$Path, [switch]$Force)
     $snapshot = Get-PASMockSnapshot -RunId $RunId -Tail 5000
     $full = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
     if (Test-Path -LiteralPath $full) {
-        throw "File already exists: $full"
+        if (-not $Force) {
+            throw "File already exists: $full"
+        }
+        Remove-Item -LiteralPath $full -Force
     }
     Add-Type -AssemblyName System.IO.Compression
     $stream = [IO.File]::Open($full, [IO.FileMode]::CreateNew)
@@ -412,6 +420,55 @@ function Export-PASDiagnostics {
     return $full
 }
 
-# The whole contract is exported: the six simulated commands defined above, and the commands of
+function Test-PASPreflight {
+    <# Simulated: one "answers" row per server of the plan. A lab whose name contains "fail" reports
+       one server that does not answer. Contacts nothing. #>
+    [CmdletBinding()]
+    param($Configuration, [hashtable]$CredentialMap = @{}, [securestring]$LabPassword)
+    $plan = Get-PASLabPlan -Configuration $Configuration
+    $seen = @{}
+    $rows = New-Object System.Collections.ArrayList
+    $bad = ([string]$Configuration['name'] -match '(?i)fail')
+    foreach ($item in @($plan.Items)) {
+        $address = [string]$item.Address
+        if ($seen.ContainsKey($address)) {
+            continue
+        }
+        $seen[$address] = $true
+        $passed = $true
+        $detail = 'Simulated: the server answers'
+        if ($bad -and $seen.Count -eq 1) {
+            $passed = $false
+            $detail = 'Simulated: no answer on the management port'
+        }
+        [void]$rows.Add([pscustomobject]@{ Server = [string]$item.Host; Address = $address; Check = 'Sign-in'; Passed = $passed; Detail = $detail })
+        [void]$rows.Add([pscustomobject]@{ Server = [string]$item.Host; Address = $address; Check = 'Free disk space'; Passed = $true; Detail = 'Simulated: 80 GB free' })
+    }
+    return @($rows)
+}
+
+function Test-PASHealth {
+    <# Simulated: every component of the configuration is reported as connected. #>
+    [CmdletBinding()]
+    param([string]$Path, $Configuration, [pscredential]$VaultCredential, [pscredential]$DRCredential)
+    $rows = New-Object System.Collections.ArrayList
+    if ($Configuration) {
+        foreach ($item in @((Get-PASLabPlan -Configuration $Configuration).Items)) {
+            if ([string]$item.Type -in @('Vault', 'DRVault', 'AD')) {
+                continue
+            }
+            [void]$rows.Add([pscustomobject]@{ Component = [string]$item.Type; User = ([string]$item.Type + 'App_' + [string]$item.Name)
+                    Address = [string]$item.Address; LoggedOn = $true; Version = 'simulated' })
+        }
+    }
+    return [pscustomobject]@{
+        Healthy = $true
+        Message = 'Simulated: all components are connected to the Vault'
+        Issues = @()
+        Components = @($rows)
+    }
+}
+
+# The whole contract is exported: the simulated commands defined above, and the commands of
 # the real module imported above, passed through as they are.
 Export-ModuleMember -Function @($script:PASUIBackendContract.Keys)

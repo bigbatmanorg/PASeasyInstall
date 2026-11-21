@@ -75,14 +75,15 @@ Install-Module PASeasyInstall.UI -Scope CurrentUser
 Start-PASeasyInstall
 ```
 
-`PASeasyInstall.UI` is a separate module. It is a six-step wizard that only calls the commands above: project and
-media, what to install, servers, credentials, review plan, install. Nothing is sent to a server before you press
-**Install** on the last step. `Start-PASeasyInstall -Config .\MyLab.json` reopens a saved project.
+`PASeasyInstall.UI` is a separate module. Its window only calls the commands above. Four steps build a lab: media
+folder, the lab to build, servers and password, review and install. Each installation then has a page with live
+progress, retry and a lab check. Nothing is sent to a server before you press **Install** on the last step.
+`Start-PASeasyInstall -Config .\MyLab.json` reopens a saved lab file.
 `Start-PASeasyInstall -Backend Mock` shows the same window with a simulated installation.
 
 **Portable ZIP:** download `PASeasyInstall-<version>-portable.zip` from
 [Releases](https://github.com/bigbatmanorg/PASeasyInstall/releases), unblock it, extract it, and double-click
-`Start-PASeasyInstall.cmd`. Both modules and the NativeHTMLKit UI runtime are inside. Nothing is installed.
+`Start-PASeasyInstall.cmd`. Both modules and the NativeHTMLKit runtime are inside. Nothing is installed.
 
 Full tour with screenshots: [Desktop UI](https://bigbatmanorg.github.io/PASeasyInstall/gui/).
 
@@ -199,7 +200,7 @@ PASeasyInstall/                 the core module (no dependencies)
   Private/Diagnostics           health, logs, diagnostics export
   Recipes/                      scripts that run on the servers: Vault, WindowsComponent, LinuxComponent, ActiveDirectory
   Controllers/                  entry script of the detached run controller process
-PASeasyInstall.UI/              the desktop module (NativeHTMLKit.UI); calls only the public commands
+PASeasyInstall.UI/              the desktop module (NativeHTMLKit SDK); calls only the public commands
 Start-PASeasyInstall.ps1        opens the desktop from a source checkout
 Tests/, Tools/                  Pester tests and build/check tools
 Docs/                           DESIGN.md, third-party licenses, README screenshots

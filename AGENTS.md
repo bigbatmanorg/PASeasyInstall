@@ -19,7 +19,8 @@ use is at your own risk. Read `Docs/DESIGN.md` first: it explains the layout and
   process memory. A lab-mode password prefill may come only from `$env:PASEASY_LAB_PASSWORD`.
 - **The UI calls only the public commands** listed in `PASeasyInstall.UI/Backend/Backend.Contract.ps1`. It never
   calls a private function and implements no installer logic. Keep the Mock backend and the contract in sync.
-  Use only the public NativeHTMLKit.UI API: no web view, JavaScript or HTTP server.
+  It is written directly on the NativeHTMLKit SDK (HTML and CSS in `PASeasyInstall.UI/Web`, no UI library, no web view,
+  JavaScript or HTTP server): `Model.ps1` is the data, `Views.ps1` the screens as HTML text, `App.ps1` the window and events.
 - **One function prefix: `PAS`.** No `PASeasy`, `PAExec` or `PAE` prefixes in new function names.
 - **One public command per file** in `PASeasyInstall/Public/`, named after the command, with comment-based help
   (synopsis, description, parameters, at least one example). `FunctionsToExport` in `PASeasyInstall.psd1` must

@@ -5,7 +5,7 @@ PASeasyInstall is published as **two modules**.
 | Module | What it is | Depends on |
 |---|---|---|
 | `PASeasyInstall` | The commands: `Install-PASVault`, `Install-PASLab`, `Get-PASRun`, ... | Nothing |
-| `PASeasyInstall.UI` | The desktop wizard: `Start-PASeasyInstall` | NativeHTMLKit.UI (installed with it) |
+| `PASeasyInstall.UI` | The desktop: `Start-PASeasyInstall` | NativeHTMLKit (installed with it) |
 
 ## The commands
 
@@ -23,7 +23,7 @@ Start-PASeasyInstall
 ```
 
 The desktop calls the commands of the `PASeasyInstall` module, so install both. `Install-Module PASeasyInstall.UI`
-also installs **NativeHTMLKit.UI**, the desktop runtime.
+also installs **NativeHTMLKit**, the desktop runtime.
 
 ## A fresh Windows Server
 

@@ -32,7 +32,7 @@ Describe 'Gallery package stages' {
         Test-Path -LiteralPath $script:core.Inventory | Should -BeTrue
     }
     It 'puts the desktop and its Mock backend into the UI package' {
-        foreach ($rel in 'PASeasyInstall.UI.psd1', 'PASeasyInstall.UI.psm1', 'App.ps1', 'Presentation.ps1', 'Theme.css',
+        foreach ($rel in 'PASeasyInstall.UI.psd1', 'PASeasyInstall.UI.psm1', 'App.ps1', 'Model.ps1', 'Views.ps1', 'Web/index.html', 'Web/style.css',
             'Backend/Backend.Contract.ps1', 'Backend/Mock/PASeasyInstall.Mock.psd1') {
             Test-Path -LiteralPath (Join-Path $script:ui.Stage $rel) | Should -BeTrue -Because $rel
         }

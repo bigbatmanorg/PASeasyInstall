@@ -30,12 +30,6 @@ nav = [
   ] },
   { "Desktop UI" = [
     "gui/index.md",
-    { "1 Project & media" = "gui/project-media.md" },
-    { "2 What to install" = "gui/what-to-install.md" },
-    { "3 Servers" = "gui/servers.md" },
-    { "4 Credentials" = "gui/credentials.md" },
-    { "5 Review plan" = "gui/review.md" },
-    { "6 Install" = "gui/install.md" },
   ] },
   { "Components" = [
     "components/index.md",

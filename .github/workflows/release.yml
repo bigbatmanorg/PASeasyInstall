@@ -24,13 +24,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Pester and NativeHTMLKit.UI
+      - name: Install Pester and NativeHTMLKit
         run: |
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
           Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck
-          Install-Module NativeHTMLKit.UI -RequiredVersion 0.1.1 -Scope CurrentUser -Force
+          Install-Module NativeHTMLKit -RequiredVersion 0.1.2 -Scope CurrentUser -Force
 
       - name: Version
         id: version
@@ -119,6 +119,6 @@ jobs:
           }
           # The core module first: it has no dependencies.
           Publish-PSResource -Path dist/gallery/PASeasyInstall -Repository PSGallery -ApiKey $env:PSGALLERY_API_KEY -Verbose
-          # The desktop module requires NativeHTMLKit.UI; its manifest is validated against the installed copy.
-          Install-PSResource -Name NativeHTMLKit.UI -Version 0.1.1 -Repository PSGallery -TrustRepository -Quiet
+          # The desktop module requires NativeHTMLKit; its manifest is validated against the installed copy.
+          Install-PSResource -Name NativeHTMLKit -Version 0.1.2 -Repository PSGallery -TrustRepository -Quiet
           Publish-PSResource -Path dist/gallery/PASeasyInstall.UI -Repository PSGallery -ApiKey $env:PSGALLERY_API_KEY -Verbose

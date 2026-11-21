@@ -94,7 +94,7 @@ Describe 'UI backend contract' {
     It 'exports only Start-PASeasyInstall from the UI module manifest' {
         $manifest = Import-PowerShellDataFile -Path $PASUIModuleManifest
         @($manifest.FunctionsToExport) | Should -Be @('Start-PASeasyInstall')
-        @($manifest.RequiredModules | ForEach-Object { $_.ModuleName }) | Should -Be @('NativeHTMLKit.UI')
+        @($manifest.RequiredModules | ForEach-Object { $_.ModuleName }) | Should -Be @('NativeHTMLKit')
     }
 }
 
@@ -229,57 +229,145 @@ Describe 'Run preparation for a composed lab' {
     }
 }
 
-Describe 'Desktop renderers' {
-    BeforeAll { . (Join-Path $uiRoot 'Presentation.ps1') }
-    It 'never lets an informational line downgrade a completed stage' {
-        $snap = [pscustomobject]@{RunId = ('c' * 32)
-            Status = 'Running'
-            CurrentComponent = 'vault'
-            LastStep = 'install-server'
-            ErrorEvents = 0
-            Events = @(
-                [pscustomobject]@{
-                    TimestampUtc = '2026-11-18T12:00:00Z'
-                    Status = 'Complete'
-                    Component = 'vault'
-                    Stage = 'install-server'
-                    Event = 'TaskCompleted'
-                    Message = 'done'
-                },
-                [pscustomobject]@{
-                    TimestampUtc = '2026-11-18T12:00:01Z'
-                    Status = 'Info'
-                    Component = 'vault'
-                    Stage = 'install-server'
-                    Event = 'AttemptState'
-                    Message = 'remote attempt is Succeeded'
-                })
-        }
-        $item = [pscustomobject]@{Id = 'vault'; Type = 'Vault'; Host = 'vault01'; Address = '192.0.2.31' }
-        $html = ConvertTo-PASUIDashboardHtml -Snapshot $snap -PlanItems @($item) -Catalog @{Vault = @('install-server') }
-        $html | Should -Match 'pas-chip complete">install-server'
+Describe 'Desktop model' {
+    BeforeAll {
+        . (Join-Path $uiRoot 'Model.ps1')
     }
-    It 'escapes plan values in the review table' {
-        $plan = [pscustomobject]@{
-            ConfigDigest = 'd' * 64
-            ExecutionMode = 'Sequential'
-            Warnings = @()
-            ExistingVault = ''
-            Items = @([pscustomobject]@{
-                    Id = 'x'
-                    Name = '<b>x</b>'
-                    Type = 'PVWA'
-                    Host = 'h'
-                    Address = 'a'
-                    Media = 'm'
-                    DependsOn = @()
-                })
+    It 'needs five servers for the Full lab and puts CPM on the PVWA server' {
+        $state = New-PASUIState
+        Set-PASUIPreset $state 'full'
+        $slots = @(Get-PASUIServerSlots $state)
+        @($slots | ForEach-Object { $_.Key }) -join ',' | Should -Be 'vault,dr,pvwa1,psm1,psmp1'
+        ($slots | Where-Object { $_.Key -eq 'pvwa1' }).Roles | Should -Be 'PVWA + CPM'
+        Set-PASUISlotValue $state 'pvwa1' 'Address' '192.0.2.21'
+        $instances = @(Get-PASUIInstances $state)
+        ($instances | Where-Object { $_.Type -eq 'CPM' }).Address | Should -Be '192.0.2.21'
+        ($instances | Where-Object { $_.Type -eq 'CPM' }).Name | Should -Be 'CPM01'
+        @($instances | Where-Object { $_.Type -in @('Vault', 'DRVault') }).Count | Should -Be 0
+    }
+    It 'gives a CPM its own server when there is no PVWA to share with' {
+        $state = New-PASUIState
+        Set-PASUIPreset $state 'standard'
+        $state.Counts.CPM = 2
+        @(Get-PASUIServerSlots $state | ForEach-Object { $_.Key }) -join ',' | Should -Be 'vault,pvwa1,cpm2,psm1'
+        $state.Colocate = $false
+        @(Get-PASUIServerSlots $state | ForEach-Object { $_.Key }) -join ',' | Should -Be 'vault,pvwa1,cpm1,cpm2,psm1'
+    }
+    It 'says in plain words what is missing on the servers step' {
+        $state = New-PASUIState
+        Set-PASUIPreset $state 'full'
+        $issues = @(Get-PASUIInputIssues $state 'servers')
+        ($issues -join ' ') | Should -Match 'Enter the address of the Vault server'
+        ($issues -join ' ') | Should -Match 'Enter the lab password'
+        ($issues -join ' ') | Should -Match 'license agreement'
+        $number = 10
+        foreach ($slot in Get-PASUIServerSlots $state) {
+            $number++
+            Set-PASUISlotValue $state $slot.Key 'Address' "192.0.2.$number"
         }
-        $html = ConvertTo-PASUIReviewHtml -Validation ([pscustomobject]@{
-                Valid = $true
-                Issues = @()
-            }) -Plan $plan -StageCounts @{PVWA = 11 }
-        $html | Should -Not -Match '<b>x</b>'
-        $html | Should -Match '&lt;b&gt;x&lt;/b&gt;'
+        $state.LabPassword = 'x'
+        $state.AcceptEula = $true
+        @(Get-PASUIInputIssues $state 'servers').Count | Should -Be 0
+        Set-PASUISlotValue $state 'dr' 'Address' '192.0.2.11'
+        (@(Get-PASUIInputIssues $state 'servers') -join ' ') | Should -Match 'used for two servers'
+    }
+    It 'counts finished steps per component and names the step to retry' {
+        $snapshot = [pscustomobject]@{
+            Status = 'Failed'
+            Components = @(
+                [pscustomobject]@{ Id = 'vault'; Type = 'Vault'; Status = 'Succeeded'; Message = '' }
+                [pscustomobject]@{ Id = 'pvwa01'; Type = 'PVWA'; Status = 'Failed'; Message = 'boom' })
+            Events = @(
+                [pscustomobject]@{ Component = 'pvwa01'; Stage = 'install'; Event = 'TaskCompleted'; Status = 'Complete'; Message = '' }
+                [pscustomobject]@{ Component = 'pvwa01'; Stage = 'install'; Event = 'TaskOutput'; Status = 'Info'; Message = 'late line' }
+                [pscustomobject]@{ Component = 'pvwa01'; Stage = 'register'; Event = 'TaskFailed'; Status = 'Failed'; Message = 'ITATS937E limit' })
+        }
+        $progress = Get-PASUIRunProgress -Snapshot $snapshot -Catalog @{ Vault = 20; PVWA = 10 }
+        $vault = $progress.Components | Where-Object { $_.Id -eq 'vault' }
+        $vault.Done | Should -Be 20
+        $pvwa = $progress.Components | Where-Object { $_.Id -eq 'pvwa01' }
+        $pvwa.Done | Should -Be 1
+        $pvwa.Current | Should -Be 'register'
+        $pvwa.Kind | Should -Be 'bad'
+        $progress.Percent | Should -Be 70
+        (Get-PASUIFailure $snapshot).RetryStep | Should -Be 'pvwa01:register'
+    }
+    It 'writes the PowerShell equivalent without any password' {
+        $state = New-PASUIState
+        Set-PASUIPreset $state 'starter'
+        $state.LabPassword = 'SYNTHETIC_PASSWORD_642'
+        $state.MediaPath = 'D:\Media'
+        $text = Get-PASUICommandText $state
+        $text | Should -Match 'New-PASLabConfiguration -Environment MyPAM -VaultMode Primary'
+        $text | Should -Match 'Install-PASLab'
+        $text | Should -Not -Match 'SYNTHETIC_PASSWORD_642'
+    }
+}
+
+Describe 'Desktop screens' {
+    BeforeAll {
+        . (Join-Path $uiRoot 'Model.ps1')
+        . (Join-Path $uiRoot 'Views.ps1')
+    }
+    It 'escapes everything that comes from the user or a server' {
+        $state = New-PASUIState
+        $state.LabName = '<script>alert(1)</script>'
+        $state.Run = [pscustomobject]@{
+            RunId = ('a' * 32); Name = '<b>lab</b>'; Status = 'Failed'; Message = '<i>m</i>'
+            Components = @([pscustomobject]@{ Id = 'vault'; Type = 'Vault'; Status = 'Failed'; Message = '' })
+            Events = @([pscustomobject]@{ TimestampUtc = '2026-11-21T10:00:00Z'; Component = 'vault'; Stage = 'install'; Event = 'TaskFailed'; Level = 'Error'; Status = 'Failed'; Message = '<img src=x>' })
+        }
+        $html = (Get-PASUIRunHtml $state @{ Vault = 3 }) + (Get-PASUILabHtml $state)
+        $html | Should -Not -Match '<script>|<b>lab</b>|<img src=x>'
+        $html | Should -Match '&lt;img src=x&gt;'
+        $html | Should -Match 'id="act-retry"'
+    }
+    It 'shows the problems and no Install button when the plan is not valid' {
+        $state = New-PASUIState
+        $state.Check = @{ Valid = $false; Issues = @('Vault media file is Missing'); Warnings = @() }
+        $html = Get-PASUIReviewHtml $state
+        $html | Should -Match 'Vault media file is Missing'
+        $html | Should -Not -Match 'act-install'
+    }
+    It 'keeps advanced settings out of the simple view' {
+        $state = New-PASUIState
+        Set-PASUIPreset $state 'standard'
+        Get-PASUIServersHtml $state | Should -Not -Match 'f-controller|f-separate'
+        $state.Advanced = $true
+        Get-PASUIServersHtml $state | Should -Match 'f-controller'
+        Get-PASUIServersHtml $state | Should -Match 'f-separate'
+    }
+    It 'shows the step line only inside the four steps' {
+        $state = New-PASUIState
+        Get-PASUIStepsHtml $state | Should -BeNullOrEmpty
+        $state.Screen = 'servers'
+        $steps = Get-PASUIStepsHtml $state
+        $steps | Should -Match 'step done.*step done.*step current'
+        $steps | Should -Match 'id="step-review" class="step" disabled'
+    }
+}
+
+Describe 'Desktop window (headless, simulated installation)' -Skip:(-not [bool](Get-Module -ListAvailable NativeHTMLKit)) {
+    It 'walks from the start page to a finished and checked lab' {
+        $out = Join-Path $TestDrive 'selftest.out'
+        $err = Join-Path $TestDrive 'selftest.err'
+        $saved = @{ Mode = $env:NATIVEHTMLKIT_TEST_MODE; Seconds = $env:PASUI_MOCK_STAGE_SECONDS }
+        $env:NATIVEHTMLKIT_TEST_MODE = '1'
+        $env:PASUI_MOCK_STAGE_SECONDS = '0.05'
+        try {
+            $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + (Join-Path $uiRoot 'App.ps1') + '"'), '-Backend', 'Mock',
+                '-StartDirectory', ('"' + $TestDrive + '"'), '-SelfTestMedia', ('"' + $media + '"'), '-SelfTestExistingVault')
+            $process = Start-Process powershell.exe -ArgumentList $arguments -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
+            if (-not $process.WaitForExit(240000)) {
+                $process.Kill()
+                throw 'The headless desktop did not finish within four minutes'
+            }
+        } finally {
+            $env:NATIVEHTMLKIT_TEST_MODE = $saved.Mode
+            $env:PASUI_MOCK_STAGE_SECONDS = $saved.Seconds
+        }
+        $text = (Get-Content -LiteralPath $out -Raw)
+        $text | Should -Match 'SELFTEST failures=0' -Because ($text + (Get-Content -LiteralPath $err -Raw))
+        $text | Should -Not -Match '(?m)^FAIL'
     }
 }

@@ -9,14 +9,14 @@ Stages both modules with Tools\Build-GalleryPackage.ps1, then lays out:
     README-PORTABLE.txt, LICENSE.txt, THIRD_PARTY_*.txt
     PASeasyInstall\                     the core module (commands)
     PASeasyInstall.UI\                  the desktop module
-    NativeHTMLKit.UI\, NativeHTMLKit\   desktop runtime, including its native window host
+    NativeHTMLKit\                      desktop runtime (SDK with its native window host)
 The launchers clear the internet zone mark inside the folder, put the folder first on PSModulePath for
 their own process only, and run Windows PowerShell 5.1 with -NoProfile -ExecutionPolicy Bypass. They
 change nothing on the computer, need no administrator rights to start, and work from any folder.
 Writes <Output>\PASeasyInstall-<version>-portable.zip and <Output>\SHA256SUMS.
 .PARAMETER NativeHTMLKitPath
-Folder that already contains the NativeHTMLKit.UI and NativeHTMLKit module folders (offline build).
-Default: Save-Module NativeHTMLKit.UI (exact version) from the PowerShell Gallery.
+Folder that already contains the NativeHTMLKit module folder (offline build).
+Default: Save-Module NativeHTMLKit (exact version) from the PowerShell Gallery.
 .EXAMPLE
 .\Tools\Build-PortableRelease.ps1
 .EXAMPLE
@@ -36,8 +36,8 @@ if (-not $Output) {
     $Output = Join-Path $repo 'dist'
 }
 $Output = [IO.Path]::GetFullPath($Output)
-# The exact NativeHTMLKit.UI version this release is built and tested with.
-$nativeUiVersion = '0.1.1'
+# The exact NativeHTMLKit version this release is built and tested with.
+$nativeKitVersion = '0.1.2'
 
 $gallery = & (Join-Path $PSScriptRoot 'Build-GalleryPackage.ps1') -Output $Output -AllowMissingLicense:$AllowMissingLicense
 $name = "PASeasyInstall-$($gallery.Version)-portable"
@@ -61,7 +61,7 @@ foreach ($file in @(Get-ChildItem -LiteralPath $coreStage -File | Where-Object {
 
 # 2. Desktop runtime
 if ($NativeHTMLKitPath) {
-    foreach ($module in @('NativeHTMLKit.UI', 'NativeHTMLKit')) {
+    foreach ($module in @('NativeHTMLKit')) {
         $source = Join-Path $NativeHTMLKitPath $module
         if (-not (Test-Path -LiteralPath $source)) {
             throw "$module not found in $NativeHTMLKitPath"
@@ -69,9 +69,9 @@ if ($NativeHTMLKitPath) {
         Copy-Item -LiteralPath $source -Destination $root -Recurse -Force
     }
 } else {
-    Save-Module -Name NativeHTMLKit.UI -RequiredVersion $nativeUiVersion -Repository PSGallery -Path $root -Force
+    Save-Module -Name NativeHTMLKit -RequiredVersion $nativeKitVersion -Repository PSGallery -Path $root -Force
 }
-foreach ($module in @('NativeHTMLKit.UI', 'NativeHTMLKit')) {
+foreach ($module in @('NativeHTMLKit')) {
     if (-not (Test-Path -LiteralPath (Join-Path $root $module))) {
         throw "Portable layout is missing $module"
     }
@@ -126,7 +126,6 @@ $cmdShell = "@echo off`r`nrem PASeasyInstall portable: PowerShell window with th
 [IO.File]::WriteAllText((Join-Path $root 'PASeasyInstall-Shell.cmd'), $cmdShell, $ascii)
 
 # 4. README
-$uiKitVersion = (Get-ChildItem -LiteralPath (Join-Path $root 'NativeHTMLKit.UI') -Directory | Select-Object -First 1).Name
 $kitVersion = (Get-ChildItem -LiteralPath (Join-Path $root 'NativeHTMLKit') -Directory | Select-Object -First 1).Name
 $readme = @"
 PASeasyInstall $($gallery.Version) - portable edition
@@ -167,8 +166,7 @@ Contents
 --------
 PASeasyInstall\                       the commands (core module, no dependencies)
 PASeasyInstall.UI\                    the desktop wizard (Start-PASeasyInstall)
-NativeHTMLKit.UI\$uiKitVersion        desktop UI library (https://nativehtmlkit.github.io/)
-NativeHTMLKit\$kitVersion             NativeHTMLKit SDK and native window host
+NativeHTMLKit\$kitVersion             NativeHTMLKit SDK and native window host (https://nativehtmlkit.github.io/)
 
 Documentation: https://bigbatmanorg.github.io/PASeasyInstall/
 "@
@@ -204,7 +202,6 @@ $sums = Join-Path $Output 'SHA256SUMS'
     SizeMB = [math]::Round((Get-Item -LiteralPath $zipPath).Length / 1MB, 1)
     SHA256 = $hash
     Folder = $root
-    NativeHTMLKitUI = $uiKitVersion
     NativeHTMLKit = $kitVersion
     GalleryRoot = $gallery.GalleryRoot
 }

@@ -1,44 +1,78 @@
-# Desktop UI
+# The desktop
 
-`Start-PASeasyInstall` (module **PASeasyInstall.UI**) opens a six-step desktop. You work through the steps in order, but you can go back to any
-step at any time from the left-hand list. **Nothing is sent to any server until you click Install on step 6.**
+`Start-PASeasyInstall` (module **PASeasyInstall.UI**) opens one window. It builds a lab in four steps and then
+shows the installation while it runs. The window only calls the [commands](../commands/index.md) of the
+PASeasyInstall module, so everything it does can also be done from PowerShell.
 
-![Step 2, What to install: Vault option, component counts, license agreement and installation order](../assets/screenshots/2-what-to-install.png)
+!!! warning "New in 2.0, not yet used against real servers"
+    The window was rewritten for 2.0. It was tested with the simulated installation (`-Backend Mock`), not yet with
+    a real one. The commands it calls were lab-tested.
 
-*The header always shows whether the window drives the real installer or the Mock backend, and the lab notice.*
+## Start page
 
-| Step | What you decide |
-|---|---|
-| [1 Project & media](project-media.md) | Environment name, where the project file goes, and the installer media |
-| [2 What to install](what-to-install.md) | Primary, Primary + DR or Existing Vault; how many PVWA, CPM, PSM and PSMP servers |
-| [3 Servers](servers.md) | Controller address, Vault address(es), and a hostname and address per component server |
-| [4 Credentials](credentials.md) | Accounts, and either one lab password or individual passwords |
-| [5 Review plan](review.md) | Every server, installer, dependency and security deviation, plus issues to fix |
-| [6 Install](install.md) | Readiness check, Install, and live progress per server |
+Two buttons, **Start a new lab** and **Open a saved lab file**, and the list of installations started from this
+computer. **Open** on an installation shows its page: progress while it runs, what to do when it stopped.
 
-## Options
+## Step 1: Media { #media }
 
-```powershell
-Start-PASeasyInstall                          # the real installer (default, -Backend Live)
-Start-PASeasyInstall -Config .\Lab01.json     # reopen a saved project
-Start-PASeasyInstall -Backend Mock            # the same window with a simulated installation; no server is contacted
-```
+Choose the folder with the CyberArk installer media: the one big ZIP or the separate ZIPs, your `license.xml` and
+the recovery public key. **Look for installers** lists what was found. Nothing is unpacked or changed.
 
-**Reopening a project** fills in the name, the Vault option, the addresses and the component servers from the project
-file. Add the installer media and enter the passwords again: they are never stored in a project file.
+## Step 2: Lab { #lab }
 
-The desktop only calls the [public commands](../commands/index.md) of the PASeasyInstall module. Everything it does
-can also be done from the prompt.
+Pick a ready-made lab:
 
-The **Mock** backend is useful for demos, training and trying the flow without servers. Media, validation and plans are
-real; only the installation is simulated, including a failure (put `fail` in the environment name).
+| Lab | What it installs | Servers |
+|---|---|---|
+| Starter | Vault, PVWA, CPM | 2 |
+| Standard | Starter plus PSM | 3 |
+| Full | Standard plus a DR Vault and PSMP | 5 |
+| Custom | You choose: a new Vault, a Vault with DR or a Vault you already have, and how many of each component | |
 
-## Lab mode password prefill
+In **Custom**, *Install CPM on the PVWA server* saves one server. Give the lab a name; installations are listed
+under it.
 
-In Lab mode, the universal password field can be prefilled from the environment variable `PASEASY_LAB_PASSWORD`.
-This is handy on a lab controller you use every day. Nothing is stored in PASeasyInstall itself.
+## Step 3: Servers { #servers }
 
-```powershell
-$env:PASEASY_LAB_PASSWORD = Read-Host 'Lab password'   # this PowerShell session only
-Start-PASeasyInstall
-```
+One line per server: its computer name and its address. Then the **lab password**: one password that must already
+be the password of `Administrator` on the Windows servers and of `root` on the Linux server, and that becomes the
+password of the new Vault users. With PSMP in the lab you also accept the CyberArk license agreement of its
+installer here.
+
+**Check the servers** signs in to every server and checks the operating system, free disk space and pending
+restarts. It changes nothing and is optional.
+
+## Step 4: Review and install { #install }
+
+The plan in installation order, with the installer file used for each part and a rough duration. Problems are
+listed in plain words and block the **Install the lab** button until they are solved. *Lab shortcuts in use* lists
+what the Lab profile relaxes.
+
+## The installation page { #run }
+
+One line per component with a progress bar and the step that is running. The installation runs in its own process:
+you can close the window and open it again later.
+
+- **Stopped with an error:** the page shows the step and the installer's own error text. Correct the cause on the
+  server, then **Try this step again**, or **Continue without repeating it**. **Save the logs as a ZIP** collects
+  the diagnostics.
+- **Finished:** **Check the lab** asks the Vault whether every component is connected.
+- **Activity log** shows the events of the run, newest first.
+
+The window keeps no password after an installation has started, so it asks for the lab password again when you
+continue an installation or check the lab.
+
+## Advanced options { #advanced }
+
+The switch in the top bar shows what most labs never need:
+
+- other account names and the address of this computer as the Vault sees it;
+- a separate password for every server account and Vault user;
+- up to four instances of a component (two were tested);
+- every single result of the server check;
+- the same installation as PowerShell commands, **Save the lab file**, and **Stop the installation**.
+
+## Simulation
+
+`Start-PASeasyInstall -Backend Mock` runs the same window against a simulated installation that contacts no server.
+A lab whose name contains `fail` stops with an error, so you can try the retry buttons.

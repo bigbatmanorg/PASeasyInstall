@@ -8,7 +8,8 @@ PowerShellVersion='5.1'
 CompatiblePSEditions=@('Desktop')
 FunctionsToExport=@('Get-PASMediaInventory','Get-PASMediaSelection','New-PASLabConfiguration','Test-PASLabConfiguration',
     'Get-PASLabPlan','Get-PASCredentialRequirement','Export-PASLabConfiguration','Import-PASLabConfiguration',
-    'Install-PASLab','Get-PASRun','Get-PASRunEvent','Get-PASStageCatalog','Resume-PASRun','Stop-PASRun','Export-PASDiagnostics')
+    'Install-PASLab','Get-PASRun','Get-PASRunEvent','Get-PASStageCatalog','Resume-PASRun','Stop-PASRun','Export-PASDiagnostics',
+    'Test-PASPreflight','Test-PASHealth')
 CmdletsToExport=@()
 VariablesToExport=@()
 AliasesToExport=@()

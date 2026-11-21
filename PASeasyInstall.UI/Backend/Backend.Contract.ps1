@@ -29,15 +29,18 @@
 #   Get-PASStageCatalog          -Component Vault|DR|PVWA|CPM|PSM|PSMP|AD -> objects: Component, Stage, Order
 #   Resume-PASRun                -RunId [-RetryStep] [-CredentialMap] [-SecretMap]
 #   Stop-PASRun                  -RunId
-#   Export-PASDiagnostics        -RunId -Path
-#
-# The window does not call the last three itself; it shows them as the follow-up commands of a run
-# that stopped. They are part of the contract so that the text it shows stays true.
+#   Export-PASDiagnostics        -RunId -Path [-Force]
+#   Test-PASPreflight            -Configuration [-LabPassword | -CredentialMap]
+#                                -> rows: Server, Address, Check, Passed, Detail
+#   Test-PASHealth               -Configuration | -Path, -VaultCredential [-DRCredential]
+#                                -> Healthy, Message, Issues, Components (User, Address, LoggedOn, Version)
+#   Install-PASLab and Resume-PASRun also take -LabPassword (one password for everything).
 #
 # Backends:
 #   Live  the PASeasyInstall module: the sibling folder of this UI module (source checkout, portable
 #         ZIP), otherwise the installed module of that name.
-#   Mock  Backend/Mock: the same module for everything that only computes, and a simulated run.
+#   Mock  Backend/Mock: the same module for everything that only computes; the run, the server
+#         check and the lab check are simulated.
 
 $script:PASUIBackendContract = [ordered]@{
     'Get-PASMediaInventory' = @('Path')
@@ -50,13 +53,15 @@ $script:PASUIBackendContract = [ordered]@{
     'Get-PASCredentialRequirement' = @('Configuration')
     'Export-PASLabConfiguration' = @('Configuration', 'Path', 'Force')
     'Import-PASLabConfiguration' = @('Path')
-    'Install-PASLab' = @('Configuration', 'CredentialMap', 'SecretMap')
+    'Install-PASLab' = @('Configuration', 'CredentialMap', 'SecretMap', 'LabPassword')
     'Get-PASRun' = @('RunId', 'Tail')
     'Get-PASRunEvent' = @('RunId', 'Tail')
     'Get-PASStageCatalog' = @('Component')
-    'Resume-PASRun' = @('RunId', 'RetryStep', 'CredentialMap', 'SecretMap')
+    'Resume-PASRun' = @('RunId', 'RetryStep', 'CredentialMap', 'SecretMap', 'LabPassword')
     'Stop-PASRun' = @('RunId')
-    'Export-PASDiagnostics' = @('RunId', 'Path')
+    'Export-PASDiagnostics' = @('RunId', 'Path', 'Force')
+    'Test-PASPreflight' = @('Configuration', 'CredentialMap', 'LabPassword')
+    'Test-PASHealth' = @('Path', 'Configuration', 'VaultCredential', 'DRCredential')
 }
 
 function Get-PASUIBackendContract {

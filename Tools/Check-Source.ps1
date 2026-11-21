@@ -6,7 +6,7 @@ exported commands are exactly the files in PASeasyInstall\Public.
 Read-only. Contacts no server, opens no window and needs no vendor media. It checks:
   1. every .ps1, .psm1 and .psd1 under PASeasyInstall, PASeasyInstall.UI, Tools and Tests, and
      Start-PASeasyInstall.ps1, with the PowerShell parser;
-  2. both module manifests (Test-ModuleManifest; the UI manifest needs NativeHTMLKit.UI installed,
+  2. both module manifests (Test-ModuleManifest; the UI manifest needs NativeHTMLKit installed,
      otherwise only its data is read);
   3. FunctionsToExport of PASeasyInstall.psd1 == base names of PASeasyInstall\Public\*.ps1, and every
      public file defines the function it is named after;
@@ -65,11 +65,11 @@ if ((@($uiData.FunctionsToExport) -join ',') -ne 'Start-PASeasyInstall') {
     throw 'PASeasyInstall.UI must export exactly Start-PASeasyInstall'
 }
 $uiTested = $false
-if (Get-Module -ListAvailable -Name NativeHTMLKit.UI) {
+if (Get-Module -ListAvailable -Name NativeHTMLKit) {
     Test-ModuleManifest -Path $uiManifest -ErrorAction Stop | Out-Null
     $uiTested = $true
 } else {
-    Write-Warning 'NativeHTMLKit.UI is not installed: the PASeasyInstall.UI manifest was read but not tested.'
+    Write-Warning 'NativeHTMLKit is not installed: the PASeasyInstall.UI manifest was read but not tested.'
 }
 
 # 3. Export list == Public folder
@@ -97,7 +97,7 @@ $exported = @((Get-Command -Module PASeasyInstall).Name | Sort-Object)
 if (($exported -join ',') -ne ($publicNames -join ',')) {
     throw "The imported module exports: $($exported -join ', '). Expected: $($publicNames -join ', ')"
 }
-if (Get-Module -Name NativeHTMLKit.UI, NativeHTMLKit) {
+if (Get-Module -Name NativeHTMLKit) {
     Write-Warning 'NativeHTMLKit is loaded in this session; the core module itself does not load it.'
 }
 

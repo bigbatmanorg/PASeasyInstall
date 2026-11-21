@@ -2,7 +2,7 @@
 .SYNOPSIS
 Runs the CI test set: Tools\Check-Source.ps1, then every Tests\*.Tests.ps1 except those listed in Tests\ci-exclude.txt.
 .DESCRIPTION
-Used by .github/workflows/ci.yml and release.yml on Windows PowerShell 5.1. Needs Pester 5. NativeHTMLKit.UI is only needed for the UI manifest check and one UI test.
+Used by .github/workflows/ci.yml and release.yml on Windows PowerShell 5.1. Needs Pester 5. NativeHTMLKit is only needed for the UI manifest check and one UI test.
 Writes NUnit XML to -ResultPath and exits 1 when any test fails.
 .EXAMPLE
 .\Tools\Invoke-CITests.ps1 -ResultPath .\test-results.xml

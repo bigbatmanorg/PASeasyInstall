@@ -32,7 +32,7 @@ Usable, but expect rough edges. The wizard should label these "experimental".
 
 | What | State |
 |---|---|
-| Desktop wizard (`Start-PASeasyInstall`) | Code is organised and calls only public commands. Never run against real servers. |
+| Desktop window (`Start-PASeasyInstall`) | Rewritten on 2026-11-21 directly on the NativeHTMLKit SDK: four steps, a page per installation, an Advanced switch. Tested headless with the simulated installation; not yet seen on a real desktop and never run against real servers. |
 | PTA | Not in the module yet. Proven by hand: the 15.2 installer installs on Rocky Linux 9.9 with 8 GB RAM and 4 cores (the documented 16 GB / 8 cores are not enforced). Connecting it to the Vault and PVWA is not done: the installer's REST sign-in only works with SELinux in permissive mode, and the configuration call that worked on 15.0 returns 404 on 15.2. |
 | HTML5 Gateway | Not in the module yet. Investigated only: container or RPM install, 2 cores / 4 GB, can share a server with PSMP in theory. Only the 15.0 package can be tested: the 15.2 package in the media bundle is truncated. |
 

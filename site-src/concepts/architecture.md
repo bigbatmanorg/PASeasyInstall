@@ -2,7 +2,7 @@
 
 ```mermaid
 flowchart LR
-  UI["Desktop<br/>(PASeasyInstall.UI, NativeHTMLKit.UI)"] --> PUB["Public commands<br/>Install-PAS* · lab configuration · runs"]
+  UI["Desktop<br/>(PASeasyInstall.UI, NativeHTMLKit)"] --> PUB["Public commands<br/>Install-PAS* · lab configuration · runs"]
   CLI["PowerShell prompt / scripts"] --> PUB
   PUB --> RUN["Run controller<br/>one detached process per run"]
   RUN --> ENG["Engine<br/>workflow · step attempts · journal · locks"]
