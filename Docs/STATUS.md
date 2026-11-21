@@ -1,7 +1,7 @@
 # PASeasyInstall 2.0: state of things
 
 One page that says what can be used now, what is experimental and what comes later.
-Last updated 2026-11-21 (branch `refactor/simple-core`).
+Last updated 2026-11-21, for release 2.0.0.
 
 PASeasyInstall builds **labs**. Everything below was tested with the **Lab** security profile on
 Windows Server 2022 and Ubuntu 24.04, from a Windows Server 2022 controller.
@@ -29,7 +29,7 @@ Tested on real servers, from clean operating systems, without any manual step.
 
 ## 2. Experimental
 
-Usable, but expect rough edges. The wizard should label these "experimental".
+Usable, but expect rough edges. The desktop shows PTA and HTML5 Gateway as not yet installable.
 
 | What | State |
 |---|---|
@@ -37,27 +37,67 @@ Usable, but expect rough edges. The wizard should label these "experimental".
 | PTA | Not in the module yet. Proven by hand: the 15.2 installer installs on Rocky Linux 9.9 with 8 GB RAM and 4 cores (the documented 16 GB / 8 cores are not enforced). Connecting it to the Vault and PVWA is not done: the installer's REST sign-in only works with SELinux in permissive mode, and the configuration call that worked on 15.0 returns 404 on 15.2. |
 | HTML5 Gateway | Not in the module yet. Investigated only: container or RPM install, 2 cores / 4 GB, can share a server with PSMP in theory. Only the 15.0 package can be tested: the 15.2 package in the media bundle is truncated. |
 
-## 3. Later (roadmap)
+## 3. Next (roadmap after 2.0.0)
 
-Not started, or deliberately postponed.
+Deferred on purpose so that 2.0.0 could ship as a lab installer that works. In the order they are planned.
 
-- **Domain-joined components.** The forest can be created, but joining PVWA/CPM/PSM to it is not tested and
-  `New-PASLabConfiguration` has no option for it.
-- **Secure profile.** WinRM with trusted certificates, no lab deviations. Never run. Needs a certificate
-  authority in the test lab.
-- **PTA and HTML5 Gateway as installable components** of the module and the wizard (see Experimental).
-- **PSMP on RHEL 8, SLES and Ubuntu 22.** The media has the packages; only Ubuntu 24.04 and Rocky 9 were tested.
-- **Three or four instances of a component.** Two of each were tested. More CPMs need a licence with more CPM users.
-- **"Who installs" values.** The vendor installers take a user name and a company name; they stay at the vendor
-  defaults ("Windows User", "My Company"). Install paths can already be changed through component options.
+### 3.1 Secure profile
+
+WinRM with trusted certificates and none of the lab shortcuts. It is the default of the commands, but it has
+never been run. What it needs:
+
+- a certificate authority in the test lab, and server certificates for WinRM and PVWA issued by it;
+- CPM trusting that authority instead of a pinned PVWA certificate; no RDP to the hardened Vault;
+- one full lab run with it, and a profile choice in the desktop (today the window always uses Lab).
+
+### 3.2 Active Directory and domain-joined components
+
+`Install-PASDomainController` creates a forest and was tested. Missing:
+
+- an option of `New-PASLabConfiguration` (and of the desktop) to create or use a domain;
+- joining PVWA, CPM and PSM to it, and a run that proves it;
+- the domain controller must use itself as DNS server before the forest is created (today a manual step).
+
+### 3.3 PTA
+
+Not in the module. Known from the 2026-11-21 tests:
+
+- The 15.2 installer installs on Rocky Linux 9.9 with 8 GB RAM and 4 cores. Its own checks look only at the
+  operating system version, 2 GB of free disk and a few packages; the documented 16 GB / 8 cores are not enforced.
+  Memory use comes from fixed Java heap sizes; the vendor tool `/opt/pta/utility/changeComponentResource.sh`
+  changes them. Ubuntu is not supported.
+- Still to solve: connecting it to the Vault and PVWA without the interactive wizard. The installer's REST
+  sign-in only works with SELinux in permissive mode, and the configuration call that worked on 15.0 returns
+  "not found" on 15.2. Candidates: the PTA Ansible role in the media, or driving the wizard.
+- Then: Vault syslog forwarding to PTA, the PVWA trusted-connection setting, and a health check.
+- The earlier PTA controller code was removed in commit `b3bffad` and can be taken from the history; the
+  Linux recipe (`Recipes/LinuxComponent/Task.sh`) still has its PTA branches.
+
+### 3.4 HTML5 Gateway
+
+Not in the module. Known: a Linux gateway (container on Ubuntu or RHEL-family, or an RPM on RHEL-family with
+Tomcat), 2 cores and 4 GB, it must trust the PVWA and PSM certificates and needs its own; it can share a
+server with PSMP in theory. Only the 15.0 package can be used: the 15.2 package in the media bundle is cut
+short and has to be downloaded again.
+
+### 3.5 Smaller items
+
 - **Retry of a CPM registration that failed late.** The vendor tool has by then created the CPM's Vault user and
   a retry creates another one (`PasswordManager1`), which can hit the licence limit of CPM users. Until fixed:
   delete the leftover Vault user before retrying, or install that CPM again on a clean server.
+- **Desktop:** "Check the servers" and starting an installation block the window while they run; retry and
+  lab check ask for one lab password, so a lab with separate passwords is continued from PowerShell; dropping
+  media on the window was not tried by hand; a Vault on its own does not look for the VC++ runtimes in
+  packages that are in the media folder but not part of the lab.
+- **`Test-PASHealth`** needs the PVWA name to resolve on the controller (DNS or hosts file).
+- **"Who installs" values.** The vendor installers take a user name and a company name; they stay at the vendor
+  defaults ("Windows User", "My Company"). Install paths can already be changed through component options.
+- **More combinations:** three or four instances of a component (two were tested; more CPMs need a licence
+  with more CPM users); PSMP on RHEL 8, SLES and Ubuntu 22 (the media has the packages).
 - **Cluster and distributed Vaults.**
 
 ## Known limitations of what works now
 
-- `Test-PASHealth` needs the PVWA server name to resolve on the controller (DNS or hosts file).
 - The licence decides how many instances can register. The 15.2 NFR licence allows 2 CPM users.
 - The PSM service restart after the last reboot was written after one failure and has not been triggered since.
 - With several PVWAs, `Test-PASHealth` asks the first one of the configuration.

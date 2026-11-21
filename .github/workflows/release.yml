@@ -4,10 +4,19 @@ name: Release
 # both modules to the PowerShell Gallery: PASeasyInstall first, then PASeasyInstall.UI.
 # The tag must match ModuleVersion (+ PSData.Prerelease) in PASeasyInstall/PASeasyInstall.psd1;
 # PASeasyInstall.UI/PASeasyInstall.UI.psd1 must carry the same ModuleVersion.
+#
+# Publishing again: when the Gallery step failed (for example the API key could not push one of the modules),
+# run this workflow by hand with publish_tag set to the tag, for example v2.0.0. It builds that tag again and
+# publishes only the module versions that are not on the Gallery yet. The GitHub release is left as it is.
 on:
   push:
     tags: ['v*']
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      publish_tag:
+        description: 'Tag to publish to the PowerShell Gallery again (only what is missing there), e.g. v2.0.0'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -23,6 +32,8 @@ jobs:
       prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.publish_tag || github.ref }}
 
       - name: Install Pester and NativeHTMLKit
         run: |
@@ -34,6 +45,8 @@ jobs:
 
       - name: Version
         id: version
+        env:
+          PUBLISH_TAG: ${{ inputs.publish_tag }}
         run: |
           $d = Import-PowerShellDataFile .\PASeasyInstall\PASeasyInstall.psd1
           $ui = Import-PowerShellDataFile .\PASeasyInstall.UI\PASeasyInstall.UI.psd1
@@ -42,8 +55,10 @@ jobs:
           }
           $pre = [string]$d['PrivateData']['PSData']['Prerelease']
           $v = [string]$d.ModuleVersion + $(if ($pre) { "-$pre" } else { '' })
-          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$v") {
-            throw "Tag $env:GITHUB_REF_NAME does not match the manifest version v$v"
+          $tag = ''
+          if ($env:PUBLISH_TAG) { $tag = $env:PUBLISH_TAG } elseif ($env:GITHUB_REF_TYPE -eq 'tag') { $tag = $env:GITHUB_REF_NAME }
+          if ($tag -and $tag -ne "v$v") {
+            throw "Tag $tag does not match the manifest version v$v"
           }
           # ASCII: Windows PowerShell's utf8 encoding writes a BOM, which would corrupt the first output name.
           Add-Content -Path $env:GITHUB_OUTPUT -Encoding ascii -Value "version=$v"
@@ -95,7 +110,8 @@ jobs:
 
   publish:
     needs: [build, github-release]
-    if: github.ref_type == 'tag'
+    # After a tag push: when the GitHub release was created. By hand with publish_tag: after the build.
+    if: ${{ always() && needs.build.result == 'success' && ((github.ref_type == 'tag' && needs.github-release.result == 'success') || inputs.publish_tag != '') }}
     runs-on: windows-latest
     environment: powershellgallery
     defaults:
@@ -117,8 +133,18 @@ jobs:
           } else {
             Register-PSResourceRepository -PSGallery -Trusted
           }
+          $version = '${{ needs.build.outputs.version }}'
+          function Publish-IfMissing([string]$Name) {
+            # A version that is already on the Gallery is left alone, so this step can be run again.
+            $found = Find-PSResource -Name $Name -Version $version -Prerelease -Repository PSGallery -ErrorAction SilentlyContinue
+            if ($found) {
+              Write-Host "$Name $version is already on the PowerShell Gallery: skipped."
+              return
+            }
+            Publish-PSResource -Path "dist/gallery/$Name" -Repository PSGallery -ApiKey $env:PSGALLERY_API_KEY -Verbose
+          }
           # The core module first: it has no dependencies.
-          Publish-PSResource -Path dist/gallery/PASeasyInstall -Repository PSGallery -ApiKey $env:PSGALLERY_API_KEY -Verbose
+          Publish-IfMissing 'PASeasyInstall'
           # The desktop module requires NativeHTMLKit; its manifest is validated against the installed copy.
           Install-PSResource -Name NativeHTMLKit -Version 0.1.2 -Repository PSGallery -TrustRepository -Quiet
-          Publish-PSResource -Path dist/gallery/PASeasyInstall.UI -Repository PSGallery -ApiKey $env:PSGALLERY_API_KEY -Verbose
+          Publish-IfMissing 'PASeasyInstall.UI'
