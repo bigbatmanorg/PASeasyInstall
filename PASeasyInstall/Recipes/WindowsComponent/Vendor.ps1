@@ -27,6 +27,45 @@ function Test-PASeasyPinnedRegImportInfo {
 }
 # Vendor scripts use relative modules/configuration paths. Parameter names must be splatted
 # as a dictionary: an array containing '-name' passes strings positionally to a PS script.
+function Get-PASeasyVendorErrorHint {
+    # The last error lines the vendor tools wrote during this stage (lines with a CyberArk error code such as
+    # ITATS937E), so the cause is visible in the run events without opening the logs on the server.
+    param([string]$ScriptPath)
+    try {
+        $root = Split-Path -Parent $ScriptPath
+        while ($root -and (Split-Path -Leaf $root) -ne 'InstallationAutomation' -and (Split-Path -Parent $root)) {
+            $root = Split-Path -Parent $root
+        }
+        if (-not $root -or (Split-Path -Leaf $root) -ne 'InstallationAutomation') {
+            return ''
+        }
+        $since = (Get-Date).AddMinutes(-20)
+        $logs = @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter *.log -ErrorAction SilentlyContinue |
+                Where-Object { $_.LastWriteTime -ge $since -and $_.FullName -notmatch '\\old\\' } |
+                Sort-Object LastWriteTime -Descending)
+        foreach ($log in $logs) {
+            $found = @(Select-String -LiteralPath $log.FullName -Pattern '\b[A-Z]{3,10}[0-9]{3,4}E\b' -CaseSensitive -ErrorAction SilentlyContinue |
+                    Select-Object -Last 5)
+            if (-not $found.Count) {
+                continue
+            }
+            $lines = @()
+            foreach ($match in $found) {
+                $text = ([string]$match.Line -replace '^[0-9:,. /\-]+(ERROR|FATAL|WARN|INFO|DEBUG)\s*-\s*', '').Trim()
+                if ($text.Length -gt 220) {
+                    $text = $text.Substring(0, 220)
+                }
+                if ($lines -notcontains $text) {
+                    $lines += $text
+                }
+            }
+            return (' Vendor errors (' + $log.Name + '): ' + ($lines -join ' | '))
+        }
+    } catch {
+        return ''
+    }
+    return ''
+}
 function Invoke-VendorScript {
     [CmdletBinding()]
     param(
@@ -127,7 +166,7 @@ function Invoke-VendorScript {
         -not $value.PSObject.Properties['isSucceeded'])) { throw 'Vendor result lacks isSucceeded' }
     $success = 0
     if (-not [int]::TryParse([string]$value.isSucceeded, [ref]$success) -or
-        $success -ne 0) { throw "Vendor stage failed: $([IO.Path]::GetFileName($ScriptPath)) (see its protected local log)" }
+        $success -ne 0) { throw ("Vendor stage failed: $([IO.Path]::GetFileName($ScriptPath)) (see its protected local log)" + (Get-PASeasyVendorErrorHint -ScriptPath $ScriptPath)) }
     if ($regInfoCount) { Write-Information -MessageData 'PASeasyInstall INFO: accepted exact informational reg import status from pinned v15 PSM source; independent TLS postconditions remain required' -InformationAction Continue }
     return $value
 }

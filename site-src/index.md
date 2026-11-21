@@ -58,7 +58,7 @@ installed, registered, hardened and verified on its own server.
 | **PVWA** | IIS/.NET prerequisites, installation, a TLS certificate (a self-signed lab certificate in Lab mode), registration, hardening and verification. |
 | **CPM** | Installation, registration (with a pinned PVWA certificate in Lab mode) and hardening. The services run as the dedicated CPM user. |
 | **PSM** | Workgroup (out-of-domain) PSM with the vendor's required reboots handled for you. No plaintext autologon. |
-| **PSMP** | PSM for SSH on Ubuntu 22.04/24.04 or RHEL/Rocky 8/9 (lab-tested on Ubuntu 24.04). The SSH key setup comes from a password you type once. |
+| **PSMP** | PSM for SSH on Ubuntu 22.04/24.04 or RHEL/Rocky 8/9 (lab-tested on Ubuntu 24.04 and Rocky 9). The SSH key setup comes from a password you type once. |
 | **Active Directory** | A new forest with DNS on its own domain controller, for domain-joined lab scenarios. |
 
 Several instances of each component (up to four) and co-located components are chosen in the desktop or in the

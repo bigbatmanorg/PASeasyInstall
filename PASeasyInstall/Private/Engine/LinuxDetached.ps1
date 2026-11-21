@@ -55,9 +55,22 @@ function Initialize-PASLinuxDetached {
     # before staging any secret; never fall back to a plaintext local envelope.
     $probeTarget = @{}
     foreach ($key in $Target.Keys) { $probeTarget[$key] = $Target[$key] }
-    $probeTarget.CommandTimeoutSeconds = 10
-    try { $probe = Invoke-PASRawSSH $probeTarget 'received=$(head -c 9); test "$received" = PAEASY_OK' ([Text.Encoding]::UTF8.GetBytes('PAEASY_OK')) }
-    catch { throw 'Linux secret streaming unavailable; start the controller in its own Windows console. No secret or target attempt was staged.' }
+    $probeTarget.CommandTimeoutSeconds = 20
+    # Tried up to three times: right after an installer changed sshd or the SELinux policy (PSMP on RHEL-family),
+    # the first sign-in can take longer than the time limit.
+    $probe = $null
+    foreach ($try in 1..3) {
+        try {
+            $probe = Invoke-PASRawSSH $probeTarget 'received=$(head -c 9); test "$received" = PAEASY_OK' ([Text.Encoding]::UTF8.GetBytes('PAEASY_OK'))
+            if ($probe.ExitCode -eq 0) {
+                break
+            }
+        } catch {
+            $probe = $null
+        }
+        Start-Sleep -Seconds 5
+    }
+    if (-not $probe) { throw 'Linux secret streaming unavailable; start the controller in its own Windows console. No secret or target attempt was staged.' }
     if ($probe.ExitCode -ne 0) { throw 'Linux secret streaming unavailable; start the controller in its own Windows console' }
     $dir = Get-PASLinuxAttemptRoot $AttemptId
     $secretDir = '/run/paeasyinstall/attempts/' + $AttemptId

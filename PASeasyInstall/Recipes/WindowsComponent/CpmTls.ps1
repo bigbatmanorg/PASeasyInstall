@@ -9,33 +9,48 @@ function Get-PASeasyCpmTrustCertificate {
     if ((Get-Item -LiteralPath $path -Force).Length -gt 1MB) { throw 'CPM public trust certificate exceeds its size bound' }
     if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ine $expected) { throw 'CPM public trust certificate differs from its frozen SHA256' }
     $bytes = [IO.File]::ReadAllBytes($path)
-    if ([Security.Cryptography.X509Certificates.X509Certificate2]::GetCertContentType($bytes) -ne [Security.Cryptography.X509Certificates.X509ContentType]::Cert) { throw 'CPM trust input must be a public certificate, never PFX or a serialized key container' }
-    $cert = [Security.Cryptography.X509Certificates.X509Certificate2]::new($bytes)
+    # One public certificate (DER), or a PKCS#7 bundle of public certificates: one per PVWA of the deployment.
+    $contentType = [Security.Cryptography.X509Certificates.X509Certificate2]::GetCertContentType($bytes)
+    $certificates = @()
+    if ($contentType -eq [Security.Cryptography.X509Certificates.X509ContentType]::Cert) {
+        $certificates = @([Security.Cryptography.X509Certificates.X509Certificate2]::new($bytes))
+    } elseif ($contentType -eq [Security.Cryptography.X509Certificates.X509ContentType]::Pkcs7) {
+        $collection = [Security.Cryptography.X509Certificates.X509Certificate2Collection]::new()
+        $collection.Import($bytes)
+        $certificates = @($collection)
+    } else {
+        throw 'CPM trust input must be a public certificate, never PFX or a serialized key container'
+    }
     try {
-        if ($cert.HasPrivateKey -or
-            $cert.NotBefore.ToUniversalTime() -gt [DateTime]::UtcNow -or
-            $cert.NotAfter.ToUniversalTime() -le [DateTime]::UtcNow.AddMinutes(5)) { throw 'CPM trust certificate is private or outside its validity period' }
-        $ca = @($cert.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.19' })
-        $usage = @($cert.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.15' })
-        $isCA = ($ca.Count -eq 1 -and
-            $ca[0].CertificateAuthority -and
-            $usage.Count -eq 1 -and
-            ($usage[0].KeyUsages -band [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::KeyCertSign))
-        if (-not $isCA -and
-            -not ($Settings.SecurityProfile -eq 'Lab' -and
-                $Settings.AllowPinnedLeafTrust -is [bool] -and
-                $Settings.AllowPinnedLeafTrust)) { throw 'CPM leaf trust requires an explicit Lab AllowPinnedLeafTrust override' }
-        if ($Settings.SecurityProfile -ne 'Lab' -and
-            (-not $isCA -or
-            $cert.Subject -cne $cert.Issuer)) { throw 'Secure CPM trust requires a self-signed CA certificate with Certificate Signing key usage' }
+        if (-not $certificates.Count) { throw 'CPM trust input contains no certificate' }
+        $labLeaf = $false
+        foreach ($cert in $certificates) {
+            if ($cert.HasPrivateKey -or
+                $cert.NotBefore.ToUniversalTime() -gt [DateTime]::UtcNow -or
+                $cert.NotAfter.ToUniversalTime() -le [DateTime]::UtcNow.AddMinutes(5)) { throw 'CPM trust certificate is private or outside its validity period' }
+            $ca = @($cert.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.19' })
+            $usage = @($cert.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.15' })
+            $isCA = ($ca.Count -eq 1 -and
+                $ca[0].CertificateAuthority -and
+                $usage.Count -eq 1 -and
+                ($usage[0].KeyUsages -band [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::KeyCertSign))
+            if (-not $isCA -and
+                -not ($Settings.SecurityProfile -eq 'Lab' -and
+                    $Settings.AllowPinnedLeafTrust -is [bool] -and
+                    $Settings.AllowPinnedLeafTrust)) { throw 'CPM leaf trust requires an explicit Lab AllowPinnedLeafTrust override' }
+            if ($Settings.SecurityProfile -ne 'Lab' -and
+                (-not $isCA -or
+                $cert.Subject -cne $cert.Issuer)) { throw 'Secure CPM trust requires a self-signed CA certificate with Certificate Signing key usage' }
+            if ($Settings.SecurityProfile -eq 'Lab' -and -not $isCA) { $labLeaf = $true }
+        }
         [pscustomobject]@{
-            Certificate = $cert
+            Certificate = $certificates[0]
+            Certificates = $certificates
             SHA256 = $expected.ToUpperInvariant()
-            LabLeaf = ($Settings.SecurityProfile -eq 'Lab' -and
-                -not $isCA)
+            LabLeaf = $labLeaf
         }
     } catch {
-        $cert.Dispose()
+        foreach ($cert in $certificates) { $cert.Dispose() }
         throw
     }
 }
@@ -50,9 +65,11 @@ function Test-PASeasyCpmTls {
         }
     }
     try {
-        $present = Get-Item -LiteralPath ('Cert:\LocalMachine\Root\' + $item.Certificate.Thumbprint) -ErrorAction SilentlyContinue
-        if (-not $present -or
-            [Convert]::ToBase64String($present.RawData) -cne [Convert]::ToBase64String($item.Certificate.RawData)) { throw 'CPM pinned public trust certificate is not present in the machine Root store' }
+        foreach ($cert in $item.Certificates) {
+            $present = Get-Item -LiteralPath ('Cert:\LocalMachine\Root\' + $cert.Thumbprint) -ErrorAction SilentlyContinue
+            if (-not $present -or
+                [Convert]::ToBase64String($present.RawData) -cne [Convert]::ToBase64String($cert.RawData)) { throw 'CPM pinned public trust certificate is not present in the machine Root store' }
+        }
         [pscustomobject]@{
             Passed = $true
             Detail = 'Frozen public certificate is present in target machine trust'
@@ -60,7 +77,9 @@ function Test-PASeasyCpmTls {
             Thumbprint = $item.Certificate.Thumbprint
             LabDeviation = $item.LabLeaf
         }
-    } finally { $item.Certificate.Dispose() }
+    } finally {
+        foreach ($cert in $item.Certificates) { $cert.Dispose() }
+    }
 }
 function Add-PASeasyCpmTrustCertificate {
     param([Security.Cryptography.X509Certificates.X509Certificate2]$Certificate)
@@ -83,7 +102,7 @@ function Invoke-PASeasyCpmTls {
         }
     }
     try {
-        Add-PASeasyCpmTrustCertificate -Certificate $item.Certificate
+        foreach ($cert in $item.Certificates) { Add-PASeasyCpmTrustCertificate -Certificate $cert }
         $evidence = Test-PASeasyCpmTls $Settings
         [pscustomobject]@{
             Changed = $true
@@ -93,5 +112,7 @@ function Invoke-PASeasyCpmTls {
                 Metadata = ($evidence.Detail + '; LabLeaf=' + $item.LabLeaf)
             }
         }
-    } finally { $item.Certificate.Dispose() }
+    } finally {
+        foreach ($cert in $item.Certificates) { $cert.Dispose() }
+    }
 }

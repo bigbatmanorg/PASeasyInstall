@@ -126,9 +126,9 @@ function Get-PASDeploymentPlan {
             $c.activeDirectory.mode -eq 'Create') { $deps += @($ordered | Where-Object { $_.type -eq 'AD' } | ForEach-Object { $_.id }) }
         if ($type -notin @('AD', 'Vault') -and $hasVault) { $deps += @($ordered | Where-Object { $_.type -eq 'Vault' } | ForEach-Object { $_.id }) }
         if ($type -in @('CPM', 'PSM', 'PSMP') -and $firstPvwa.Count) { $deps += @([string]$firstPvwa[0].id) }
-        # A CPM that pins the certificate of a PVWA of this deployment needs that PVWA installed first.
+        # A CPM that pins the PVWA certificates of this deployment needs every PVWA installed first.
         $trustFrom = [string](Get-PASValue (Get-PASValue $entry 'options' $null) 'pvwaTrustFrom' '')
-        if ($trustFrom) { $deps += @($trustFrom) }
+        if ($trustFrom) { $deps += @($ordered | Where-Object { $_.type -eq 'PVWA' } | ForEach-Object { [string]$_.id }) }
         $deployable = if ($type -eq 'AD') { 'ImplementationReadyForQualification' }elseif ($type -in @('Vault', 'DRVault')) { 'MigratedNeedsRequalification' }else { 'RecipePreparedNeedsVendorMediaQualification' }
         [void]$items.Add([pscustomobject]@{
                 Id = [string]$entry.id

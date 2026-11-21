@@ -3,6 +3,4 @@
 # Known failures carried over from before the 2.0 refactor. They were adapted to the new layout by reading
 # only (no PowerShell on the machine that did the refactor) and must be re-checked on a Windows controller.
 ControllerLease.Tests.ps1 | 1 timing-dependent run-lock test (starts real controller processes)
-ControllerBootstrap.Tests.ps1 | 1 test fails in the test proxy ("Supply -Config OR -Configuration"); the same call made directly works (checked on PS 5.1)
 VaultPadrStandby.Tests.ps1 | 1 assertion out of date with the manual PADR policy change
-ComponentTlsPlanning.Tests.ps1 | 1 assertion expects Invoke-PASeasyCpmTls in the packaged CPM task; failed before the refactor too, needs a look

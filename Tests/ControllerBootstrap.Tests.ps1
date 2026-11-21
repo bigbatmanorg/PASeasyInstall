@@ -11,7 +11,11 @@ Describe 'Controller bootstrap failure and process identity' {
         $config.name = 'BootstrapFixture' + [guid]::NewGuid().ToString('N')
         $id = $null
         try {
-            $id = Start-PASDeployment -Configuration $config -DataRoot $dataRoot -Confirm:$false
+            # Called inside the module: the test proxy cannot pass -Confirm:$false through to a private function.
+            $id = & (Get-Module -Name PASeasyInstall) {
+                param($c, $d)
+                Start-PASDeployment -Configuration $c -DataRoot $d -Confirm:$false
+            } $config $dataRoot
             $deadline = [DateTime]::UtcNow.AddSeconds(20)
             do {
                 $run = Get-PASRunRecord -RunId $id -DataRoot $dataRoot

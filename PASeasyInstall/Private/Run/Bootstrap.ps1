@@ -247,6 +247,28 @@ function New-PASManagementSession {
     throw "Cannot open a management session to $HostId ($($h.address)): $($last.Exception.Message)"
 }
 
+function Get-PASPvwaTrustBundle {
+    <# What a CPM of this deployment must trust: the HTTPS certificate of every PVWA in the configuration.
+       With one PVWA it is that certificate file. With several it is a PKCS#7 bundle of all of them
+       (public certificates only), stored in the run directory. Returns @{File;SHA256}. #>
+    param($Configuration, [string]$PvwaId, [hashtable]$Credentials, [string]$Directory)
+    $ids = @($PvwaId)
+    $ids += @($Configuration.components | Where-Object { $_ -and $_.type -eq 'PVWA' -and [string]$_.id -ne $PvwaId } | ForEach-Object { [string]$_.id })
+    $first = Get-PASPvwaCertificate -Configuration $Configuration -PvwaId $PvwaId -Credentials $Credentials -Directory $Directory
+    if ($ids.Count -eq 1) {
+        return $first
+    }
+    $file = Join-Path $Directory 'pvwa-trust-bundle.p7b'
+    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+        $collection = [Security.Cryptography.X509Certificates.X509Certificate2Collection]::new()
+        foreach ($id in $ids) {
+            $one = Get-PASPvwaCertificate -Configuration $Configuration -PvwaId $id -Credentials $Credentials -Directory $Directory
+            [void]$collection.Add([Security.Cryptography.X509Certificates.X509Certificate2]::new([IO.File]::ReadAllBytes([string]$one.File)))
+        }
+        [IO.File]::WriteAllBytes($file, $collection.Export([Security.Cryptography.X509Certificates.X509ContentType]::Pkcs7))
+    }
+    return @{ File = $file; SHA256 = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash }
+}
 function Get-PASPvwaCertificate {
     <# Reads the certificate bound to PVWA's HTTPS port from the PVWA server itself (authenticated),
        stores the public DER in the run directory and returns @{File;SHA256}. #>

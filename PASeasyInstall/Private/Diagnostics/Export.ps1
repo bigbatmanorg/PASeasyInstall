@@ -32,7 +32,8 @@ function Get-PASHealthPvwaBaseUri {
         elseif ($Configuration.hosts.Contains([string]$comp.host)) { $urls += ('https://' + [string]$Configuration.hosts[[string]$comp.host].address + '/PasswordVault') }
     }
     $urls = @($urls | Select-Object -Unique)
-    if ($urls.Count -ne 1) { throw 'Pass -ApiBaseUri: the configuration has no PVWA, or more than one' }
+    if (-not $urls.Count) { throw 'Pass -ApiBaseUri: the configuration has no PVWA' }
+    # With several PVWAs the first one of the configuration is asked: it is also the one the lab CPMs pin.
     $u = $urls[0].TrimEnd('/')
     if ($u -notmatch '/API$') { $u += '/API' }
     return [uri]$u
@@ -263,7 +264,8 @@ namespace PASeasyInstall {
         $result.PvwaLogin = 'Succeeded'
         $headers = @{Authorization = $token }
         $summary = Invoke-RestMethod -Uri ($api + '/ComponentsMonitoringSummary') -Headers $headers -TimeoutSec $TimeoutSeconds -ErrorAction Stop
-        $result.Summary = @($summary.Components | ForEach-Object { [pscustomobject]@{
+        # Component kinds the Vault knows but that are not installed (for example PTA: 0 of 0) are left out.
+        $result.Summary = @($summary.Components | Where-Object { [int]$_.ComponentTotalCount -gt 0 } | ForEach-Object { [pscustomobject]@{
                     Component = [string]$_.ComponentName
                     Connected = [int]$_.ConnectedComponentCount
                     Total = [int]$_.ComponentTotalCount
@@ -288,6 +290,19 @@ namespace PASeasyInstall {
         foreach ($t in @('PVWA', 'CPM')) {
             if ($expectedTypes -contains $t -and
                 -not @($rows | Where-Object { $_.Component -eq $t }).Count) { [void]$issues.Add("No $t is registered in the Vault") }
+        }
+        # Every instance of the configuration must be registered: two PVWAs in the configuration, two in the Vault.
+        foreach ($t in @('PVWA', 'CPM')) {
+            $wanted = @($expectedTypes | Where-Object { $_ -eq $t }).Count
+            $found = @($rows | Where-Object { $_.Component -eq $t }).Count
+            if ($found -and $found -lt $wanted) {
+                [void]$issues.Add("Only $found of $wanted $t instances are registered in the Vault")
+            }
+        }
+        $wantedSessions = @($expectedTypes | Where-Object { $_ -in @('PSM', 'PSMP') }).Count
+        $foundSessions = @($rows | Where-Object { $_.Component -eq 'SessionManagement' }).Count
+        if ($foundSessions -and $foundSessions -lt $wantedSessions) {
+            [void]$issues.Add("Only $foundSessions of $wantedSessions PSM/PSMP instances are registered in the Vault")
         }
         if (($expectedTypes -contains 'PSM' -or
                 $expectedTypes -contains 'PSMP') -and

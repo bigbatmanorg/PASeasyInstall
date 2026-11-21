@@ -25,7 +25,7 @@ function Test-PASHealth {
     .PARAMETER VaultCredential
     Vault Administrator (or another Vault user allowed to read system health).
     .PARAMETER ApiBaseUri
-    PVWA API base, e.g. https://pvwa01/PasswordVault/API. Default: from the configuration.
+    PVWA API base, e.g. https://pvwa01/PasswordVault/API. Default: the first PVWA of the configuration.
     .PARAMETER PvwaCertificateFile
     Public certificate (.cer) of a self-signed lab PVWA to pin. The host name must still match.
     .PARAMETER DRCredential

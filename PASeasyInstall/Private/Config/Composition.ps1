@@ -214,6 +214,7 @@ function New-PASDeploymentConfiguration {
     $usedIds = @{}
     foreach ($r in $script:PASReservedIds) { $usedIds[$r] = $true }
     $firstPvwa = ''
+    $cpmCount = 0
     $count = @{}
     foreach ($inst in @($Instances | Where-Object { $_ })) {
         $type = [string](Get-PASMediaItemValue $inst 'Type')
@@ -265,6 +266,11 @@ function New-PASDeploymentConfiguration {
                 $options.pvwaUrl = 'https://' + $name + '/PasswordVault'
                 if ($lab) { $options.createLabCertificate = $true }
                 if (-not $firstPvwa) { $firstPvwa = $id }
+            }
+            'CPM' {
+                # Every CPM needs its own Vault user: the first is PasswordManager, the next PasswordManager2, ...
+                $cpmCount++
+                if ($cpmCount -gt 1) { $options.cpmUser = "PasswordManager$cpmCount" }
             }
             'PSMP' { if ($AcceptEula) { $options.acceptEula = $true } }
         }

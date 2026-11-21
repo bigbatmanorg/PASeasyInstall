@@ -172,6 +172,7 @@ and SSH (Linux).
 - The desktop is a native window built with [NativeHTMLKit](https://nativehtmlkit.github.io/). There is no
   browser, web server or JavaScript.
 
+What works now, what is experimental and what comes later is in [Docs/STATUS.md](Docs/STATUS.md).
 The mental model, the files a run leaves behind and the known debt are in [Docs/DESIGN.md](Docs/DESIGN.md).
 More in [Concepts](https://bigbatmanorg.github.io/PASeasyInstall/concepts/).
 

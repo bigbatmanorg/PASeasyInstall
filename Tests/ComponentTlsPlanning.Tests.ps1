@@ -32,7 +32,9 @@ Describe 'Component HTTPS planning and frozen public trust' {
             $tls = @($workflow.Steps | Where-Object Id -eq configuretls)[0]
             $tls.Mode | Should -BeExactly 'Detached'
             $tls.Critical | Should -BeTrue
-            $text = [IO.File]::ReadAllText((Join-Path (Split-Path (Split-Path $path)) 'Task.ps1'))
+            # The TLS helpers live in their own files next to Task.ps1, which dot-sources them.
+            $recipeFolder = Split-Path (Split-Path $path)
+            $text = (Get-ChildItem -LiteralPath $recipeFolder -Filter *.ps1 | ForEach-Object { [IO.File]::ReadAllText($_.FullName) }) -join "`n"
             $text | Should -Match 'function Invoke-PASeasyPvwaTls'
             $text | Should -Match 'function Invoke-PASeasyCpmTls'
             if ($part.type -eq 'CPM') {

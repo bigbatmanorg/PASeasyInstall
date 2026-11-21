@@ -415,7 +415,9 @@ function Initialize-PASComponentRun {
         $options = Get-PASValue $Component 'options' $null
         $trustFrom = [string](Get-PASValue $options 'pvwaTrustFrom' '')
         if ($trustFrom) {
-            $trust = Get-PASPvwaCertificate -Configuration $config -PvwaId $trustFrom -Credentials $Run.Credentials -Directory $Run.Directory
+            # The CPM registration checks the HTTPS certificate of every PVWA registered in the Vault, so the
+            # CPM must trust all PVWAs of the deployment: one certificate, or a bundle when there are several.
+            $trust = Get-PASPvwaTrustBundle -Configuration $config -PvwaId $trustFrom -Credentials $Run.Credentials -Directory $Run.Directory
             $options.Remove('pvwaTrustFrom')
             $options.pvwaTrustCertificateFile = [string]$trust.File
             $options.pvwaTrustCertificateSHA256 = [string]$trust.SHA256

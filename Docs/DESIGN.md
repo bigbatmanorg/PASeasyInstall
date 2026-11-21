@@ -110,12 +110,10 @@ target lock `~/.paeasyinstall/locks/<server id>/owner`; `/opt/paeasyinstall/medi
 
 ## Known debt
 
-- **Lab-tested once** (2026-11-21, CyberArk 15.0 single ZIPs, Windows Server 2022, Ubuntu 24.04): every Install-*
-  command, a whole lab with `Install-PASLab`, retry, resume after a killed controller, stop, health, diagnostics.
-  Not tested: the desktop wizard against real servers, the Secure profile, RHEL, 15.2 media, domain-joined
-  components, more than one instance per component.
-- The PSM service restart after the last reboot (`Start-PASeasyPsmStoppedService`) was tried on a server but not
-  yet inside a complete run.
+- What was tested, what is experimental and what comes later is in [STATUS.md](STATUS.md).
+- The PSM service restart after the last reboot (`Start-PASeasyPsmStoppedService`) was tried on a server but
+  never triggered inside a complete run: in the later runs the PSM service stayed up by itself.
+- Retrying a CPM registration that failed late creates a second CPM user in the Vault (see STATUS.md).
 - `Test-PASHealth` needs the PVWA server name to resolve on the controller (DNS or hosts file).
 - Anti-tamper ACL code (owner/ACL checks of staging folders) is duplicated in about 8 places; not consolidated.
 - PTA shell branches still exist in `Recipes/LinuxComponent/Task.sh` and `Verify.sh`, although PTA was removed

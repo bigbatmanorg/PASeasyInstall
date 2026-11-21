@@ -2,10 +2,12 @@
 
 ## 2.0.0
 
-!!! warning "Not yet lab-tested"
-    **2.0.0 has NOT yet been tested end to end in a lab.** The code was restructured and the command set was
-    replaced. The automated tests were adapted to the new layout but have not all been run against it. Treat 2.0.0
-    as untested until this note is removed. The tested release is 1.0.0 (below).
+!!! note "Lab-tested on 2026-11-21, Lab profile only"
+    2.0.0 installed whole labs from clean servers without manual steps, with CyberArk 15.0 and 15.2, on
+    Windows Server 2022, Ubuntu 24.04 and Rocky Linux 9: Vault, DR Vault, PVWA, CPM, PSM and PSMP, also two
+    instances of each component. Not tested: the desktop wizard against real servers, the Secure profile and
+    domain-joined components. The list of what works, what is experimental and what comes later is in
+    `Docs/STATUS.md` of the repository.
 
 2.0.0 keeps what 1.0 installs and how it installs it (the recipes that run on the servers are unchanged). It
 replaces the command set and simplifies the controller.
