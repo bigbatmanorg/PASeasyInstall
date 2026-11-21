@@ -164,6 +164,23 @@ function Test-PASConfiguration {
                 -not(Test-Path -LiteralPath $mediaPath -PathType Leaf)) { $issues.Add("Media ZIP missing for component '$id' ($mediaPath)") }
         }
     }
+    if ($CheckMedia -and $issues.Count -eq 0) {
+        # The Vault needs more than its installer ZIPs. Report every missing file here, before a run is started.
+        try {
+            foreach ($row in @(Get-PASVaultMediaStatus -Configuration $c)) {
+                if ($row.Status -eq 'Ready') {
+                    continue
+                }
+                $hint = ''
+                if ($row.Key -in @('PAKeyGenExe', 'PAKeyGenDll1', 'PAKeyGenDll2', 'VaultTemplate', 'DRTemplate', 'VC2013x86')) {
+                    $hint = ' (it comes from the "Vault Ansible Role" ZIP of the CyberArk media; put that ZIP into the media folder)'
+                }
+                $issues.Add("Vault media file '$($row.Label)' is $($row.Status)$hint")
+            }
+        } catch {
+            $issues.Add("Vault media could not be checked: $($_.Exception.Message)")
+        }
+    }
     # A public join-only run has no CyberArk media or Vault authentication dependency.
     # Keep empty deployments invalid unless they explicitly join eligible Windows hosts.
     $joinOnly = $c.activeDirectory.mode -eq 'Existing' -and @($c.activeDirectory.join).Count -gt 0

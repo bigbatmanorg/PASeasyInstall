@@ -61,6 +61,8 @@ Supply the CyberArk PAM Self-Hosted media yourself. PASeasyInstall recognises it
 - **Or single component ZIPs:** `Server-Rls-v15.0.zip`, `PACLI-Rls-v15.0.zip`, `Disaster Recovery-Rls-v15.0.zip`,
   `Password Vault Web Access-Rls-v15.0.zip`, `Central Policy Manager-Rls-v15.0.zip`,
   `Privileged Session Manager-Rls-v15.0.zip`, `PrivilegedSessionManagerSSHProxy-<distribution>-Intel64-Rls-v15.0.zip`.
+- **For a Vault: `Vault Ansible Role-Rls-v15.0.zip`** (it is inside the full bundle). PASeasyInstall takes PAKeyGen, the
+  response templates and the VC++ 2013 runtime from it. Without it the validation reports the Vault media files as missing.
 - **`license.xml`**, and the **public** recovery key `recpub.key`. A keys ZIP is accepted, but only `recpub.key`
   is ever read from it.
 - **VC++ redistributables** (`VC_redist.x64.exe`, `VC_redist.x86.exe`) in the same folder.

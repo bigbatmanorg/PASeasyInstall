@@ -25,7 +25,8 @@ function Install-PASVault {
     .PARAMETER DRComputerName
     IP address or DNS name of the server that becomes the DR Vault. Leave it out for a Primary only.
     .PARAMETER MediaPath
-    Folder that holds the CyberArk Vault installer media.
+    Folder that holds the CyberArk Vault installer media: the full bundle ZIP, or the Server, PACLI,
+    Disaster Recovery and "Vault Ansible Role" ZIPs, with license.xml, recpub.key and the VC++ runtimes.
     .PARAMETER ControllerAddress
     IPv4 address of this controller as the Vault servers see it. The hardened Vault firewall is opened
     for it. Default: the local address that routes to -ComputerName.

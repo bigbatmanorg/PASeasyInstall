@@ -594,6 +594,25 @@ function New-PASDomainJoinWorkflow {
     return @{Workflow = $wfpath; Inventory = $invpath; Target = $id }
 }
 
+function Get-PASVaultMediaStatus {
+    # The files a Vault installation needs besides the installer ZIPs: license, public recovery key, PAKeyGen,
+    # the response templates and the VC++ runtimes. Returns one row per file (Key, Label, Status, Path).
+    # A row whose Status is not 'Ready' blocks the installation. Returns nothing when no Vault is installed.
+    param([hashtable]$Configuration)
+    if (-not @($Configuration.components | Where-Object { $_ -and $_.type -eq 'Vault' }).Count) {
+        return @()
+    }
+    $mode = 'Primary'
+    if (@($Configuration.components | Where-Object { $_ -and $_.type -eq 'DRVault' }).Count) {
+        $mode = 'PrimaryAndDR'
+    }
+    $profile = New-PASProfile -Mode $mode -PrimaryIP ([string]$Configuration.vault.address) `
+        -ControllerIP ([string]$Configuration.controllerAddress) -MediaPath ([string]$Configuration.mediaRoot) `
+        -MediaOverrides $Configuration.media
+    $profile = Resolve-PASMediaProfile -Profile $profile
+    return @(Find-PASMedia -Path $profile.MediaPath -Mode $mode -Overrides $profile.MediaOverrides)
+}
+
 function Get-PASFrozenMedia {
     param([hashtable]$Configuration)
     $files = @()
@@ -612,14 +631,11 @@ function Get-PASFrozenMedia {
             }
         }
     }
-    if (@($Configuration.components | Where-Object { $_.type -eq 'Vault' }).Count) {
-        $mode = if (@($Configuration.components | Where-Object { $_.type -eq 'DRVault' }).Count) { 'PrimaryAndDR' }else { 'Primary' }
-        $profile = New-PASProfile -Mode $mode -PrimaryIP ([string]$Configuration.vault.address) -ControllerIP ([string]$Configuration.controllerAddress) -MediaPath ([string]$Configuration.mediaRoot) -MediaOverrides $Configuration.media
-        $profile = Resolve-PASMediaProfile -Profile $profile
-        foreach ($entry in @(Find-PASMedia -Path $profile.MediaPath -Mode $mode -Overrides $profile.MediaOverrides)) {
-            if ($entry.Status -ne 'Ready') { throw "Vault media $($entry.Key): $($entry.Status)" }
-            $files += [IO.Path]::GetFullPath($entry.Path)
+    foreach ($entry in @(Get-PASVaultMediaStatus -Configuration $Configuration)) {
+        if ($entry.Status -ne 'Ready') {
+            throw "Vault media $($entry.Key): $($entry.Status)"
         }
+        $files += [IO.Path]::GetFullPath($entry.Path)
     }
     foreach ($path in @($files | Sort-Object -Unique)) {
         $before = Get-Item -LiteralPath $path -ErrorAction Stop

@@ -19,6 +19,9 @@ Vault, DR, PVWA, CPM, PSM and the optional domain controller run on **Windows Se
     [Lab and Secure profiles](../concepts/profiles.md).
 
 - Vault and DR servers must **not** be domain-joined.
+- The server that becomes the **domain controller** must use itself as DNS server before the installation:
+  `Set-DnsClientServerAddress -InterfaceAlias Ethernet -ServerAddresses <its own address>`. The forest's DNS zone lives on it.
+
 
 ## PSMP (Linux)
 

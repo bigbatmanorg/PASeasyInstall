@@ -65,7 +65,13 @@ function Wait-PASRun {
                 if (-not $Quiet) {
                     Write-Host ("Run $($run.RunId) ended: $($run.Status). $($run.Message)")
                     if ($run.Status -notin @('Succeeded', 'Abandoned')) {
-                        Write-Host "Look at the failed step (Get-PASRunEvent -RunId $($run.RunId) -Failed), correct the cause, then continue with Resume-PASRun -RunId $($run.RunId)."
+                        $resume = "Resume-PASRun -RunId $($run.RunId)"
+                        # A failed step is never repeated on its own. Name it, so the hint can be copied as it is.
+                        $failedStep = @($run.Events | Where-Object { [string]$_.Status -in @('Failed', 'Unknown') -and [string]$_.Stage }) | Select-Object -Last 1
+                        if ($failedStep) {
+                            $resume += " -RetryStep $($failedStep.Component):$($failedStep.Stage)"
+                        }
+                        Write-Host "Look at the failed step (Get-PASRunEvent -RunId $($run.RunId) -Failed), correct the cause, then continue with: $resume"
                     }
                 }
                 return $run

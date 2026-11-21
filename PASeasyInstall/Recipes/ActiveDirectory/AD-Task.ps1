@@ -174,7 +174,12 @@ if ($Stage -eq 'Preflight') {
     if ($Settings.Contains('Address') -and
         [string]$Settings.Address -notin @($addresses.IPAddress)) { throw 'AD target address does not match approved static IPv4 identity' }
     $dns = @((Get-DnsClientServerAddress -InterfaceIndex $network.InterfaceIndex -AddressFamily IPv4).ServerAddresses)
-    if (-not @($dns | Where-Object { $_ -eq '127.0.0.1' -or $_ -in @($addresses.IPAddress) }).Count) { throw 'New AD DNS must resolve through the selected local DC address' }
+    if (-not @($dns | Where-Object { $_ -eq '127.0.0.1' -or $_ -in @($addresses.IPAddress) }).Count) {
+        $own = @($addresses.IPAddress)[0]
+        throw ("The DNS client of this server must point at the server itself before a new forest is created (current DNS servers: " +
+            "$($dns -join ', ')). Run on the server: Set-DnsClientServerAddress -InterfaceIndex $($network.InterfaceIndex) " +
+            "-ServerAddresses $own   Then: Resume-PASRun -RunId <id> -RetryStep ad-prerequisites")
+    }
     $featureChanged = $false
     if (-not(Get-Command Test-ADDSForestInstallation -ErrorAction SilentlyContinue)) {
         Install-WindowsFeature AD-Domain-Services -IncludeManagementTools -ErrorAction Stop | Out-Null
