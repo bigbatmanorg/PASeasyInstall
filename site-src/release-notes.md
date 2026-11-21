@@ -5,9 +5,9 @@
 !!! note "Lab-tested on 2026-11-21, Lab profile only"
     2.0.0 installed whole labs from clean servers without manual steps, with CyberArk 15.0 and 15.2, on
     Windows Server 2022, Ubuntu 24.04 and Rocky Linux 9: Vault, DR Vault, PVWA, CPM, PSM and PSMP, also two
-    instances of each component. Not tested: the desktop wizard against real servers, the Secure profile and
-    domain-joined components. The list of what works, what is experimental and what comes later is in
-    `Docs/STATUS.md` of the repository.
+    instances of each component. The desktop installed a Full lab (15.2) on real servers, including a stop with
+    an error and *Try again*. Not tested: the Secure profile and domain-joined components. What works, what is
+    experimental and what comes later is in `Docs/STATUS.md` of the repository.
 
 2.0.0 keeps what 1.0 installs and how it installs it (the recipes that run on the servers are unchanged). It
 replaces the command set and simplifies the controller.
@@ -18,7 +18,6 @@ replaces the command set and simplifies the controller.
   installation with progress, retry and a lab check, an **Advanced** switch, a compact window with a dim colour scheme.
 - **VC++ runtimes** for the Vault are taken from the CPM, PVWA or PSM package; they no longer have to be downloaded
   when one of those is part of the lab.
-
 - **One command per component:** `Install-PASVault`, `Install-PASPVWA`, `Install-PASCPM`, `Install-PASPSM`,
   `Install-PASPSMP`, `Install-PASDomainController`. `Install-PASLab` installs a whole lab from one configuration.
 - **Run commands:** `Get-PASRun`, `Get-PASRunEvent`, `Wait-PASRun`, `Resume-PASRun`, `Stop-PASRun`.
