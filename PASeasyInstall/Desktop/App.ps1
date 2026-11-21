@@ -148,16 +148,83 @@ function Show-PASUIConfirm {
     Show-NativeHTMLKitHtmlDialog -Document $doc -Element 'dlg-confirm'
 }
 
-function Show-PASUIPasswordPrompt {
-    # Asks for the lab password. $Action runs with the password as its one argument.
-    param([string]$Title, [string]$Text, [scriptblock]$Action)
+function Request-PASUIAccounts {
+    # Runs $Action with the accounts and Vault passwords of the installation on screen:
+    # @{ Credentials = @{ key = PSCredential }; Secrets = @{ key = SecureString } }.
+    # They are still in memory when the installation was started from this window. Otherwise a dialog
+    # asks for them: one password per entry of $Requirements (Kind, Key, User, Label).
+    param([string]$Title, [string]$Text, [object[]]$Requirements, [scriptblock]$Action)
+    if ($S.Kept -and [string]$S.Kept.RunId -eq [string]$S.RunId) {
+        & $Action $S.Kept
+        return
+    }
+    if (-not @($Requirements).Count) {
+        throw "This window does not know the accounts of this installation any more. Continue it from PowerShell: Resume-PASRun -RunId $($S.RunId)"
+    }
     $S.Pending = $Action
-    $null = Set-NativeHTMLKitDocumentValue -Document $doc -Element 'dlg-password-value' -Value ''
+    $S.DialogRequirements = @($Requirements)
+    $fields = New-Object System.Text.StringBuilder
+    $index = 0
+    foreach ($requirement in @($Requirements)) {
+        [void]$fields.Append("<div class=`"field`"><label for=`"cred-$index`">" + (ConvertTo-PASUIText $requirement.Label) + "</label><input type=`"password`" id=`"cred-$index`" autocomplete=`"off`"></div>")
+        $index++
+    }
     $null = Invoke-NativeHTMLKitBatch -Document $doc -Operations @(
-        @{ op = 'set_text'; element = 'dlg-password-title'; text = $Title }
-        @{ op = 'set_text'; element = 'dlg-password-text'; text = $Text }
+        @{ op = 'set_text'; element = 'dlg-creds-title'; text = $Title }
+        @{ op = 'set_text'; element = 'dlg-creds-text'; text = $Text }
     )
-    Show-NativeHTMLKitHtmlDialog -Document $doc -Element 'dlg-password'
+    Set-PASUIHtml 'dlg-creds-fields' $fields.ToString()
+    Show-NativeHTMLKitHtmlDialog -Document $doc -Element 'dlg-creds'
+}
+
+function Submit-PASUIAccounts {
+    # The accounts dialog was confirmed: read the passwords, close it and run what was waiting.
+    $action = $S.Pending
+    $requirements = @($S.DialogRequirements)
+    $S.Pending = $null
+    $S.DialogRequirements = @()
+    $credentials = @{}
+    $secrets = @{}
+    $index = 0
+    $missing = $false
+    foreach ($requirement in $requirements) {
+        $value = [string](Get-NativeHTMLKitValue -Document $doc -Element "cred-$index")
+        $index++
+        if (-not $value) {
+            $missing = $true
+            continue
+        }
+        $secure = ConvertTo-PASUISecure $value
+        if ([string]$requirement.Kind -eq 'Secret') {
+            $secrets[[string]$requirement.Key] = $secure
+        } else {
+            $credentials[[string]$requirement.Key] = New-Object pscredential ([string]$requirement.User, $secure)
+        }
+    }
+    Set-PASUIHtml 'dlg-creds-fields' ''
+    Close-PASUIDialog 'dlg-creds'
+    if ($missing) {
+        throw 'Every password is needed. Nothing was done.'
+    }
+    if ($action) {
+        & $action @{ RunId = [string]$S.RunId; Credentials = $credentials; Secrets = $secrets }
+    }
+}
+
+function Get-PASUIRunRequirements {
+    # What an installation opened from the list needs to continue: read from the configuration stored with it.
+    # -Only limits the list to these keys.
+    param([string[]]$Only = @())
+    $requirements = @()
+    try {
+        $requirements = @(Get-PASCredentialRequirement -Path (Join-Path ([string]$S.Run.RunDirectory) 'config.json'))
+    } catch {
+        $requirements = @()
+    }
+    if ($Only.Count) {
+        $requirements = @($requirements | Where-Object { [string]$_.Key -in $Only })
+    }
+    return @($requirements)
 }
 
 function Close-PASUIDialog {
@@ -177,32 +244,30 @@ function ConvertTo-PASUISecure {
     return $secure
 }
 
-function Get-PASUIPasswordArguments {
-    # The password parameters for Install-PASLab, Test-PASPreflight and Resume-PASRun:
-    # -LabPassword, or with separate passwords -CredentialMap (and -SecretMap when asked for).
-    param([switch]$WithSecrets)
-    if (-not $S.Separate) {
-        return @{ LabPassword = (ConvertTo-PASUISecure ([string]$S.LabPassword)) }
-    }
+function Get-PASUIFormAccounts {
+    # The accounts and Vault passwords typed on the Servers step, as Install-PASLab and Test-PASPreflight want them:
+    # @{ Credentials = @{ key = PSCredential }; Secrets = @{ key = SecureString } }. Needs the plan ($S.Requirements).
     $credentials = @{}
     $secrets = @{}
+    $slots = @(Get-PASUIServerSlots $S)
     foreach ($requirement in @($S.Requirements)) {
         $key = [string]$requirement.Key
-        if (-not $S.Passwords.ContainsKey($key) -or -not [string]$S.Passwords[$key]) {
+        if ([string]$requirement.Kind -eq 'Secret') {
+            if (-not $S.Secrets.ContainsKey($key) -or -not [string]$S.Secrets[$key]) {
+                throw "Enter: $($requirement.Label)"
+            }
+            $secrets[$key] = ConvertTo-PASUISecure ([string]$S.Secrets[$key])
+            continue
+        }
+        # A server account: the form line with the address of that server.
+        $address = [string]$S.Configuration.hosts[[string]$requirement.HostId].address
+        $slot = @($slots | Where-Object { (Get-PASUISlotValue $S $_ 'Address') -eq $address }) | Select-Object -First 1
+        if (-not $slot -or -not (Get-PASUISlotValue $S $slot 'Password')) {
             throw "Enter the password for: $($requirement.Label)"
         }
-        $secure = ConvertTo-PASUISecure ([string]$S.Passwords[$key])
-        if ([string]$requirement.Kind -eq 'Secret') {
-            $secrets[$key] = $secure
-        } else {
-            $credentials[$key] = New-Object pscredential ([string]$requirement.User, $secure)
-        }
+        $credentials[$key] = New-Object pscredential ((Get-PASUISlotValue $S $slot 'User'), (ConvertTo-PASUISecure (Get-PASUISlotValue $S $slot 'Password')))
     }
-    $arguments = @{ CredentialMap = $credentials }
-    if ($WithSecrets) {
-        $arguments.SecretMap = $secrets
-    }
-    return $arguments
+    return @{ Credentials = $credentials; Secrets = $secrets }
 }
 
 function Update-PASUIPlan {
@@ -217,17 +282,19 @@ function Update-PASUIPlan {
             VaultMode = [string]$S.VaultMode
             Instances = @(Get-PASUIInstances $S)
             ControllerAddress = ([string]$S.Controller).Trim()
-            Username = ([string]$S.WinUser).Trim()
-            LinuxUsername = ([string]$S.LinuxUser).Trim()
+            Username = 'Administrator'
+            LinuxUsername = 'root'
             Media = $S.MediaSelection
             SecurityProfile = 'Lab'
         }
         foreach ($slot in Get-PASUIServerSlots $S) {
             if ($slot.Key -eq 'vault') {
                 $arguments.PrimaryAddress = Get-PASUISlotValue $S $slot 'Address'
+                $arguments.PrimaryUsername = Get-PASUISlotValue $S $slot 'User'
             }
             if ($slot.Key -eq 'dr') {
                 $arguments.DRAddress = Get-PASUISlotValue $S $slot 'Address'
+                $arguments.DRUsername = Get-PASUISlotValue $S $slot 'User'
             }
         }
         if ($S.VaultMode -eq 'Existing') {
@@ -273,33 +340,78 @@ function Invoke-PASUIMediaScan {
     }
 }
 
-function Invoke-PASUIPreflight {
-    if (-not (Show-PASUIIssues 'servers')) {
-        return
-    }
+function Start-PASUIServerCheck {
+    # "Next" on the Servers step. First, within seconds: does every server answer at all? Then, in the
+    # background so that the window stays usable: sign in to each one and check that it is ready.
+    # Only when everything passed the review step is shown.
     Update-PASUIPlan
     if (-not $S.Check.Valid) {
         Set-PASUIHtml 'servers-issues' (Get-PASUIIssueBoxHtml @($S.Check.Issues) 'The plan has problems')
         return
     }
-    if ($S.Separate) {
-        throw 'With separate passwords, check the servers from PowerShell: Test-PASPreflight -Path <lab file>'
-    }
-    Set-PASUINotice 'busy' 'Checking the servers. This can take a minute; the window answers again when it is done.'
-    $arguments = Get-PASUIPasswordArguments
-    $S.Preflight = @(Test-PASPreflight -Configuration $S.Configuration @arguments)
+    $accounts = Get-PASUIFormAccounts
+    Set-PASUINotice 'busy' 'Looking for the servers...'
+    $S.Preflight = @(Test-PASPreflight -Configuration $S.Configuration -ConnectivityOnly)
     Set-PASUINotice
+    if (@($S.Preflight | Where-Object { $_.Passed -is [bool] -and -not $_.Passed }).Count) {
+        Set-PASUIHtml 'preflight-result' (Get-PASUIPreflightHtml $S)
+        return
+    }
+    $S.Checking = $true
     Set-PASUIHtml 'preflight-result' (Get-PASUIPreflightHtml $S)
+    Set-PASUIHtml 'bar' (Get-PASUIBarHtml $S)
+    $contract = Join-Path (Join-Path $PSScriptRoot 'Backend') 'Backend.Contract.ps1'
+    try {
+        $null = Start-NativeHTMLKitTask -Application $app -ArgumentList @($contract, [string]$S.Backend, $S.Configuration, $accounts.Credentials) -ScriptBlock {
+            param([string]$ContractPath, [string]$Kind, $Configuration, [hashtable]$CredentialMap)
+            . $ContractPath
+            $null = Import-PASUIBackend -Kind $Kind
+            Test-PASPreflight -Configuration $Configuration -CredentialMap $CredentialMap
+        } -OnCompleted {
+            param($result)
+            Invoke-PASUISafe { Complete-PASUIServerCheck @($result) }
+        } -OnFailed {
+            param($failure)
+            $S.Checking = $false
+            Set-PASUINotice 'error' ('The servers could not be checked: ' + [string]$failure.Message)
+            if ($S.Screen -eq 'servers') {
+                Set-PASUIHtml 'preflight-result' (Get-PASUIPreflightHtml $S)
+                Set-PASUIHtml 'bar' (Get-PASUIBarHtml $S)
+            }
+        }
+    } catch {
+        # No background task could be started: check here. The window does not react until it is done.
+        Complete-PASUIServerCheck @(Test-PASPreflight -Configuration $S.Configuration -CredentialMap $accounts.Credentials)
+    }
+}
+
+function Complete-PASUIServerCheck {
+    param([object[]]$Rows)
+    $S.Checking = $false
+    $S.Preflight = @($Rows)
+    if ($S.Screen -ne 'servers') {
+        return
+    }
+    if (@($Rows | Where-Object { $_.Passed -is [bool] -and -not $_.Passed }).Count) {
+        Set-PASUIHtml 'preflight-result' (Get-PASUIPreflightHtml $S)
+        Set-PASUIHtml 'bar' (Get-PASUIBarHtml $S)
+        return
+    }
+    Show-PASUIScreen 'review'
 }
 
 function Start-PASUIInstall {
-    $arguments = Get-PASUIPasswordArguments -WithSecrets
+    $accounts = Get-PASUIFormAccounts
     Set-PASUINotice 'busy' 'Starting the installation...'
-    $id = Install-PASLab -Configuration $S.Configuration @arguments -Confirm:$false
-    # The installer process has the passwords now. The window keeps none.
-    $arguments = $null
-    $S.LabPassword = ''
-    $S.Passwords = @{}
+    $id = Install-PASLab -Configuration $S.Configuration -CredentialMap $accounts.Credentials -SecretMap $accounts.Secrets -Confirm:$false
+    # The installer process has the passwords now. The window keeps them only as protected objects, for
+    # "Try again" and "Check the lab", until it is closed. What was typed is forgotten.
+    $S.Kept = @{ RunId = [string]$id; Credentials = $accounts.Credentials; Secrets = $accounts.Secrets }
+    foreach ($key in @($S.Slots.Keys)) {
+        $S.Slots[$key].Remove('Password')
+    }
+    $S.Secrets = @{}
+    $S.Preflight = $null
     $S.RunPlan = @{}
     foreach ($item in @($S.Plan.Items)) {
         $S.RunPlan[[string]$item.Id] = @{ Address = [string]$item.Address }
@@ -379,8 +491,8 @@ function Start-PASUIPoll {
 }
 
 function Resume-PASUIRun {
-    param([string]$Password, [string]$RetryStep = '')
-    $arguments = @{ RunId = [string]$S.RunId; LabPassword = (ConvertTo-PASUISecure $Password) }
+    param([hashtable]$Accounts, [string]$RetryStep = '')
+    $arguments = @{ RunId = [string]$S.RunId; CredentialMap = $Accounts.Credentials; SecretMap = $Accounts.Secrets }
     if ($RetryStep) {
         $arguments.RetryStep = @($RetryStep)
     }
@@ -395,16 +507,18 @@ function Resume-PASUIRun {
 }
 
 function Invoke-PASUIHealth {
-    param([string]$Password)
-    $credential = New-Object pscredential ('Administrator', (ConvertTo-PASUISecure $Password))
-    $arguments = @{ VaultCredential = $credential }
+    param([hashtable]$Accounts)
+    if (-not $Accounts.Secrets.ContainsKey('VaultAdmin')) {
+        throw 'The lab check needs the password of the Vault user Administrator.'
+    }
+    $arguments = @{ VaultCredential = (New-Object pscredential ('Administrator', $Accounts.Secrets['VaultAdmin'])) }
     if ($S.Configuration) {
         $arguments.Configuration = $S.Configuration
     } else {
         $arguments.Path = Join-Path ([string]$S.Run.RunDirectory) 'config.json'
     }
-    if (@($S.Run.Components | Where-Object { [string]$_.Type -eq 'DRVault' }).Count) {
-        $arguments.DRCredential = $credential
+    if ($Accounts.Credentials.ContainsKey('dr01')) {
+        $arguments.DRCredential = $Accounts.Credentials['dr01']
     }
     Set-PASUINotice 'busy' 'Checking the lab...'
     try {
@@ -445,12 +559,15 @@ function Import-PASUILabFile {
     $numbers = @{}
     foreach ($item in @($plan.Items)) {
         $type = [string]$item.Type
+        $account = [string]$configuration['hosts'][[string]$item.Host]['user']
         if ($type -eq 'Vault') {
             Set-PASUISlotValue $S 'vault' 'Address' ([string]$item.Address)
+            Set-PASUISlotValue $S 'vault' 'User' $account
             continue
         }
         if ($type -eq 'DRVault') {
             Set-PASUISlotValue $S 'dr' 'Address' ([string]$item.Address)
+            Set-PASUISlotValue $S 'dr' 'User' $account
             continue
         }
         if ($type -eq 'CPM' -and $S.Colocate -and $pvwaAddresses -contains [string]$item.Address) {
@@ -460,6 +577,7 @@ function Import-PASUILabFile {
         $key = $type.ToLowerInvariant() + $numbers[$type]
         Set-PASUISlotValue $S $key 'Address' ([string]$item.Address)
         Set-PASUISlotValue $S $key 'Name' ([string]$item.Name)
+        Set-PASUISlotValue $S $key 'User' $account
     }
     if ($S.VaultMode -eq 'Existing') {
         $S.ExistingVault = [string]$configuration['vault']['address']
@@ -551,10 +669,6 @@ function Invoke-PASUIClick {
             Show-PASUIScreen 'lab'
             return
         }
-        '^act-preflight$' {
-            Invoke-PASUIPreflight
-            return
-        }
         '^act-save$' {
             $pick = Show-NativeHTMLKitFileDialog -Window $window -Kind SaveFile -Title 'Save the lab file' -FileName ("PASeasyInstall-$($S.LabName).json") -Directory $S.StartDirectory -Filters @(@{ name = 'Lab files'; extensions = @('json') })
             if ($pick.cancelled) {
@@ -565,9 +679,7 @@ function Invoke-PASUIClick {
             return
         }
         '^act-install$' {
-            if ($S.Separate) {
-                $null = Get-PASUIPasswordArguments -WithSecrets
-            }
+            $null = Get-PASUIFormAccounts
             $count = @(Get-PASUIServerSlots $S).Count
             Show-PASUIConfirm 'Install the lab?' "This installs CyberArk on $count server(s) and hardens the Vault server. It cannot be undone from here." 'Install' { Start-PASUIInstall }
             return
@@ -581,15 +693,15 @@ function Invoke-PASUIClick {
         '^act-retry$' {
             $failure = Get-PASUIFailure $S.Run
             $step = [string]$failure.RetryStep
-            Show-PASUIPasswordPrompt 'Try this step again' 'Enter the lab password to continue the installation.' { param($password) Resume-PASUIRun -Password $password -RetryStep $step }.GetNewClosure()
+            Request-PASUIAccounts 'Try this step again' 'The accounts are needed again to continue the installation.' (Get-PASUIRunRequirements) { param($accounts) Resume-PASUIRun -Accounts $accounts -RetryStep $step }.GetNewClosure()
             return
         }
         '^act-resume$' {
-            Show-PASUIPasswordPrompt 'Continue the installation' 'Enter the lab password to continue the installation.' { param($password) Resume-PASUIRun -Password $password }
+            Request-PASUIAccounts 'Continue the installation' 'The accounts are needed again to continue the installation.' (Get-PASUIRunRequirements) { param($accounts) Resume-PASUIRun -Accounts $accounts }
             return
         }
         '^act-health$' {
-            Show-PASUIPasswordPrompt 'Check the lab' 'Enter the password of the Vault user Administrator.' { param($password) Invoke-PASUIHealth -Password $password }
+            Request-PASUIAccounts 'Check the lab' 'The lab check signs in to the Vault through PVWA.' (Get-PASUIRunRequirements -Only @('VaultAdmin', 'dr01')) { param($accounts) Invoke-PASUIHealth -Accounts $accounts }
             return
         }
         '^act-diag$' {
@@ -624,9 +736,11 @@ function Invoke-PASUIClick {
             Close-PASUIDialog 'dlg-confirm'
             return
         }
-        '^dlg-password-no$' {
+        '^dlg-creds-no$' {
             $S.Pending = $null
-            Close-PASUIDialog 'dlg-password'
+            $S.DialogRequirements = @()
+            Set-PASUIHtml 'dlg-creds-fields' ''
+            Close-PASUIDialog 'dlg-creds'
             return
         }
     }
@@ -649,11 +763,11 @@ function Invoke-PASUINext {
             }
         }
         'servers' {
+            if ($S.Checking) {
+                return
+            }
             if (Show-PASUIIssues 'servers') {
-                Set-PASUINotice 'busy' 'Preparing the plan...'
-                Update-PASUIPlan
-                Set-PASUINotice
-                Show-PASUIScreen 'review'
+                Start-PASUIServerCheck
             }
         }
     }
@@ -670,21 +784,14 @@ function Set-PASUIField {
         }
         '^f-labname$' { $S.LabName = $Value; return }
         '^f-existing$' { $S.ExistingVault = $Value; return }
-        '^f-labpassword$' { $S.LabPassword = $Value; return }
-        '^f-winuser$' { $S.WinUser = $Value; return }
-        '^f-linuxuser$' { $S.LinuxUser = $Value; return }
+        '^sec-(VaultAdmin|VaultMaster|DRPassword)$' { $S.Secrets[$Matches[1]] = $Value; return }
         '^f-controller$' { $S.Controller = $Value; return }
         '^srv-([a-z0-9]+)-name$' { Set-PASUISlotValue $S $Matches[1] 'Name' $Value; return }
+        '^srv-([a-z0-9]+)-user$' { Set-PASUISlotValue $S $Matches[1] 'User' $Value; return }
+        '^srv-([a-z0-9]+)-pass$' { Set-PASUISlotValue $S $Matches[1] 'Password' $Value; return }
         '^srv-([a-z0-9]+)-addr$' {
             Set-PASUISlotValue $S $Matches[1] 'Address' $Value
             $S.Preflight = $null
-            return
-        }
-        '^pw-(\d+)$' {
-            $requirement = @($S.Requirements)[[int]$Matches[1]]
-            if ($requirement) {
-                $S.Passwords[[string]$requirement.Key] = $Value
-            }
             return
         }
     }
@@ -710,10 +817,6 @@ function Set-PASUIToggle {
         }
         'f-eula' {
             $S.AcceptEula = $Checked
-        }
-        'f-separate' {
-            $S.Separate = $Checked
-            Show-PASUIScreen 'servers'
         }
     }
 }
@@ -742,7 +845,7 @@ try {
     $null = Register-NativeHTMLKitDocumentEvent -Document $doc -Type change -Callback {
         param($evt)
         $id = [string]$evt.element
-        if ($id -in @('opt-advanced', 'f-colocate', 'f-eula', 'f-separate')) {
+        if ($id -in @('opt-advanced', 'f-colocate', 'f-eula')) {
             Invoke-PASUISafe { Set-PASUIToggle $id ([bool]$evt.checked) }
         }
     }
@@ -764,15 +867,8 @@ try {
             Invoke-PASUIMediaScan
         }
     }
-    $null = Register-NativeHTMLKitDocumentEvent -Document $doc -Type submit -Element 'dlg-password-form' -Callback {
-        $password = [string](Get-NativeHTMLKitValue -Document $doc -Element 'dlg-password-value')
-        $action = $S.Pending
-        $S.Pending = $null
-        $null = Set-NativeHTMLKitDocumentValue -Document $doc -Element 'dlg-password-value' -Value ''
-        Close-PASUIDialog 'dlg-password'
-        if ($action -and $password) {
-            Invoke-PASUISafe { & $action $password }
-        }
+    $null = Register-NativeHTMLKitDocumentEvent -Document $doc -Type submit -Element 'dlg-creds-form' -Callback {
+        Invoke-PASUISafe { Submit-PASUIAccounts }
     }
 
     if ($Config) {

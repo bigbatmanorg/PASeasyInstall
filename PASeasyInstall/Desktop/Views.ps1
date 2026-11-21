@@ -65,7 +65,12 @@ function Get-PASUIBarHtml {
     switch ([string]$State.Screen) {
         'media' { return '<button id="act-back" class="btn">Back</button><span class="grow"></span><button id="act-next" class="btn primary">Next: choose the lab</button>' }
         'lab' { return '<button id="act-back" class="btn">Back</button><span class="grow"></span><button id="act-next" class="btn primary">Next: servers</button>' }
-        'servers' { return '<button id="act-back" class="btn">Back</button><span class="grow">Nothing is installed yet. The next step shows the plan first.</span><button id="act-next" class="btn primary">Next: review the plan</button>' }
+        'servers' {
+            if ($State.Checking) {
+                return '<button id="act-back" class="btn">Back</button><span class="grow">Checking the servers...</span><button class="btn primary" disabled>Checking...</button>'
+            }
+            return '<button id="act-back" class="btn">Back</button><span class="grow">Next checks that every server answers and that the accounts work. Nothing is installed yet.</span><button id="act-next" class="btn primary">Next: check the servers</button>'
+        }
         'review' { return '<button id="act-back" class="btn">Back</button><span class="grow"></span>' }
     }
     return ''
@@ -239,43 +244,46 @@ function Get-PASUICustomLabHtml {
 # ------------------------------------------------------------------ step 3: servers
 
 function Get-PASUIServersHtml {
+    # A plain form: one line per server with its address and the account to sign in with, then the Vault passwords.
     param([hashtable]$State)
     $html = New-Object System.Text.StringBuilder
     [void]$html.Append('<div class="page"><h1>Which servers?</h1>')
-    [void]$html.Append('<p class="lead">Freshly installed machines this computer can reach: Windows with WinRM over HTTPS, Linux with SSH.</p>')
+    [void]$html.Append('<p class="lead">Freshly installed machines this computer can reach: Windows with WinRM over HTTPS, Linux with SSH. For each one, the account that may administer it.</p>')
 
-    [void]$html.Append('<div class="card"><table><thead><tr><th>Server for</th><th>Computer name</th><th>Address (IP or DNS name)</th></tr></thead><tbody>')
+    [void]$html.Append('<div class="card"><table class="servers"><thead><tr><th>Server for</th><th>Computer name</th><th>Address</th><th>Account</th><th>Password</th></tr></thead><tbody>')
     foreach ($slot in Get-PASUIServerSlots $State) {
-        $os = 'Windows Server'
+        $os = 'Windows'
         if ($slot.Os -eq 'Linux') {
             $os = 'Linux'
         }
+        $key = $slot.Key
+        $role = ConvertTo-PASUIText $slot.Roles
         $nameCell = '<span class="hint">not needed</span>'
         if ($slot.Named) {
-            $nameCell = "<input type=`"text`" id=`"srv-$($slot.Key)-name`" aria-label=`"Computer name of the $($slot.Roles) server`" value=`"" + (ConvertTo-PASUIText (Get-PASUISlotValue $State $slot 'Name')) + '">'
+            $nameCell = "<input type=`"text`" id=`"srv-$key-name`" aria-label=`"Computer name of the $role server`" value=`"" + (ConvertTo-PASUIText (Get-PASUISlotValue $State $slot 'Name')) + '">'
         }
-        [void]$html.Append('<tr><td><strong>' + (ConvertTo-PASUIText $slot.Roles) + '</strong><span class="sub">' + $os + '</span></td><td>' + $nameCell + '</td>')
-        [void]$html.Append("<td><input type=`"text`" id=`"srv-$($slot.Key)-addr`" aria-label=`"Address of the $($slot.Roles) server`" placeholder=`"192.0.2.10`" value=`"" + (ConvertTo-PASUIText (Get-PASUISlotValue $State $slot 'Address')) + '"></td></tr>')
+        [void]$html.Append("<tr><td><strong>$role</strong><span class=`"sub`">$os</span></td><td>$nameCell</td>")
+        [void]$html.Append("<td><input type=`"text`" id=`"srv-$key-addr`" aria-label=`"Address of the $role server`" placeholder=`"IP or DNS name`" value=`"" + (ConvertTo-PASUIText (Get-PASUISlotValue $State $slot 'Address')) + '"></td>')
+        [void]$html.Append("<td><input type=`"text`" id=`"srv-$key-user`" aria-label=`"Account on the $role server`" value=`"" + (ConvertTo-PASUIText (Get-PASUISlotValue $State $slot 'User')) + '"></td>')
+        [void]$html.Append("<td><input type=`"password`" id=`"srv-$key-pass`" autocomplete=`"off`" aria-label=`"Password on the $role server`" value=`"" + (ConvertTo-PASUIText (Get-PASUISlotValue $State $slot 'Password')) + '"></td></tr>')
     }
-    [void]$html.Append('</tbody></table><p class="hint">Computer name: the name the server already has in Windows or Linux. PVWA is reached under this name.</p></div>')
+    [void]$html.Append('</tbody></table><p class="hint">Computer name: the name the server already has. PVWA is reached under this name. Account: a local administrator on Windows, root on Linux.</p></div>')
 
+    [void]$html.Append('<div class="card"><h2>Vault</h2>')
     if ($State.VaultMode -eq 'Existing') {
-        [void]$html.Append('<div class="card"><div class="field"><label for="f-existing">Address of the Vault you already have</label>')
-        [void]$html.Append('<input type="text" id="f-existing" value="' + (ConvertTo-PASUIText $State.ExistingVault) + '"></div></div>')
+        [void]$html.Append('<div class="field"><label for="f-existing">Address of the Vault you already have</label>')
+        [void]$html.Append('<input type="text" id="f-existing" value="' + (ConvertTo-PASUIText $State.ExistingVault) + '"></div>')
     }
-
-    [void]$html.Append('<div class="card"><h2>Password</h2>')
-    if (-not $State.Separate) {
-        [void]$html.Append('<div class="field"><label for="f-labpassword">Lab password</label>')
-        [void]$html.Append('<input type="password" id="f-labpassword" autocomplete="off" value="' + (ConvertTo-PASUIText $State.LabPassword) + '">')
-        [void]$html.Append('<p class="hint">One password for everything: it must already be the password of ' + (ConvertTo-PASUIText $State.WinUser) + ' on the Windows servers')
-        if ([int]$State.Counts.PSMP -gt 0) {
-            [void]$html.Append(' and of ' + (ConvertTo-PASUIText $State.LinuxUser) + ' on the Linux server')
+    [void]$html.Append('<div class="row top">')
+    foreach ($field in Get-PASUIVaultSecrets $State) {
+        $value = ''
+        if ($State.Secrets.ContainsKey($field.Key)) {
+            $value = [string]$State.Secrets[$field.Key]
         }
-        [void]$html.Append(', and it becomes the password of the new Vault users. It is kept in memory only.</p></div>')
-    } else {
-        [void]$html.Append('<p class="hint">You chose separate passwords. They are asked on the next step, one per server account and Vault user.</p>')
+        [void]$html.Append("<div class=`"grow field`"><label for=`"sec-$($field.Key)`">" + (ConvertTo-PASUIText $field.Label) + '</label>')
+        [void]$html.Append("<input type=`"password`" id=`"sec-$($field.Key)`" autocomplete=`"off`" value=`"" + (ConvertTo-PASUIText $value) + '"><p class="hint">' + (ConvertTo-PASUIText $field.Hint) + '</p></div>')
     }
+    [void]$html.Append('</div>')
     if ([int]$State.Counts.PSMP -gt 0) {
         $checked = ''
         if ($State.AcceptEula) {
@@ -283,60 +291,55 @@ function Get-PASUIServersHtml {
         }
         [void]$html.Append('<label class="check"><input type="checkbox" id="f-eula"' + $checked + '> I have read and accept the CyberArk end user license agreement of the PSMP installer</label>')
     }
-    [void]$html.Append('</div>')
+    [void]$html.Append('<p class="hint" style="margin-top:6px">Passwords are kept in memory only, never in a file.</p></div>')
 
     if ($State.Advanced) {
-        [void]$html.Append('<div class="card advanced"><h2>Accounts and network</h2><div class="row">')
-        [void]$html.Append('<div class="grow field"><label for="f-winuser">Windows account</label><input type="text" id="f-winuser" value="' + (ConvertTo-PASUIText $State.WinUser) + '"></div>')
-        [void]$html.Append('<div class="grow field"><label for="f-linuxuser">Linux account</label><input type="text" id="f-linuxuser" value="' + (ConvertTo-PASUIText $State.LinuxUser) + '"></div>')
-        [void]$html.Append('<div class="grow field"><label for="f-controller">Address of this computer</label><input type="text" id="f-controller" value="' + (ConvertTo-PASUIText $State.Controller) + '"></div></div>')
-        [void]$html.Append('<p class="hint">Address of this computer: as the Vault sees it. The hardened Vault firewall is opened for it.</p>')
-        $checked = ''
-        if ($State.Separate) {
-            $checked = ' checked'
-        }
-        [void]$html.Append('<label class="check"><input type="checkbox" id="f-separate"' + $checked + '> Use a separate password for every server account and Vault user</label></div>')
+        [void]$html.Append('<div class="card advanced"><h2>Network</h2>')
+        [void]$html.Append('<div class="field"><label for="f-controller">Address of this computer</label><input type="text" id="f-controller" value="' + (ConvertTo-PASUIText $State.Controller) + '">')
+        [void]$html.Append('<p class="hint">As the Vault sees it. The hardened Vault firewall is opened for it.</p></div></div>')
     }
 
-    [void]$html.Append('<div class="card flat"><div class="row"><div class="grow"><h3>Check the servers first (optional)</h3>')
-    [void]$html.Append('<p class="hint">Signs in to every server and checks the operating system, free disk space and pending restarts. Changes nothing.</p></div>')
-    [void]$html.Append('<button id="act-preflight" class="btn">Check the servers</button></div>')
+    [void]$html.Append('<div id="servers-issues"></div>')
     [void]$html.Append('<div id="preflight-result">' + (Get-PASUIPreflightHtml $State) + '</div></div>')
-
-    [void]$html.Append('<div id="servers-issues"></div></div>')
     return $html.ToString()
 }
 
 function Get-PASUIPreflightHtml {
+    # The result of the server check. Problems first and in full; what passed only as a count,
+    # or line by line in the advanced view.
     param([hashtable]$State)
+    if ($State.Checking) {
+        return '<div class="box busy">Signing in to every server and checking that it is ready. This takes a moment per server; you can keep the window open and wait.</div>'
+    }
     if (-not $State.Preflight) {
         return ''
     }
     $rows = @($State.Preflight)
     $failed = @($rows | Where-Object { $_.Passed -is [bool] -and -not $_.Passed })
+    $passed = @($rows | Where-Object { $_.Passed -is [bool] -and $_.Passed })
     $html = New-Object System.Text.StringBuilder
     if ($failed.Count) {
-        [void]$html.Append('<div class="box bad"><strong>' + $failed.Count + ' check(s) did not pass.</strong> Correct them on the server, then check again.</div>')
+        [void]$html.Append('<div class="box bad"><strong>The servers are not ready.</strong> Correct this, then press Next again.<ul>')
+        foreach ($row in $failed) {
+            [void]$html.Append('<li><strong>' + (ConvertTo-PASUIText (([string]$row.Address + ' ' + [string]$row.Server).Trim())) + '</strong>: ' + (ConvertTo-PASUIText $row.Detail) + '</li>')
+        }
+        [void]$html.Append('</ul></div>')
     } else {
-        [void]$html.Append('<div class="box ok"><strong>All servers answered and look ready.</strong></div>')
+        [void]$html.Append('<div class="box ok"><strong>All servers answered and look ready</strong> (' + $passed.Count + ' checks passed).</div>')
     }
-    [void]$html.Append('<table><thead><tr><th></th><th>Server</th><th>Check</th><th>Result</th></tr></thead><tbody>')
-    foreach ($row in $rows) {
-        $pill = '<span class="pill">skipped</span>'
-        if ($row.Passed -is [bool] -and $row.Passed) {
-            $pill = '<span class="pill ok">ok</span>'
-        } elseif ($row.Passed -is [bool]) {
-            $pill = '<span class="pill bad">problem</span>'
+    if ($State.Advanced) {
+        [void]$html.Append('<div class="card flat"><table><thead><tr><th></th><th>Server</th><th>Check</th><th>Result</th></tr></thead><tbody>')
+        foreach ($row in $rows) {
+            $pill = '<span class="pill">skipped</span>'
+            if ($row.Passed -is [bool] -and $row.Passed) {
+                $pill = '<span class="pill ok">ok</span>'
+            } elseif ($row.Passed -is [bool]) {
+                $pill = '<span class="pill bad">problem</span>'
+            }
+            [void]$html.Append('<tr><td class="state">' + $pill + '</td><td>' + (ConvertTo-PASUIText $row.Server) + '<span class="sub">' + (ConvertTo-PASUIText $row.Address) + '</span></td>')
+            [void]$html.Append('<td>' + (ConvertTo-PASUIText $row.Check) + '</td><td>' + (ConvertTo-PASUIText $row.Detail) + '</td></tr>')
         }
-        if (-not $State.Advanced -and $row.Passed -is [bool] -and $row.Passed) {
-            continue
-        }
-        [void]$html.Append('<tr><td class="state">' + $pill + '</td><td>' + (ConvertTo-PASUIText $row.Server) + '<span class="sub">' + (ConvertTo-PASUIText $row.Address) + '</span></td>')
-        [void]$html.Append('<td>' + (ConvertTo-PASUIText $row.Check) + '</td><td>' + (ConvertTo-PASUIText $row.Detail) + '</td></tr>')
-    }
-    [void]$html.Append('</tbody></table>')
-    if (-not $State.Advanced -and -not $failed.Count) {
-        [void]$html.Append('<p class="hint">Switch on Advanced to see every single check.</p>')
+        [void]$html.Append('</tbody></table></div>')
     }
     return $html.ToString()
 }
@@ -380,21 +383,6 @@ function Get-PASUIReviewHtml {
     if ($warnings.Count) {
         $list = ($warnings | ForEach-Object { '<li>' + (ConvertTo-PASUIText $_) + '</li>' }) -join ''
         [void]$html.Append('<details><summary>Lab shortcuts in use (' + $warnings.Count + '). Fine for a lab, not for production.</summary><div class="box warn"><ul>' + $list + '</ul></div></details>')
-    }
-
-    if ($State.Separate) {
-        [void]$html.Append('<div class="card"><h2>Passwords</h2><p class="hint">Server accounts: the password the account has now. Vault users: the password to set. Kept in memory only.</p>')
-        $index = 0
-        foreach ($requirement in @($State.Requirements)) {
-            $value = ''
-            if ($State.Passwords.ContainsKey([string]$requirement.Key)) {
-                $value = [string]$State.Passwords[[string]$requirement.Key]
-            }
-            [void]$html.Append("<div class=`"field`"><label for=`"pw-$index`">" + (ConvertTo-PASUIText $requirement.Label) + '</label>')
-            [void]$html.Append("<input type=`"password`" id=`"pw-$index`" autocomplete=`"off`" value=`"" + (ConvertTo-PASUIText $value) + '"></div>')
-            $index++
-        }
-        [void]$html.Append('</div>')
     }
 
     if ($State.Advanced) {

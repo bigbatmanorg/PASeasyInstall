@@ -12,6 +12,9 @@
 #   counts           preset custom: { "PVWA": 1, "CPM": 0, "PSM": 0, "PSMP": 1 }
 #   servers          { "<slot key>": { "name": "...", "address": "..." } }; slot keys as in Get-PASUIServerSlots.
 #                    Left out: made-up addresses 192.0.2.x (Mock backend only)
+#   servers.<key>.password   a password for that one server (default: the walk's password)
+#   expectServerProblem  a pattern: the server check must fail and show it; the walk ends there
+#   stopAfter        'review': end the walk on the review step, install nothing
 #   timeoutMinutes   how long to wait for the installation (default 5)
 #   openRun          a run id: only open that installation from the start page and check the lab
 #   continueFile     when the installation stops with an error: wait until this file exists (somebody
@@ -19,7 +22,8 @@
 #   log              file that receives the PASS / FAIL lines as well
 #   snapshots        folder that receives every screen as an HTML file
 #   screenshotScript script called with -Path <png> at every screen (real window only)
-# The lab password comes from $env:PASEASY_LAB_PASSWORD and is never written anywhere.
+# One password is used for every account and Vault password of the walk. It comes from
+# $env:PASEASY_LAB_PASSWORD and is never written anywhere.
 
 function Write-PASUITestLine {
     param([string]$Text)
@@ -85,13 +89,26 @@ function Wait-PASUITestRun {
     }
 }
 
-function Submit-PASUITestPassword {
-    # What the password dialog does when the user types the password and presses Continue.
+function Submit-PASUITestAccounts {
+    # What the accounts dialog does when the user types every password and presses Continue.
+    # Nothing to do when the window still had the accounts and ran the action at once.
     param([string]$Password)
-    $action = $S.Pending
-    $S.Pending = $null
-    Close-PASUIDialog 'dlg-password'
-    & $action $Password
+    $count = @($S.DialogRequirements).Count
+    if (-not $count) {
+        return
+    }
+    for ($index = 0; $index -lt $count; $index++) {
+        $null = Set-NativeHTMLKitDocumentValue -Document $doc -Element "cred-$index" -Value $Password
+    }
+    Submit-PASUIAccounts
+}
+
+function Wait-PASUITestServerCheck {
+    # The server check runs in the background: let the window work until it is done.
+    $deadline = [datetime]::UtcNow.AddMinutes(10)
+    while ($S.Checking -and [datetime]::UtcNow -lt $deadline) {
+        $null = Wait-NativeHTMLKit -Application $app -TimeoutMilliseconds 250
+    }
 }
 
 function Invoke-PASUISelfTest {
@@ -133,7 +150,7 @@ function Invoke-PASUITestWalk {
         Invoke-PASUIClick "run-$runId"
         Assert-PASUIShown 'run-status' 'The lab is installed' 'an earlier installation opens from the list'
         Invoke-PASUIClick 'act-health'
-        Submit-PASUITestPassword $password
+        Submit-PASUITestAccounts $password
         Assert-PASUIShown 'run-status' 'Healthy\.' 'lab check'
         Save-PASUISnapshot '8-lab-checked'
         return
@@ -197,27 +214,53 @@ function Invoke-PASUITestWalk {
             Set-PASUIField "srv-$($slot.Key)-name" ([string]$entry.name)
         }
     }
-    Set-PASUIField 'f-labpassword' $password
+    foreach ($slot in Get-PASUIServerSlots $S) {
+        $slotPassword = $password
+        if ($Scenario.PSObject.Properties['servers'] -and $Scenario.servers.PSObject.Properties[$slot.Key] -and
+            $Scenario.servers.PSObject.Properties[$slot.Key].Value.PSObject.Properties['password']) {
+            $slotPassword = [string]$Scenario.servers.PSObject.Properties[$slot.Key].Value.password
+        }
+        Set-PASUIField "srv-$($slot.Key)-pass" $slotPassword
+    }
+    foreach ($field in Get-PASUIVaultSecrets $S) {
+        Set-PASUIField "sec-$($field.Key)" $password
+    }
     if ([int]$S.Counts.PSMP -gt 0) {
         Set-PASUIToggle 'f-eula' $true
     }
-    Invoke-PASUIClick 'act-preflight'
-    Assert-PASUIShown 'preflight-result' 'look ready' 'server check'
     Save-PASUISnapshot '4-servers'
 
+    $watch = [Diagnostics.Stopwatch]::StartNew()
     Invoke-PASUINext
-    Assert-PASUIShown 'view' 'Review and install' 'review step'
+    Wait-PASUITestServerCheck
+    Write-PASUITestLine ("INFO the server check took {0:N0} seconds" -f $watch.Elapsed.TotalSeconds)
+    if ($Scenario.PSObject.Properties['expectServerProblem']) {
+        # The walk ends here: the check must refuse to go on and say why.
+        Assert-PASUIShown 'view' 'Which servers' 'the window stays on the servers step'
+        Assert-PASUIShown 'preflight-result' ([string]$Scenario.expectServerProblem) 'the server problem is shown'
+        Save-PASUISnapshot '4-servers-problem'
+        return
+    }
+    if ($S.Screen -ne 'review') {
+        Write-PASUITestLine ('INFO server check result: ' + [string](Get-NativeHTMLKitDocumentText -Document $doc -Element 'preflight-result') + ' | ' + [string](Get-NativeHTMLKitDocumentText -Document $doc -Element 'notice') + ' | ' + [string](Get-NativeHTMLKitDocumentText -Document $doc -Element 'servers-issues'))
+    }
+    Assert-PASUIShown 'view' 'Review and install' 'server check passed, review step'
+    if ($Scenario.PSObject.Properties['stopAfter'] -and [string]$Scenario.stopAfter -eq 'review') {
+        Save-PASUISnapshot '5-review'
+        return
+    }
     Assert-PASUIShown 'view' 'Install the lab' 'the plan is valid and can be installed'
     Save-PASUISnapshot '5-review'
 
     Invoke-PASUIClick 'act-install'
     Invoke-PASUIClick 'dlg-confirm-yes'
     Assert-PASUIShown 'view' ([regex]::Escape($labName)) 'run page'
-    if ($S.LabPassword -or $S.Passwords.Count) {
+    $typed = @($S.Slots.Values | Where-Object { $_.ContainsKey('Password') }).Count + $S.Secrets.Count
+    if ($typed) {
         $script:PASUITest.Failures++
-        Write-PASUITestLine 'FAIL the window still holds a password after the installation started'
+        Write-PASUITestLine 'FAIL the window still holds typed passwords after the installation started'
     } else {
-        Write-PASUITestLine 'PASS no password is kept after the installation started'
+        Write-PASUITestLine 'PASS no typed password is kept after the installation started'
     }
     Write-PASUITestLine "INFO run id $($S.RunId)"
     Start-Sleep -Milliseconds 1500
@@ -250,7 +293,7 @@ function Invoke-PASUITestWalk {
         } else {
             Invoke-PASUIClick 'act-resume'
         }
-        Submit-PASUITestPassword $password
+        Submit-PASUITestAccounts $password
         Write-PASUITestLine 'INFO continued from the window'
         Wait-PASUITestRun -Minutes $timeout
     }
@@ -258,7 +301,7 @@ function Invoke-PASUITestWalk {
     Assert-PASUIShown 'run-status' 'The lab is installed' 'run finished'
     Save-PASUISnapshot '7-run-finished'
     Invoke-PASUIClick 'act-health'
-    Submit-PASUITestPassword $password
+    Submit-PASUITestAccounts $password
     Assert-PASUIShown 'run-status' 'Healthy\.' 'lab check'
     Save-PASUISnapshot '8-lab-checked'
 

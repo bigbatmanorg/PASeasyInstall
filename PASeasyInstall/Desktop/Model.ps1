@@ -68,14 +68,17 @@ function New-PASUIState {
         Colocate = $true
         ExistingVault = ''
 
+        # Per server: Name, Address, User, Password. Vault passwords: VaultAdmin, VaultMaster, DRPassword.
         Slots = @{}
-        WinUser = 'Administrator'
-        LinuxUser = 'root'
+        Secrets = @{}
         Controller = $ControllerAddress
-        LabPassword = ''
-        Separate = $false
-        Passwords = @{}
         AcceptEula = $false
+
+        # Server check of the Servers step: running, and the configuration it passed for.
+        Checking = $false
+        # Accounts and Vault passwords of the installation started from this window (protected in memory),
+        # so that "Try again" and "Check the lab" do not ask for them again while the window stays open.
+        Kept = $null
 
         Configuration = $null
         Check = $null
@@ -89,6 +92,7 @@ function New-PASUIState {
         RunPlan = @{}
         Health = $null
         Pending = $null
+        DialogRequirements = @()
         Polling = $false
         ResumeUntil = $null
     }
@@ -170,17 +174,44 @@ function Get-PASUIServerSlots {
 }
 
 function Get-PASUISlotValue {
-    # What the user typed for a server: Field is Name or Address. A name falls back to the default.
+    # What the user typed for a server: Field is Name, Address, User or Password.
+    # A name falls back to the default name, an account to Administrator (Windows) or root (Linux).
+    # A password is returned exactly as typed.
     param([hashtable]$State, [hashtable]$Slot, [string]$Field)
     $value = ''
     if ($State.Slots.ContainsKey($Slot.Key) -and $State.Slots[$Slot.Key].ContainsKey($Field)) {
         $value = [string]$State.Slots[$Slot.Key][$Field]
     }
+    if ($Field -eq 'Password') {
+        return $value
+    }
     $value = $value.Trim()
     if (-not $value -and $Field -eq 'Name') {
         return [string]$Slot.DefaultName
     }
+    if (-not $value -and $Field -eq 'User') {
+        if ($Slot.Os -eq 'Linux') {
+            return 'root'
+        }
+        return 'Administrator'
+    }
     return $value
+}
+
+function Get-PASUIVaultSecrets {
+    # The Vault passwords the chosen lab needs: Key (as Install-PASLab wants it), Label, Hint.
+    param([hashtable]$State)
+    if ($State.VaultMode -eq 'Existing') {
+        return @(@{ Key = 'VaultAdmin'; Label = 'Password of the Vault user Administrator'; Hint = 'The password it has now. Used to register the components.' })
+    }
+    $fields = @(
+        @{ Key = 'VaultAdmin'; Label = 'Vault Administrator password'; Hint = 'New Vault: the password to set.' }
+        @{ Key = 'VaultMaster'; Label = 'Vault Master password'; Hint = 'New Vault: the password to set.' }
+    )
+    if ($State.VaultMode -eq 'PrimaryDR') {
+        $fields += @{ Key = 'DRPassword'; Label = 'Vault DR user password'; Hint = 'The password to set for the user the DR Vault replicates with.' }
+    }
+    return @($fields)
 }
 
 function Set-PASUISlotValue {
@@ -210,7 +241,7 @@ function Get-PASUIInstances {
             } elseif ($type -eq 'CPM') {
                 $cpmNumber++
             }
-            [void]$instances.Add(@{ Type = $type; Name = $instanceName; Address = $address })
+            [void]$instances.Add(@{ Type = $type; Name = $instanceName; Address = $address; Username = (Get-PASUISlotValue $State $slot 'User') })
         }
     }
     return @($instances)
@@ -261,11 +292,24 @@ function Get-PASUIInputIssues {
                 [void]$issues.Add("The computer name of the $($slot.Roles) server may hold letters, digits and dashes only.")
             }
         }
+        foreach ($slot in Get-PASUIServerSlots $State) {
+            if (-not (Get-PASUISlotValue $State $slot 'Password')) {
+                [void]$issues.Add("Enter the password of $(Get-PASUISlotValue $State $slot 'User') on the $($slot.Roles) server.")
+            }
+        }
         if ($State.VaultMode -eq 'Existing' -and -not ([string]$State.ExistingVault).Trim()) {
             [void]$issues.Add('Enter the address of the Vault you already have.')
         }
-        if (-not $State.Separate -and -not [string]$State.LabPassword) {
-            [void]$issues.Add('Enter the lab password.')
+        foreach ($field in Get-PASUIVaultSecrets $State) {
+            $value = ''
+            if ($State.Secrets.ContainsKey($field.Key)) {
+                $value = [string]$State.Secrets[$field.Key]
+            }
+            if (-not $value) {
+                [void]$issues.Add("Enter the $($field.Label).")
+            } elseif ($value -notmatch '^[\x21\x23-\x7E]+$') {
+                [void]$issues.Add("The $($field.Label) may hold letters, digits and the usual signs, but no space and no double quote.")
+            }
         }
         if ([int]$State.Counts.PSMP -gt 0 -and -not $State.AcceptEula) {
             [void]$issues.Add('Accept the CyberArk license agreement of the PSMP installer.')
@@ -388,7 +432,7 @@ function Get-PASUICommandText {
     $lines = New-Object System.Collections.ArrayList
     $paths = (@(Get-PASUIMediaPaths $State | ForEach-Object { "'" + $_ + "'" }) -join ', ')
     [void]$lines.Add('$media = Get-PASMediaInventory -Path ' + $paths + ' | Get-PASMediaSelection')
-    $instances = @(Get-PASUIInstances $State | ForEach-Object { "@{Type='$($_.Type)';Name='$($_.Name)';Address='$($_.Address)'}" })
+    $instances = @(Get-PASUIInstances $State | ForEach-Object { "@{Type='$($_.Type)';Name='$($_.Name)';Address='$($_.Address)';Username='$($_.Username)'}" })
     $command = '$lab = New-PASLabConfiguration -Environment ' + [string]$State.LabName + ' -VaultMode ' + [string]$State.VaultMode
     foreach ($slot in Get-PASUIServerSlots $State) {
         if ($slot.Key -eq 'vault') {
@@ -409,8 +453,8 @@ function Get-PASUICommandText {
         $command += " ``" + "`n    -Instances @(" + ($instances -join ', ') + ')'
     }
     [void]$lines.Add($command)
-    [void]$lines.Add('$password = Read-Host -AsSecureString ''Lab password''')
-    [void]$lines.Add('Install-PASLab -Configuration $lab -LabPassword $password -Wait')
+    [void]$lines.Add('# Asks for the account of every server and for the Vault passwords:')
+    [void]$lines.Add('Install-PASLab -Configuration $lab -Wait')
     return ($lines -join "`n")
 }
 

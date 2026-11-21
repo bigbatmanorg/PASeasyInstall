@@ -31,16 +31,15 @@
   </div>
 </dialog>
 
-<dialog id="dlg-password" aria-labelledby="dlg-password-title">
-  <form id="dlg-password-form">
-    <h2 id="dlg-password-title">Password needed</h2>
-    <p id="dlg-password-text"></p>
-    <label for="dlg-password-value">Lab password</label>
-    <input type="password" id="dlg-password-value" autocomplete="off">
-    <p class="hint">The window keeps no password after an installation has started, so it asks again here.</p>
+<dialog id="dlg-creds" aria-labelledby="dlg-creds-title">
+  <form id="dlg-creds-form">
+    <h2 id="dlg-creds-title">Accounts needed</h2>
+    <p id="dlg-creds-text"></p>
+    <div id="dlg-creds-fields"></div>
+    <p class="hint">Passwords are kept in memory only. This window was opened after the installation started, so it asks again.</p>
     <div class="dlg-actions">
-      <button type="button" id="dlg-password-no" class="btn">Cancel</button>
-      <button type="submit" id="dlg-password-yes" class="btn primary">Continue</button>
+      <button type="button" id="dlg-creds-no" class="btn">Cancel</button>
+      <button type="submit" id="dlg-creds-yes" class="btn primary">Continue</button>
     </div>
   </form>
 </dialog>

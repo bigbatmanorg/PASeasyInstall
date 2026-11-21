@@ -30,11 +30,10 @@
 #   Resume-PASRun                -RunId [-RetryStep] [-CredentialMap] [-SecretMap]
 #   Stop-PASRun                  -RunId
 #   Export-PASDiagnostics        -RunId -Path [-Force]
-#   Test-PASPreflight            -Configuration [-LabPassword | -CredentialMap]
+#   Test-PASPreflight            -Configuration [-CredentialMap] [-ConnectivityOnly]
 #                                -> rows: Server, Address, Check, Passed, Detail
 #   Test-PASHealth               -Configuration | -Path, -VaultCredential [-DRCredential]
 #                                -> Healthy, Message, Issues, Components (User, Address, LoggedOn, Version)
-#   Install-PASLab and Resume-PASRun also take -LabPassword (one password for everything).
 #
 # Backends:
 #   Live  the PASeasyInstall module this desktop is part of.
@@ -52,14 +51,14 @@ $script:PASUIBackendContract = [ordered]@{
     'Get-PASCredentialRequirement' = @('Configuration')
     'Export-PASLabConfiguration' = @('Configuration', 'Path', 'Force')
     'Import-PASLabConfiguration' = @('Path')
-    'Install-PASLab' = @('Configuration', 'CredentialMap', 'SecretMap', 'LabPassword')
+    'Install-PASLab' = @('Configuration', 'CredentialMap', 'SecretMap')
     'Get-PASRun' = @('RunId', 'Tail')
     'Get-PASRunEvent' = @('RunId', 'Tail')
     'Get-PASStageCatalog' = @('Component')
-    'Resume-PASRun' = @('RunId', 'RetryStep', 'CredentialMap', 'SecretMap', 'LabPassword')
+    'Resume-PASRun' = @('RunId', 'RetryStep', 'CredentialMap', 'SecretMap')
     'Stop-PASRun' = @('RunId')
     'Export-PASDiagnostics' = @('RunId', 'Path', 'Force')
-    'Test-PASPreflight' = @('Configuration', 'CredentialMap', 'LabPassword')
+    'Test-PASPreflight' = @('Configuration', 'CredentialMap', 'ConnectivityOnly')
     'Test-PASHealth' = @('Path', 'Configuration', 'VaultCredential', 'DRCredential')
 }
 

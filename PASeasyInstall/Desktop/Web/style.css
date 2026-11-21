@@ -169,6 +169,7 @@ input:focus-visible, select:focus-visible, .btn:focus-visible, .choice:focus-vis
 .field { margin-bottom: 8px; }
 .row { display: flex; gap: 8px; align-items: flex-end; }
 .row > .grow { flex: 1; }
+.row.top { align-items: flex-start; }
 .check { display: flex; gap: 6px; align-items: flex-start; font-weight: 400; font-size: 12.5px; cursor: pointer; }
 .check input { margin-top: 2px; }
 
@@ -238,6 +239,9 @@ td { padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: mid
 tr:last-child td { border-bottom: 0; }
 td.state { width: 84px; }
 td .sub { display: block; color: var(--muted); font-size: 12px; }
+/* The servers form: the role column is narrow, the four entry columns share the rest. */
+table.servers td:first-child { width: 96px; }
+table.servers td { padding: 3px 4px; }
 .counter { display: flex; align-items: center; gap: 6px; }
 .counter .value { min-width: 16px; text-align: center; font-weight: 700; }
 
@@ -247,6 +251,7 @@ td .sub { display: block; color: var(--muted); font-size: 12px; }
 .box.bad { background: var(--bad-soft); color: var(--bad); }
 .box.warn { background: var(--warn-soft); color: var(--warn); }
 .box.info { background: var(--accent-soft); }
+.box.busy { background: var(--warn-soft); color: var(--warn); }
 .box ul { margin: 4px 0 0 16px; padding: 0; }
 details { margin-bottom: 10px; }
 summary { cursor: pointer; color: var(--muted); font-weight: 600; padding: 2px 0; }
