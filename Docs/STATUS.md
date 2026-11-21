@@ -39,6 +39,8 @@ Usable, but expect rough edges. The desktop shows PTA and HTML5 Gateway as not y
 
 ## 3. Next (roadmap after 2.0.0)
 
+The ordered work list with the steps of each item is in [NEXT.md](NEXT.md).
+
 Deferred on purpose so that 2.0.0 could ship as a lab installer that works. In the order they are planned.
 
 ### 3.1 Secure profile
