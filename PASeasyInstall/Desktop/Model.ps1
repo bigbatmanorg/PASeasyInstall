@@ -681,6 +681,16 @@ function Get-PASUIRunProgress {
         if ($mine.Count -and $status -ne 'Succeeded') {
             $current = [string]$mine[-1].Stage
         }
+        # A parallel installation: the component waits for the Vault or for the PVWA certificate.
+        $waiting = ''
+        $latest = @($events | Where-Object { [string]$_.Component -eq $id }) | Select-Object -Last 1
+        if ($latest -and $status -notin @('Succeeded', 'Failed', 'Unknown', 'Blocked')) {
+            if ([string]$latest.Event -eq 'VaultWaiting') {
+                $waiting = 'Waiting for its turn at the Vault'
+            } elseif ([string]$latest.Event -eq 'ComponentWaiting') {
+                $waiting = 'Waiting for PVWA'
+            }
+        }
         $address = ''
         if ($PlanItems.ContainsKey($id)) {
             $address = [string]$PlanItems[$id].Address
@@ -700,6 +710,7 @@ function Get-PASUIRunProgress {
                 Total = $total
                 Percent = $percent
                 Current = $current
+                Waiting = $waiting
             })
         $doneAll += $done
         $totalAll += $total

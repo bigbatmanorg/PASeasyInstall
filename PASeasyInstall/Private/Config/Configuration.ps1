@@ -230,13 +230,12 @@ function Test-PASConfiguration {
     foreach ($limited in @('PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'PTA')) {
         if (@($c.components | Where-Object { $_ -and $_.type -eq $limited }).Count -gt 4) { $issues.Add("At most 4 $limited server(s) are supported") }
     }
-    # 'execution' is written by New-PASDeploymentConfiguration. A run always installs one component after
-    # the other; the key is accepted so that saved configurations keep loading.
+    # 'execution' is written by New-PASDeploymentConfiguration. Parallel: the servers are installed at the
+    # same time (Private\Run\Lanes.ps1). Sequential, or no key: one component after the other.
     $execution = Get-PASValue $c 'execution' $null
     if ($null -ne $execution) {
         $executionMode = [string](Get-PASValue $execution 'mode' 'Sequential')
         if ($executionMode -notin @('Sequential', 'Parallel')) { $issues.Add('execution.mode must be Sequential or Parallel') }
-        elseif ($executionMode -eq 'Parallel') { $warnings.Add('execution.mode Parallel is no longer supported; the components are installed one after the other') }
     }
 
     if ($c.activeDirectory.mode -notin @('None', 'Create', 'Existing')) { $issues.Add('activeDirectory.mode must be None, Create or Existing') }

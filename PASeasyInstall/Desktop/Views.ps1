@@ -546,6 +546,9 @@ function Get-PASUIRunComponentsHtml {
         } elseif ($row.Kind -eq 'bad' -and $row.Current) {
             $now = 'Stopped at: ' + (Get-PASUIStageText $row.Current)
         }
+        if ($row.Waiting -and (Test-PASUIRunActive ([string]$State.Run.Status))) {
+            $now = [string]$row.Waiting
+        }
         [void]$html.Append("<div class=`"comp $($row.Kind)`"><span class=`"dot`"></span><span class=`"who`"><span class=`"name`">" + (ConvertTo-PASUIText $script:PASUITypeNames[$row.Type]) + '</span>')
         [void]$html.Append('<span class="addr">' + (ConvertTo-PASUIText (($row.Address + ' ' + $row.Id).Trim())) + '</span></span>')
         [void]$html.Append("<span class=`"prog`"><div class=`"mini`"><div class=`"fill`" style=`"width:$($row.Percent)%`"></div></div><span class=`"now`">" + (ConvertTo-PASUIText $now) + '</span></span>')

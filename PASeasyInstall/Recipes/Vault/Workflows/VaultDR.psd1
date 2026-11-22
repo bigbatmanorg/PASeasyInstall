@@ -25,7 +25,8 @@
         @{Id='configure-padr';Script='Tasks/VaultDR/Configure-PADR.ps1';Inputs=@{Settings=@{ConfigRef='Values.Settings'}};Verify='Tasks/Verify/Verify-PADRInstalled.ps1';Critical=$true}
         @{Id='first-replication';Script='Tasks/VaultDR/Wait-Replication.ps1';Inputs=@{Settings=@{ConfigRef='Values.Settings'};Minutes=30};Verify='Tasks/Verify/Verify-DR.ps1';Critical=$true;TimeoutSeconds=2400}
         @{Id='harden-dr';Script='Tasks/Vault/Harden-Vault.ps1';Mode='Detached';Inputs=@{Settings=@{ConfigRef='Values.Settings'}};RecoveryScript='Tasks/Common/Recover-Management.ps1';Verify='Tasks/Verify/Verify-Hardening.ps1';Critical=$true;TimeoutSeconds=3600}
-        @{Id='hardening-reboot';Kind='Reboot';Inputs=@{Settings=@{ConfigRef='Values.Settings'}};Verify='Tasks/Verify/Verify-Hardening.ps1';TimeoutSeconds=1800}
+        @{Id='hardening-reboot';Kind='Reboot';Inputs=@{Settings=@{ConfigRef='Values.Settings'}};TimeoutSeconds=1800}
+        @{Id='hardening-services';Script='Tasks/Vault/Restore-HardenedServices.ps1';Inputs=@{Settings=@{ConfigRef='Values.Settings'}};Verify='Tasks/Verify/Verify-Hardening.ps1';TimeoutSeconds=900}
         @{Id='replication-after-hardening';Script='Tasks/VaultDR/Wait-Replication.ps1';Inputs=@{Settings=@{ConfigRef='Values.Settings'};Restart=$true;Minutes=20};Verify='Tasks/Verify/Verify-DR.ps1';Critical=$true;TimeoutSeconds=1800;Publishes=@('dr-replicating')}
         @{Id='test-safe-replication';Script='Tasks/VaultDR/Wait-Replication.ps1';DependsOn=@('test-safe-created');Inputs=@{Settings=@{ConfigRef='Values.Settings'};Restart=$true;Minutes=15;RunId=@{RuntimeRef='RunId'};TestSafe=$true};Verify='Tasks/Verify/Verify-DR.ps1';Critical=$true;TimeoutSeconds=3600;Publishes=@('dr-ready')}
     )

@@ -110,7 +110,20 @@ function Write-PASRunEvent {
         level = $Level
         message = $Message
     }
-    [IO.File]::AppendAllText((Join-Path $Dir 'events.jsonl'), (($line | ConvertTo-Json -Compress) + "`n"), [Text.UTF8Encoding]::new($false))
+    $text = ($line | ConvertTo-Json -Compress) + "`n"
+    $path = Join-Path $Dir 'events.jsonl'
+    # The lanes of a parallel run write to this file too: when another one has it open, try again shortly.
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            [IO.File]::AppendAllText($path, $text, [Text.UTF8Encoding]::new($false))
+            return
+        } catch [IO.IOException] {
+            if ($attempt -ge 50) {
+                throw
+            }
+            Start-Sleep -Milliseconds 40
+        }
+    }
 }
 function Assert-PASEnvironmentNotRunning {
     # A new run for an environment name is refused only while another run of that name has a live controller.
@@ -348,8 +361,10 @@ function Resume-PASDeployment {
     if ($consoleChild) { Wait-PASControllerCompletion -RunId $RunId -DataRoot $DataRoot -ControllerPid ([int]$spawn.ProcessId) -ControllerStartedAfterUtc $launchAfter }
     return $RunId
 }
-# ---- One run = one controller process that installs the components one after the other:
+# ---- One run = one controller process. execution.mode Sequential installs the components one after the other:
 #      AD forest -> domain joins -> Vault (+DR) -> PVWA, CPM, PSM, PSMP (plan order).
+#      execution.mode Parallel installs the servers at the same time, with the same functions (Lanes.ps1).
+#      In both modes the gateway registration, the PTA trust and the GPOs follow at the end, in order.
 #      Every function below takes the run context ($Run) created by Invoke-PASRunControllerCore:
 #        RunId, DataRoot, Directory, Config (in memory), Credentials, Secrets,
 #        Record (content of run.json) and RecordPath, Target (engine target that is running),
@@ -361,6 +376,11 @@ function Set-PASRunCurrentComponent {
     $Run.Record.currentComponent = $ComponentId
     # No engine target is running until Invoke-PASRunTarget starts one (see Get-PASRunFailureStatus).
     $Run.Target = ''
+    if ($Run.ContainsKey('Lane')) {
+        # A lane of a parallel run (Lanes.ps1) only reports; the controller writes run.json.
+        $Run.Current[[string]$Run.Lane] = $ComponentId
+        return
+    }
     Write-PASJsonAtomic $Run.RecordPath $Run.Record
 }
 function Get-PASComponentRunFiles {
@@ -401,14 +421,20 @@ function Initialize-PASComponentRun {
         [string](Get-PASValue $hostRecord 'identityFile' '') -and
         [string](Get-PASValue $hostRecord 'knownHostsFile' ''))
     if ($hasSshKey) {
-        if (-not $Run.SshReady.ContainsKey($hostId)) {
-            $lab = ([string]$config.security.profile -eq 'Lab')
-            $password = Get-PASHostCredential $config $Run.Credentials $hostId $id
-            Invoke-PASSshBootstrap -HostId $hostId -HostRecord $hostRecord -Credential $password -Lab $lab -Directory $Run.Directory
-            $Run.SshReady[$hostId] = $true
-        }
-        if (-not $prepared -and $type -eq 'PSMP') {
-            Select-PASPsmpMediaForHost -Component $Component -HostRecord $hostRecord -Directory $Run.Directory -DataRoot $Run.DataRoot
+        # One at a time on this controller: the Linux servers share the known-hosts file and the media cache.
+        $prepareLock = Enter-PASVaultLock -Address ('prepare-' + [string]$Run.RunId) -TimeoutSeconds 1800
+        try {
+            if (-not $Run.SshReady.ContainsKey($hostId)) {
+                $lab = ([string]$config.security.profile -eq 'Lab')
+                $password = Get-PASHostCredential $config $Run.Credentials $hostId $id
+                Invoke-PASSshBootstrap -HostId $hostId -HostRecord $hostRecord -Credential $password -Lab $lab -Directory $Run.Directory
+                $Run.SshReady[$hostId] = $true
+            }
+            if (-not $prepared -and $type -eq 'PSMP') {
+                Select-PASPsmpMediaForHost -Component $Component -HostRecord $hostRecord -Directory $Run.Directory -DataRoot $Run.DataRoot
+            }
+        } finally {
+            Exit-PASVaultLock $prepareLock
         }
     }
     if ($type -eq 'PTA') {
@@ -417,7 +443,9 @@ function Initialize-PASComponentRun {
         if (-not $rootCredential -or $rootCredential.Password.Length -eq 0) {
             throw "PTA ($id) needs the root password of its server (the PTA installer application signs in with it). Pass the account of server '$hostId' with its password."
         }
-        $Run.Secrets['PTARoot-' + $id] = $rootCredential.Password
+        if (-not $Run.Secrets.ContainsKey('PTARoot-' + $id)) {
+            $Run.Secrets['PTARoot-' + $id] = $rootCredential.Password
+        }
     }
     if (-not $prepared -and $type -in @('CPM', 'HTML5GW', 'PTA')) {
         $options = Get-PASValue $Component 'options' $null
@@ -425,7 +453,12 @@ function Initialize-PASComponentRun {
         if ($trustFrom) {
             # The CPM registration checks the HTTPS certificate of every PVWA registered in the Vault, so the
             # CPM must trust all PVWAs of the deployment: one certificate, or a bundle when there are several.
-            $trust = Get-PASPvwaTrustBundle -Configuration $config -PvwaId $trustFrom -Credentials $Run.Credentials -Directory $Run.Directory
+            $trustLock = Enter-PASVaultLock -Address ('prepare-' + [string]$Run.RunId) -TimeoutSeconds 1800
+            try {
+                $trust = Get-PASPvwaTrustBundle -Configuration $config -PvwaId $trustFrom -Credentials $Run.Credentials -Directory $Run.Directory
+            } finally {
+                Exit-PASVaultLock $trustLock
+            }
             $options.Remove('pvwaTrustFrom')
             $options.pvwaTrustCertificateFile = [string]$trust.File
             $options.pvwaTrustCertificateSHA256 = [string]$trust.SHA256
@@ -463,6 +496,9 @@ function Invoke-PASRunTarget {
     # Steps that open a Vault session take the Vault lock of this address (Locks.ps1).
     $vaultAddress = [string](Get-PASValue (Get-PASValue $Run.Config 'vault' $null) 'address' '')
     if ($vaultAddress) { $arguments.VaultAddress = $vaultAddress }
+    # A lane of a parallel run: its Vault steps wait for their turn and its steps announce themselves (Lanes.ps1).
+    if ($Run.ContainsKey('VaultGate') -and $Run.VaultGate) { $arguments.VaultGate = $Run.VaultGate }
+    if ($Run.ContainsKey('StepSignals') -and $Run.StepSignals.Count) { $arguments.StepSignals = $Run.StepSignals }
     Invoke-PASWorkflow @arguments | Out-Null
 }
 function Add-PASDomainCredentialAlias {
@@ -497,10 +533,11 @@ function Invoke-PASActiveDirectoryForest {
     Write-PASRunEvent $Run.Directory 'ComponentCompleted' 'Verified AD' $id
 }
 function Invoke-PASDomainJoins {
-    param([hashtable]$Run)
+    # Joins the servers to the domain. -OnlyHost: only this server (a lane of a parallel run joins its own).
+    param([hashtable]$Run, [string]$OnlyHost = '')
     $config = $Run.Config
     if ($config.activeDirectory.mode -eq 'None') { return }
-    foreach ($hostId in @($config.activeDirectory.join)) {
+    foreach ($hostId in @($config.activeDirectory.join | Where-Object { -not $OnlyHost -or [string]$_ -eq $OnlyHost })) {
         $id = 'join-' + [string]$hostId
         $workflow = Join-Path (Join-Path (Join-Path (Join-Path $Run.Directory 'Payloads') $id) 'Workflows') ($id + '.psd1')
         $inventory = Join-Path $Run.Directory ($id + '-inventory.psd1')
@@ -794,28 +831,33 @@ function Invoke-PASRunControllerCore {
     try {
         Assert-PASVaultInstallationSecrets -Configuration $config -Secrets $auth.Secrets -ReferencesResolved
         if ($Resume) { Write-PASRunEvent $dir 'RunResumed' 'Resuming the run: finished components are revalidated, then the remaining ones are installed' }
-        foreach ($warning in @($plan.Warnings | Where-Object { $_ -like 'execution.mode*' })) { Write-PASRunEvent $dir 'Warning' ([string]$warning) '' '' 'Warning' }
         if (-not $Resume) {
             foreach ($item in @($plan.Items)) {
                 Write-PASRunEvent $dir 'TaskCompleted' 'Local configuration and media checks passed' ([string]$item.Id) 'LocalPreflight'
             }
         }
 
-        Invoke-PASActiveDirectoryForest -Run $run
-        Invoke-PASDomainJoins -Run $run
-        if (@($config.components | Where-Object { $_.type -eq 'Vault' }).Count) {
-            Write-PASRunEvent $dir 'VaultSequence' 'Starting primary/DR installation'
-            # The whole sequence (PACLI, DR registration, replication) holds the Vault lock, so no other
-            # controller on this machine opens a Vault session in between. Its steps take the same lock
-            # again (re-entrant) and release only their own hold.
-            $vaultLock = Enter-PASVaultLock -Address ([string]$config.vault.address)
-            try { Invoke-PASVaultSequence -Run $run }finally { Exit-PASVaultLock $vaultLock }
-        }
-        # Plan order: every PVWA, then CPM, PSM, PSMP. A failure stops the run here; Resume-PASDeployment
-        # re-enters this loop, where finished components are revalidated and the rest is installed.
-        foreach ($item in @($plan.Items | Where-Object { $_.Type -notin @('Vault', 'DRVault', 'AD') })) {
-            $component = @($config.components | Where-Object { $_.id -eq $item.Id })[0]
-            Invoke-PASComponent -Run $run -Component $component
+        $parallel = ([string](Get-PASValue (Get-PASValue $config 'execution' $null) 'mode' 'Sequential') -eq 'Parallel')
+        if ($parallel) {
+            # The servers are installed at the same time (Lanes.ps1). What follows them stays in order below.
+            Invoke-PASRunLanes -Run $run -PlanItems @($plan.Items)
+        } else {
+            Invoke-PASActiveDirectoryForest -Run $run
+            Invoke-PASDomainJoins -Run $run
+            if (@($config.components | Where-Object { $_.type -eq 'Vault' }).Count) {
+                Write-PASRunEvent $dir 'VaultSequence' 'Starting primary/DR installation'
+                # The whole sequence (PACLI, DR registration, replication) holds the Vault lock, so no other
+                # controller on this machine opens a Vault session in between. Its steps take the same lock
+                # again (re-entrant) and release only their own hold.
+                $vaultLock = Enter-PASVaultLock -Address ([string]$config.vault.address)
+                try { Invoke-PASVaultSequence -Run $run }finally { Exit-PASVaultLock $vaultLock }
+            }
+            # Plan order: every PVWA, then CPM, PSM, PSMP. A failure stops the run here; Resume-PASDeployment
+            # re-enters this loop, where finished components are revalidated and the rest is installed.
+            foreach ($item in @($plan.Items | Where-Object { $_.Type -notin @('Vault', 'DRVault', 'AD') })) {
+                $component = @($config.components | Where-Object { $_.id -eq $item.Id })[0]
+                Invoke-PASComponent -Run $run -Component $component
+            }
         }
         Invoke-PASGatewayRegistration -Run $run
         Invoke-PASPtaTrust -Run $run

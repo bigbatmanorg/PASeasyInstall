@@ -44,7 +44,8 @@ function New-PASLabConfiguration {
     PSMP = item; License = item; RecoveryKey = item }. An item is an object from Get-PASMediaInventory,
     @{ Path = ...; Entry = ... } or a plain file path. Get-PASMediaSelection builds this hashtable.
     .PARAMETER ExecutionMode
-    Kept for compatibility. Only Sequential exists: components are installed one after the other.
+    Parallel (default): the servers are installed at the same time; the steps that sign in to the Vault wait
+    until the Vault is installed and then run one at a time. Sequential: one component after the other.
     .PARAMETER PrimaryUsername
     Windows account name for the Primary Vault server, if it differs from -Username.
     .PARAMETER DRUsername
@@ -125,8 +126,8 @@ function New-PASLabConfiguration {
 
         [hashtable]$Media = @{},
 
-        [ValidateSet('Sequential')]
-        [string]$ExecutionMode = 'Sequential',
+        [ValidateSet('Parallel', 'Sequential')]
+        [string]$ExecutionMode = 'Parallel',
 
         [AllowEmptyString()]
         [string]$PrimaryUsername = '',

@@ -163,7 +163,7 @@ function Get-PASDeploymentPlan {
         Items = @($items.ToArray())
         DomainJoins = $joins
         Warnings = $validated.Warnings
-        ExecutionMode = 'Sequential'
+        ExecutionMode = [string](Get-PASValue (Get-PASValue $c 'execution' $null) 'mode' 'Sequential')
         SchemaVersion = 2
     }
 }

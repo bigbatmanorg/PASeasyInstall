@@ -126,7 +126,7 @@ Describe 'Deployment composition' {
         $script:v.Valid | Should -BeTrue
         @($script:c.components | ForEach-Object { $_.id }) | Should -Be @('vault', 'dr', 'pas-pvwa', 'pas-cpm', 'pas-psm', 'pas-psmp')
         @($script:c.components | ForEach-Object { $_.name })[2] | Should -Be 'PAS-PVWA'
-        $script:c.execution.mode | Should -Be 'Sequential'
+        $script:c.execution.mode | Should -Be 'Parallel'
         $script:c.hosts['vault01'].user | Should -Be 'Administrator'
     }
     It 'extracts only selected bundle entries into the media cache, and only the public recovery key' {
@@ -479,6 +479,22 @@ Describe 'Servers form and server check' {
         Get-PASUIStageText 'install-pass2' | Should -Match 'continued after the restart'
         # A step whose own name ends in -reboot stays a step of its own.
         Get-PASUIStepOfStage 'hardening-reboot' @('harden-primary', 'hardening-reboot') | Should -Be 'hardening-reboot'
+    }
+    It 'says that a component waits for its turn at the Vault' {
+        $events = @(
+            [pscustomobject]@{ Component = 'psm'; Stage = 'install'; Event = 'TaskCompleted' }
+            [pscustomobject]@{ Component = 'psm'; Stage = 'register'; Event = 'VaultWaiting' }
+            [pscustomobject]@{ Component = 'pta'; Stage = ''; Event = 'ComponentWaiting' })
+        $components = @(
+            [pscustomobject]@{ Id = 'psm'; Type = 'PSM'; Status = 'Running'; Message = '' }
+            [pscustomobject]@{ Id = 'pta'; Type = 'PTA'; Status = 'Pending'; Message = '' })
+        $snapshot = [pscustomobject]@{ Status = 'Running'; Events = $events; Components = $components }
+        $rows = (Get-PASUIRunProgress -Snapshot $snapshot -Catalog @{ PSM = 10; PTA = 7 }).Components
+        $rows[0].Waiting | Should -Match 'turn at the Vault'
+        $rows[1].Waiting | Should -Be 'Waiting for PVWA'
+        $state = New-PASUIState
+        $state.Run = $snapshot
+        Get-PASUIRunComponentsHtml $state @{ PSM = 10; PTA = 7 } | Should -Match 'Waiting for its turn at the Vault'
     }
     It 'offers the Advanced switch only on a page that has something more to show' {
         $state = New-PASUIState
