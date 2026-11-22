@@ -97,22 +97,23 @@ In this order. Each one: get it working from the prompt first, then add it to th
 
 ### 2.1 Active Directory and domain-joined components
 
-**Works today:** `Install-PASDomainController` creates a new forest (tested on Windows Server 2022).
+**Done on 2026-11-22** (in the source, not released): `New-PASLabConfiguration -DomainMode New|Existing`, the domain
+controller sets its own DNS, PVWA/CPM/PSM servers are joined before they are installed, the PSM install account
+becomes a local administrator of the PSM server, and a lab that creates its domain imports the vendor's hardening
+GPOs and applies them to the joined servers (owner's request of 2026-11-22). One lab with a new forest and joined
+PVWA, CPM and PSM installed unattended and is healthy. The window has the choice and the extra server line.
 
-**To do**
+**Left** (details in [STATUS.md](STATUS.md) 3.2):
 
-1. The domain controller must use itself as DNS server before the forest is created. Today that is a manual
-   step (`Recipes/ActiveDirectory/AD-Task.ps1` stops with instructions). Set it in the recipe.
-2. A domain option for a lab: `New-PASLabConfiguration` gets parameters for "create a new forest on this server"
-   and "use this existing domain". The configuration already has an `activeDirectory` section
-   (`Private/Config/Composition.ps1`); fill it.
-3. Join PVWA, CPM and PSM to the domain before they are installed (the servers reboot once), with DNS pointing
-   to the domain controller. PSM registered with domain accounts where the vendor asks for it
-   (`registerpsmwithdomain`). The Vault servers are never joined.
-4. Window: one choice on the Lab step (no domain / new domain / existing domain) and one more server line.
-
-**Done when:** one lab with a new forest and domain-joined PVWA, CPM and PSM installs unattended, and the lab
-check is healthy.
+- [ ] Run the window with a new domain against real servers (only the simulated installation was walked).
+- [ ] Try `-DomainMode Existing` against a domain that was not created by this tool. Decide with the owner whether
+      the GPOs should be imported there too, and with which account.
+- [ ] Use the vendor's in-domain hardening variants on joined servers (`CPM_In_Domain_Hardening.ps1`, PVWA without
+      its INF step), so that the local template and the GPO do not both set the same things.
+- [ ] A GPO for a server that holds PSM together with CPM ("Unified" backup in the PSM package).
+- [ ] `registerpsmwithdomain`: PSM is registered with local PSMConnect users, as in a workgroup. Domain users for
+      PSM were not needed for a healthy lab and are not set up.
+- [ ] `Test-PASHealth` should also look at the services, not only at the Vault's "logged on" flag.
 
 ### 2.2 HTML5 Gateway
 

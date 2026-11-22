@@ -20,6 +20,7 @@ Tested on real servers, from clean operating systems, without any manual step.
 | PSMP on Ubuntu 24.04 | 15.0 and 15.2 |
 | PSMP on Rocky Linux 9.9 (RHEL 9 package) | 15.2, once |
 | New Active Directory forest (`Install-PASDomainController`) | Windows Server 2022 |
+| Lab with a new domain *(not released)*: new forest, PVWA + CPM server and PSM server joined, Vault, PVWA, CPM, PSM, then the CyberArk hardening GPOs of the vendor packages imported, linked and applied (`New-PASLabConfiguration -DomainMode New`) | 15.2 on Windows Server 2022, 2026-11-22, once from clean servers in one run: 36 minutes, lab check Healthy; after a restart of the joined servers all services came up again and the check stayed Healthy |
 | Whole lab in one run (`Install-PASLab`) | 15.0: 42 minutes; 15.2: 43 minutes; health check Healthy |
 | Two instances of each component in one run (2 x PVWA, CPM, PSM, PSMP) | 15.2, once: 62 minutes, health check Healthy with 2/2 PVWA, 2/2 CPM, 4/4 PSM and PSMP |
 | Media as single ZIPs or as the one full bundle ZIP | 15.0 single ZIPs, 15.2 bundle |
@@ -58,11 +59,23 @@ never been run. What it needs:
 
 ### 3.2 Active Directory and domain-joined components
 
-`Install-PASDomainController` creates a forest and was tested. Missing:
+A lab with a new domain works (see the table in section 1). What is left:
 
-- an option of `New-PASLabConfiguration` (and of the desktop) to create or use a domain;
-- joining PVWA, CPM and PSM to it, and a run that proves it;
-- the domain controller must use itself as DNS server before the forest is created (today a manual step).
+- **Existing domain** (`-DomainMode Existing`): the servers join through a DNS server of the domain with a domain
+  account. Only the join itself ran in the lab (a PSM server joined the lab's own domain that way and PSM was
+  installed on it); a domain that this tool did not create was not tried. The hardening GPOs are not imported
+  into an existing domain: its administrators do that.
+- **GPO and the vendor's local hardening together.** On a joined server the vendor scripts still apply their local
+  security template where the vendor offers an in-domain variant instead (`CPM_In_Domain_Hardening.ps1`; the INF
+  step of `PVWA_Hardening.ps1`). The GPO wins where both set the same thing. PSM already skips its out-of-domain step.
+- **Role combinations without a vendor GPO choice:** a server with PSM and another component gets no GPO (there is a
+  "Unified" PSM + CPM backup in the PSM package; not used yet).
+- **Window with a domain:** the choice on the Lab step and the extra line on the Servers step were walked with the
+  simulated installation only, not with real servers.
+- **`Test-PASHealth` trusts the Vault's "logged on" flag.** A component whose service is stopped can still be
+  shown as connected for a while (seen on 2026-11-22 with a PSM service that could not start).
+- The firewall of a joined server is turned on by the GPOs. The installer adds one rule before that
+  ("PASeasyInstall management (WinRM)", its own management port, program System). It stays after the installation.
 
 ### 3.3 PTA
 

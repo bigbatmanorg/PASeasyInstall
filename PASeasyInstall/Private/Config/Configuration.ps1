@@ -221,6 +221,7 @@ function Test-PASConfiguration {
         if (-not $domainDns.Count -or @($domainDns | Where-Object { -not [Net.IPAddress]::TryParse([string]$_, [ref]$parsed) }).Count) {
             $issues.Add('An existing domain needs the IPv4 address of one of its DNS servers (activeDirectory.dnsServers; -DomainControllerAddress)')
         }
+        $warnings.Add('Existing domain: the CyberArk hardening GPOs are not imported. They are in the Hardening folder of the PVWA, CPM and PSM packages ("In Domain"); import and link them in the domain yourself.')
     }
     if ($c.activeDirectory.mode -eq 'Create' -and
         @($c.components | Where-Object { $_.type -eq 'AD' }).Count -ne 1) { $issues.Add('AD mode Create requires one AD component') }

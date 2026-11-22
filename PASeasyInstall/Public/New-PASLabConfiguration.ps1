@@ -55,7 +55,9 @@ function New-PASLabConfiguration {
     None (default): the servers stay in their workgroup. New: a new Active Directory forest is created on the
     server at -DomainControllerAddress. Existing: an existing domain is used. With New and Existing the
     Windows servers of PVWA, CPM and PSM are joined to the domain before they are installed (they restart
-    once). Vault servers are never joined.
+    once). Vault servers are never joined. With New, the CyberArk hardening GPOs of the vendor packages are
+    imported into the new domain and applied to the joined servers after the installation. An existing
+    domain is not changed: import those GPOs there yourself.
     .PARAMETER DomainName
     DNS name of the domain, for example pam.lab.
     .PARAMETER DomainControllerAddress

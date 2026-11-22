@@ -193,8 +193,8 @@ function Get-PASUILabHtml {
     [void]$html.Append('<div class="card"><h2>Active Directory</h2><div class="choices">')
     $domains = @(
         @{ Id = 'None'; Title = 'No domain'; What = 'The servers stay as they are.' }
-        @{ Id = 'New'; Title = 'New domain'; What = 'One more server becomes the domain controller. PVWA, CPM and PSM servers join it.' }
-        @{ Id = 'Existing'; Title = 'A domain I already have'; What = 'PVWA, CPM and PSM servers join it.' }
+        @{ Id = 'New'; Title = 'New domain'; What = 'One more server becomes the domain controller. PVWA, CPM and PSM servers join it and get the CyberArk hardening GPOs.' }
+        @{ Id = 'Existing'; Title = 'A domain I already have'; What = 'PVWA, CPM and PSM servers join it. Its GPOs are not touched.' }
     )
     foreach ($domain in $domains) {
         $class = 'choice'
