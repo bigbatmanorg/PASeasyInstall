@@ -159,8 +159,9 @@ More: [Troubleshooting](https://bigbatmanorg.github.io/PASeasyInstall/troublesho
 | PSMP | PSM for SSH on Ubuntu 22.04/24.04 or RHEL-family 8/9 |
 | Active Directory | A new forest with DNS |
 
-You can install up to four instances of each component and put components together on one server. Components
-are installed one after the other. PTA and the PSM HTML5 Gateway can be part of a lab from 2.0.4 on (see `Docs/STATUS.md`).
+You can install up to four instances of each component and put components together on one server. The servers
+are installed at the same time; the steps that sign in to the Vault wait until it is installed and then run one
+at a time (`-ExecutionMode Sequential` installs one component after the other). PTA and the PSM HTML5 Gateway can be part of a lab from 2.0.4 on (see `Docs/STATUS.md`).
 
 ## How it works
 

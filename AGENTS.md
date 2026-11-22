@@ -34,8 +34,10 @@ use is at your own risk. Read `Docs/DESIGN.md` first: it explains the layout and
   repeated automatically. Resume reconciles the recorded attempt; only the operator repeats a step, by name
   (`Resume-PASRun -RetryStep`).
 - A successful process exit is not proof that a component works. Use the verify step and `Test-PASHealth`.
-- **Three locks only** (`PASeasyInstall/Private/Engine/Locks.ps1`): run lock, target lock, Vault mutex. Do not
-  add another coordination mechanism.
+- **Three locks only** (`PASeasyInstall/Private/Engine/Locks.ps1`): run lock, target lock, Vault mutex. A
+  parallel run adds only what lives inside its own controller process (`Private/Run/Lanes.ps1`): the signals
+  its lanes wait for and one short-lived mutex while they prepare shared files. Do not add another
+  coordination mechanism, and nothing that leaves files or outlives the controller.
 - **PTA, the HTML5 Gateway and the domain steps are normal recipes** (`Recipes/Pta`, `Recipes/Html5Gateway`,
   `Recipes/ActiveDirectory`). Keep it that way: a new component gets its own small recipe folder and a type
   name, not special cases in the controller.

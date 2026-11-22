@@ -62,7 +62,7 @@ installed, registered, hardened and verified on its own server.
 | **Active Directory** | A new forest with DNS on its own domain controller, for domain-joined lab scenarios. |
 
 Several instances of each component (up to four) and co-located components are chosen in the desktop or in the
-configuration. Components are installed one after the other.
+configuration. The servers are installed at the same time; the registrations with the Vault run one at a time.
 [Components in detail](components/index.md)
 
 ## Built to be trusted with your lab
