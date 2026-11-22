@@ -106,8 +106,8 @@ PVWA, CPM and PSM installed unattended and is healthy. The window has the choice
 **Left** (details in [STATUS.md](STATUS.md) 3.2):
 
 - [ ] Run the window with a new domain against real servers (only the simulated installation was walked).
-- [ ] Try `-DomainMode Existing` against a domain that was not created by this tool. Decide with the owner whether
-      the GPOs should be imported there too, and with which account.
+- [ ] Try `-DomainMode Existing` against a domain that was not created by this tool. The hardening GPOs are
+      imported only into a domain the lab creates (owner's decision of 2026-11-22); an existing domain is not changed.
 - [ ] Use the vendor's in-domain hardening variants on joined servers (`CPM_In_Domain_Hardening.ps1`, PVWA without
       its INF step), so that the local template and the GPO do not both set the same things.
 - [ ] A GPO for a server that holds PSM together with CPM ("Unified" backup in the PSM package).

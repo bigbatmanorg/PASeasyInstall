@@ -64,7 +64,7 @@ A lab with a new domain works (see the table in section 1). What is left:
 - **Existing domain** (`-DomainMode Existing`): the servers join through a DNS server of the domain with a domain
   account. Only the join itself ran in the lab (a PSM server joined the lab's own domain that way and PSM was
   installed on it); a domain that this tool did not create was not tried. The hardening GPOs are not imported
-  into an existing domain: its administrators do that.
+  into an existing domain, by the owner's decision: its administrators do that.
 - **GPO and the vendor's local hardening together.** On a joined server the vendor scripts still apply their local
   security template where the vendor offers an in-domain variant instead (`CPM_In_Domain_Hardening.ps1`; the INF
   step of `PVWA_Hardening.ps1`). The GPO wins where both set the same thing. PSM already skips its out-of-domain step.
