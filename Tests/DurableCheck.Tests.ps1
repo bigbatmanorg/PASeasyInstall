@@ -236,6 +236,7 @@ Describe 'Engine durable verifier recovery without action replay' {
         $journal = Get-Content (Join-Path $state 'durable001/fixture/state.json') -Raw | ConvertFrom-Json
         $journal.steps.install.actionAcknowledged | Should -BeTrue
         $journal.steps.install.status | Should -BeExactly Failed
+        $journal.steps.install.message | Should -Match 'Verification failed'
         $journal.steps.install.check.consumed | Should -BeTrue
         $actionId = $journal.steps.install.attemptId
         $oldCheck = $journal.steps.install.check.attemptId
@@ -251,6 +252,9 @@ Describe 'Engine durable verifier recovery without action replay' {
         $global:PAEasyDurableEngine.ActionCount | Should -Be 1
         $journal = Get-Content (Join-Path $state 'durable001/fixture/state.json') -Raw | ConvertFrom-Json
         $journal.steps.install.attemptId | Should -BeExactly $actionId
+        # The step succeeded after the resume: the error text of the first try is gone.
+        $journal.steps.install.status | Should -BeExactly Succeeded
+        [string]$journal.steps.install.message | Should -Not -Match 'failed'
         $journal.steps.install.check.attemptId | Should -Not -Be $oldCheck
         $global:PAEasyDurableEngine.Releases | Should -Be $global:PAEasyDurableEngine.Locks
         $null = & (Get-Module PASeasyInstall) { param(

@@ -76,6 +76,8 @@ function New-PASUIState {
 
         # Server check of the Servers step: running, and the configuration it passed for.
         Checking = $false
+        # An installation is being started in the background: the accounts it was started with, else $null.
+        Starting = $null
         # Accounts and Vault passwords of the installation started from this window (protected in memory),
         # so that "Try again" and "Check the lab" do not ask for them again while the window stays open.
         Kept = $null

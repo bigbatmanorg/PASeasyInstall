@@ -111,6 +111,14 @@ function Wait-PASUITestServerCheck {
     }
 }
 
+function Wait-PASUITestInstallStart {
+    # The installation is started in the background: let the window work until the run page is there.
+    $deadline = [datetime]::UtcNow.AddMinutes(5)
+    while ($S.Starting -and [datetime]::UtcNow -lt $deadline) {
+        $null = Wait-NativeHTMLKit -Application $app -TimeoutMilliseconds 250
+    }
+}
+
 function Invoke-PASUISelfTest {
     param([string]$ScenarioPath)
     $script:PASUITest = @{ Failures = 0; Log = ''; Snapshots = ''; ScreenshotScript = '' }
@@ -253,7 +261,11 @@ function Invoke-PASUITestWalk {
     Save-PASUISnapshot '5-review'
 
     Invoke-PASUIClick 'act-install'
+    $watch = [Diagnostics.Stopwatch]::StartNew()
     Invoke-PASUIClick 'dlg-confirm-yes'
+    Write-PASUITestLine ("INFO the window was free again {0:N1} seconds after Install" -f $watch.Elapsed.TotalSeconds)
+    Wait-PASUITestInstallStart
+    Write-PASUITestLine ("INFO the installation was started after {0:N0} seconds" -f $watch.Elapsed.TotalSeconds)
     Assert-PASUIShown 'view' ([regex]::Escape($labName)) 'run page'
     $typed = @($S.Slots.Values | Where-Object { $_.ContainsKey('Password') }).Count + $S.Secrets.Count
     if ($typed) {
