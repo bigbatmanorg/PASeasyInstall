@@ -17,7 +17,10 @@ function New-PASLabConfiguration {
     Existing: use a Vault that is already installed (-ExistingVaultAddress) and install components only.
     .PARAMETER Instances
     The component servers: @( @{ Type = 'PVWA'; Name = 'PVWA01'; Address = '192.0.2.21'; Username = '' } ).
-    Type is PVWA, CPM, PSM or PSMP (up to 4 of each). Name is the host name of the server; the
+    Type is PVWA, CPM, PSM, PSMP or HTML5GW (up to 4 of each). HTML5GW is the PSM HTML5 Gateway: a
+    container on a Linux server (Docker on Ubuntu, Podman on the RHEL family) that may share the server
+    of a PSMP; it needs a PVWA in the same lab and the PACLI package in the media.
+    Name is the host name of the server; the
     component id in the configuration is its lower-case form. Instances with the same address share
     one server, named after the first instance. Username is optional.
     Linux instances may carry IdentityFile and KnownHostsFile; otherwise the key of this controller
@@ -49,8 +52,8 @@ function New-PASLabConfiguration {
     self-signed WinRM certificates, RDP to the Vault from the controller, a self-signed PVWA
     certificate that CPM pins.
     .PARAMETER AcceptEula
-    Confirms that you read and accept the CyberArk end user license agreement of the PSMP installer.
-    Required when the lab contains a PSMP.
+    Confirms that you read and accept the CyberArk end user license agreement of the PSMP and HTML5 Gateway installers.
+    Required when the lab contains a PSMP or an HTML5 Gateway.
     .PARAMETER DomainMode
     None (default): the servers stay in their workgroup. New: a new Active Directory forest is created on the
     server at -DomainControllerAddress. Existing: an existing domain is used. With New and Existing the

@@ -118,6 +118,16 @@ imports and links them and moves the servers into `OU=<role>,OU=CyberArk`, `poli
 and checks that the GPO is applied and the management rule is still in force. The vendor GPOs ignore local
 firewall exceptions that name only a port; the rule therefore names the program (System) too.
 
+## HTML5 Gateway
+
+Component type `HTML5GW`, recipe `Recipes/Html5Gateway` (`Task.sh`, `Verify.sh`: unpack, container engine,
+`html5_console.sh install -l` and `run`, health page). After the components, `Invoke-PASGatewayRegistration`
+runs `Register-Gateway.ps1` on the first PVWA server (target `register-<gateway id>`,
+`Private/Config/GatewayRegistration.ps1`): PACLI retrieves `PVConfiguration.xml` from the Vault, the script adds
+`PSMGatewayServers/PSMGatewayServer` and a `PSMGateway` reference to every PSM server, stores the file, reads it
+back and restarts the PVWA application pool. PACLI runs from `C:\PASeasyInstallGateway`, a folder closed to
+everybody but SYSTEM and the administrators (the PACLI helper refuses `C:\ProgramData`).
+
 ## Known debt
 
 - What was tested, what is experimental and what comes later is in [STATUS.md](STATUS.md).

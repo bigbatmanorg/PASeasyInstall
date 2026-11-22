@@ -34,13 +34,13 @@ Tested on real servers, from clean operating systems, without any manual step.
 
 ## 2. Experimental
 
-Usable, but expect rough edges. The desktop shows PTA and HTML5 Gateway as not yet installable.
+Usable, but expect rough edges. The desktop shows PTA as not yet installable.
 
 | What | State |
 |---|---|
 | Desktop window (`Start-PASeasyInstall`) | Rewritten on 2026-11-21 directly on the NativeHTMLKit SDK: four steps, a page per installation, an Advanced switch. A real window installed a Full lab (15.2) on real servers, including a stop with an error, *Try again*, reopening the installation and the lab check. That run was driven by a script calling the same functions as the buttons; clicking through by hand was only done with the simulated installation. Drag and drop of media is not tested by hand. Since 2026-11-22 *(not released)* the installation is started in the background: with the real installer and a window without a display (scripted walk), the window was free at once and the installation of a PVWA and a PSMP (15.2) for an existing Vault had started 4 seconds later; it finished in 11 minutes and the lab check from the window was Healthy. Not yet seen in a visible window. |
 | PTA | Not in the module yet. Proven by hand: the 15.2 installer installs on Rocky Linux 9.9 with 8 GB RAM and 4 cores (the documented 16 GB / 8 cores are not enforced). Connecting it to the Vault and PVWA is not done: the installer's REST sign-in only works with SELinux in permissive mode, and the configuration call that worked on 15.0 returns 404 on 15.2. |
-| HTML5 Gateway | Not in the module yet. Investigated only: container or RPM install, 2 cores / 4 GB, can share a server with PSMP in theory. Only the 15.0 package can be tested: the 15.2 package in the media bundle is truncated. |
+| HTML5 Gateway (component type `HTML5GW`) *(not released)* | Installs with `html5_console.sh` from the 15.0 package on Ubuntu 24.04 (Docker), on the PSMP server, 4 GB. 2026-11-22, one lab from clean servers (15.2 Vault, PVWA, CPM, PSM, PSMP; gateway 15.0): the gateway step took about two minutes, its health page answers 200, PVWA has the gateway entry for the PSM server, lab check Healthy. The controller process of that run crashed once during the Vault upload (Windows PowerShell remoting exception on the shared controller VM); `Resume-PASRun` continued it without any other step by hand. Not done: a PSM session opened in a browser through the gateway |
 
 ## 3. Next (roadmap after 2.0.0)
 
@@ -94,10 +94,25 @@ Not in the module. Known from the 2026-11-21 tests:
 
 ### 3.4 HTML5 Gateway
 
-Not in the module. Known: a Linux gateway (container on Ubuntu or RHEL-family, or an RPM on RHEL-family with
-Tomcat), 2 cores and 4 GB, it must trust the PVWA and PSM certificates and needs its own; it can share a
-server with PSMP in theory. Only the 15.0 package can be used: the 15.2 package in the media bundle is cut
-short and has to be downloaded again.
+Installs as a container with the vendor's own script (see the table in section 2). What is left:
+
+- **A session in the browser was not opened.** That is the last proof and needs a person: sign in to PVWA, connect
+  to an account through PSM and choose the HTML5 connection. The browser must resolve the PVWA name and the
+  gateway name (hosts entries), and it will warn about the gateway's own certificate.
+- **Certificate of the gateway:** the container makes its own for its host name. A certificate of your own is
+  not supported yet (the container takes one through the settings GWCert, GWKey and GWCAFile).
+- **PSM certificate:** in the Lab profile the gateway does not check the certificate of the PSM server
+  (`IgnorePSMCertificateErrors`). The Secure profile was not run.
+- **Only in a lab that also installs a PVWA:** the gateway is entered into the PVWA configuration from a PVWA
+  server of the same run. Adding a gateway later to an installed lab is not possible yet.
+- **Registration by PACLI.** The vendor has no tool for the PVWA entry. The installer takes `PVConfiguration.xml`
+  from the Vault safe `PVWAConfig` with PACLI (on the PVWA server), adds the gateway and the reference in every
+  PSM server entry, stores it and restarts the PVWA application. All PSM servers get the last gateway.
+- **RHEL family (Podman):** the recipe has that branch, taken from the vendor script; only Ubuntu 24.04 with
+  Docker was run.
+- **Media:** the 15.2 gateway package inside the 15.2 bundle is cut short; the unpack step says so. With that
+  bundle in the media folder the 15.0 package has to be chosen by hand (`$media.HTML5GW = ...`), because the
+  higher version wins. In the window this cannot be chosen yet.
 
 ### 3.5 Smaller items
 

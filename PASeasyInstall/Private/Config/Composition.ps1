@@ -116,7 +116,7 @@ function New-PASDeploymentConfiguration {
     Composes one deployment configuration: Vault (Primary, Primary + DR, or an existing Vault) and any
     number of component instances. Nothing is contacted or installed.
     .PARAMETER Instances
-    @( @{Type='PVWA';Name='PVWA01';Address='10.0.0.21';Username=''} ). Type PVWA|CPM|PSM|PSMP
+    @( @{Type='PVWA';Name='PVWA01';Address='10.0.0.21';Username=''} ). Type PVWA|CPM|PSM|PSMP|HTML5GW
     (up to 4 of each). Name is the server hostname shown in the UI; the configuration id is its lowercase
     form. Instances with the same address share one server, named after the first instance.
     Linux instances may carry IdentityFile/KnownHostsFile; otherwise the controller's per-environment

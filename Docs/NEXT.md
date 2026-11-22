@@ -117,25 +117,17 @@ PVWA, CPM and PSM installed unattended and is healthy. The window has the choice
 
 ### 2.2 HTML5 Gateway
 
-**Known:** a Linux gateway that lets users open PSM sessions in the browser. 2 cores and 4 GB are enough. It can
-share the server with PSMP. Vendor pages: "Install PSM HTML5 Gateway" (container and RPM).
+**Done on 2026-11-22** (in the source, not released): component type `HTML5GW` (container with the vendor script,
+Docker on Ubuntu), the lab PVWA certificate in its trust folder, registration in the PVWA configuration, the
+health page as verification, one more component in the window. Results and limits: [STATUS.md](STATUS.md) 3.4.
 
-**Media:** use the 15.0 package. The 15.2 package inside the 15.2 bundle is cut short (it ends inside the
-container image); ask the owner for a fresh download before testing 15.2.
+**Left**
 
-**To do**
-
-1. New component type in the Linux recipes. Take the container path: `html5_console.sh install -l`, then
-   `html5_console.sh run` with a certificate folder and the environment values (`AcceptCyberArkEULA`,
-   `EndPointAddress` = PVWA URL, gateway certificate and key). Docker on Ubuntu, Podman on RHEL-family.
-2. Certificates: the gateway needs its own, and must trust the PVWA and PSM certificates. In the Lab profile,
-   reuse the lab PVWA certificate that is saved with the run, and `IgnorePSMCertificateErrors` is acceptable.
-3. Register the gateway for the PSM server in PVWA (PVWA configuration of the PSM server).
-4. Verify: `https://<gateway>/guac/rest/healthcheck` answers 200.
-5. Window: one more component on the Lab step, on the PSMP server by default.
-
-**Done when:** a lab with PSM and the gateway installs unattended, the health URL answers, and a PSM session
-opens in a browser through the gateway (this last check can be manual).
+- [ ] Open a PSM session in a browser through the gateway (by hand; see STATUS.md 3.4 for what the browser needs).
+- [ ] Ask the owner for a complete 15.2 gateway package; then let the media selection skip a package that is cut short.
+- [ ] Run it on a RHEL-family server (Podman).
+- [ ] A gateway certificate of your own (with the Secure profile, 2.3).
+- [ ] Add a gateway to a lab that is installed already.
 
 ### 2.3 Secure profile
 
