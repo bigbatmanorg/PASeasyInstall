@@ -216,7 +216,10 @@ function Get-PASComponentStageNames {
         # ("it's possible to perform hardening before registration") and uses it in its own automation. So a
         # server does everything that needs no Vault first, and only the registrations wait for the Vault.
         'PVWA' { return @('Certificate', 'Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Harden', 'Register', 'Verify') }
-        'CPM' { return @('Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Harden', 'Register', 'Verify') }
+        # CPM is the exception: its hardening switches the CPM services to a local user and starts them, and the
+        # scanner service of a CPM that is not registered does not start (lab, 15.2, 2026-11-22). So CPM
+        # registers first, as in the vendor's default order.
+        'CPM' { return @('Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Register', 'Harden', 'Verify') }
         'PSM' { return @('Extract', 'Prerequisites', 'Install', 'PostInstall', 'Harden', 'Register', 'Verify') }
         'HTML5GW' { return @('Extract', 'Prerequisites', 'Install', 'Verify') }
         'PTA' { return @('Extract', 'Prerequisites', 'Install', 'Register', 'Verify') }

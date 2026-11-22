@@ -343,8 +343,29 @@ function Invoke-PASeasyPsmStage {
         $outOfDomain[0].SetAttribute('Enable', $(if ($joined) { 'No' }else { 'Yes' }))
     }
     if ($parameters.Count -or $Stage -eq 'Harden') { $xml.Save($xmlPath) }
-    if ($Stage -eq 'Harden' -and
-        -not [bool]$Settings.ApplyHardening) { throw 'PSM hardening waiver must be handled by the scoped policy, not marked as vendor success' }
+    if ($Stage -eq 'Harden' -and -not [bool]$Settings.ApplyHardening) {
+        # Lab configuration with -SkipHardening: the vendor hardening is not run. The checkpoint says so, so
+        # that the stages after it and the checks know that this server is not hardened.
+        New-Item -Path $markers -ItemType Directory -Force | Out-Null
+        $skipRecord = @{
+            schemaVersion = 2
+            restartCount = 0
+            stage = $Stage
+            vendorStage = $vendorStage
+            utc = [DateTime]::UtcNow.ToString('o')
+            bootUtc = $boot
+            restartRequired = $false
+            skipped = $true
+            configSha256 = (Get-FileHash -LiteralPath $xmlPath -Algorithm SHA256).Hash
+            message = 'Hardening skipped by the lab configuration (SkipHardening)'
+        }
+        [IO.File]::WriteAllText($marker, ($skipRecord | ConvertTo-Json -Depth 5), [Text.UTF8Encoding]::new($false))
+        return [pscustomobject]@{
+            Changed = $false
+            Data = @{RebootRequired = $false }
+            Message = 'PSM hardening skipped by the lab configuration (SkipHardening)'
+        }
+    }
     Protect-PASeasyPsmTempDirectory -AuditRoot $markers
     Assert-PASeasyPsmTlsBackupTrusted
     $arguments = @{
@@ -372,7 +393,9 @@ function Invoke-PASeasyPsmStage {
     if ($null -eq $result.PSObject.Properties['restartRequired']) { throw 'PSM vendor result lacks restartRequired; cannot schedule safe continuation' }
     if ($result.restartRequired -isnot [bool]) { throw 'PSM vendor restartRequired must be a JSON boolean' }
     $restart = $result.restartRequired
-    if ($Stage -eq 'PostInstall') { Set-PASeasyPsmRdpTls }
+    # The RDP listener gets TLS once hardening has raised its encryption level; post-installation runs
+    # before hardening (the vendor's order), registration after it.
+    if ($Stage -eq 'Harden' -or ($Stage -eq 'Register' -and [bool]$Settings.ApplyHardening)) { Set-PASeasyPsmRdpTls }
     if ($Stage -in @('Harden', 'PostInstall')) { Assert-PASeasyPsmTlsRestored }
     New-Item -Path $markers -ItemType Directory -Force | Out-Null
     $record = @{
@@ -421,7 +444,9 @@ function Invoke-PASeasyPsmVerify {
             Evidence = @('Exactly one Execute-Stage.ps1 required')
         }
     }
-    $checkStage = if ($Stage -eq 'Verify') { 'PostInstall' }else { $Stage }
+    # Registration is the last stage of the vendor's sequence: the final check reads its checkpoint.
+    $checkStage = if ($Stage -eq 'Verify') { 'Register' }else { $Stage }
+    $hardened = [bool]$Settings.ApplyHardening
     if (-not $stageNames.Contains($checkStage)) { throw "Unsupported PSM verification stage $Stage" }
     $marker = Join-Path (Join-Path $root 'stage') ($checkStage + '.json')
     if (-not(Test-Path -LiteralPath $marker -PathType Leaf)) {
@@ -437,7 +462,7 @@ function Invoke-PASeasyPsmVerify {
             (Get-FileHash -LiteralPath $xml -Algorithm SHA256).Hash -ne $record.configSha256) { $issues += 'PSM vendor configuration changed after checkpoint' }
     }
     if ($record.restartRequired) {
-        if ($Stage -eq 'Verify') { $issues += 'PSM post-install still requires reboot and continuation' }
+        if ($Stage -eq 'Verify') { $issues += 'PSM registration still requires reboot and continuation' }
         $evidence += 'Vendor checkpoint succeeded; reboot and same-stage continuation remain required; installation not yet proven'
     } elseif ($Stage -in @('Install', 'Verify')) {
         $services = @(Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'Cyber-?Ark.*(PSM|Privileged Session Manager)' -or $_.DisplayName -match 'Cyber-?Ark.*(PSM|Privileged Session Manager)' })
@@ -458,7 +483,10 @@ function Invoke-PASeasyPsmVerify {
         Assert-PASeasyPsmTempDirectory
         $evidence += 'Vendor temp root creation restricted; child permissions preserved'
     } catch { $issues += 'PSM vendor temp root isolation not confirmed' }
-    if ($Stage -eq 'Verify') {
+    if ($Stage -eq 'Verify' -and -not $hardened) {
+        $evidence += 'Hardening skipped by the lab configuration (SkipHardening): RDP listener TLS NotTested'
+    }
+    if ($Stage -eq 'Verify' -and $hardened) {
         try {
             Assert-PASeasyPsmRdpTransport
             $evidence += 'PSM ticket RDP listener: NLA disabled per vendor prerequisite; TLS layer 2 required'

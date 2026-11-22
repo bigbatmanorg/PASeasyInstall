@@ -39,6 +39,7 @@ $script:PASUIStageNames = @{
     'extract' = 'Unpacking the installer'
     'prerequisites' = 'Preparing the server'
     'install' = 'Installing'
+    'certificate' = 'Creating the HTTPS certificate'
     'configuretls' = 'Setting up HTTPS'
     'register' = 'Registering with the Vault'
     'harden' = 'Hardening'
