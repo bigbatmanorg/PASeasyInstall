@@ -232,71 +232,95 @@ function Show-PASUIRunList {
 # ------------------------------------------------------------------ step 1: media
 
 function Add-PASUIMediaPage {
+    # Media is added by path only: a folder or files chosen in a dialog, or a path typed or pasted.
     param($Page)
-    $drop = New-Object Windows.Controls.Border
-    $drop.BorderBrush = Get-PASUIBrush 'LineStrong'
-    $drop.BorderThickness = '1'
-    $drop.CornerRadius = '8'
-    $drop.Background = Get-PASUIBrush 'Input'
-    $drop.Padding = '16,18'
-    $drop.Margin = '0,0,0,14'
-    $dropText = New-Object Windows.Controls.StackPanel
-    $dropText.HorizontalAlignment = 'Center'
-    $headline = New-PASUIText 'Drop the media folder or the ZIP files here' -Bold
-    $headline.HorizontalAlignment = 'Center'
-    $second = New-PASUIText 'or type the folder below' 'Hint'
-    $second.HorizontalAlignment = 'Center'
-    Add-PASUIChild $dropText @($headline, $second)
-    $drop.Child = $dropText
-
     $line = New-Object Windows.Controls.DockPanel
-    $scan = New-PASUIButton 'act-scan' 'Look for installers' 'Primary' -Margin '0,22,0,0'
-    [Windows.Controls.DockPanel]::SetDock($scan, 'Right')
-    $browse = New-PASUIButton 'act-browse' 'Browse' 'Btn' -Margin '0,22,10,0'
-    [Windows.Controls.DockPanel]::SetDock($browse, 'Right')
-    $path = New-PASUITextBox 'f-mediapath' ([string]$S.MediaPath) 'Media folder' -Placeholder 'For example D:\CyberArkMedia'
+    $add = New-PASUIButton 'act-media-add' 'Add' 'Primary' -Margin '0,22,0,0' -Label 'Add this path'
+    [Windows.Controls.DockPanel]::SetDock($add, 'Right')
+    $path = New-PASUITextBox 'f-mediapath' ([string]$S.MediaPath) 'Path of a folder or a file' -Placeholder 'For example D:\CyberArkMedia or D:\Licenses\license.xml'
     $R['MediaPathBox'] = $path
-    Add-PASUIChild $line @($scan, $browse, (New-PASUIField 'Media folder' $path -Margin '0'))
+    Add-PASUIChild $line @($add, (New-PASUIField 'Path of a folder or a file' $path -Margin '0,0,10,0'))
+    $pick = New-PASUIRow @(
+        (New-PASUIButton 'act-browse' 'Choose a folder...' 'Btn'),
+        (New-PASUIButton 'act-browse-files' 'Choose files...' 'Btn')
+    ) -Margin '0,12,0,0'
+
+    $bullet = [string][char]0x2022 + ' '
+    $looksFor = New-PASUICard 'What the window looks for' @(
+        (New-PASUIText 'You do not have to sort anything. Add every place where a part of the media lies, one after the other. The window looks through all of them and works out which file is what:' 'Hint' -Margin '0,0,0,8'),
+        (New-PASUIText ($bullet + 'the installers of the Vault, PVWA, CPM, PSM, PSMP and the other components: the one big ZIP from CyberArk, or the separate ZIP files') -Brush 'TextSoft' -Margin '0,2,0,2'),
+        (New-PASUIText ($bullet + 'the Vault license (license.xml)') -Brush 'TextSoft' -Margin '0,2,0,2'),
+        (New-PASUIText ($bullet + 'the recovery public key (recpub.key), from your operator keys') -Brush 'TextSoft' -Margin '0,2,0,2'),
+        (New-PASUIText ($bullet + 'the Visual C++ runtimes for the Vault (also taken from the PVWA, CPM or PSM package)') -Brush 'TextSoft' -Margin '0,2,0,2'),
+        (New-PASUIText 'A folder is searched four levels deep. ZIP files are looked into; nothing is unpacked, moved or changed.' 'Hint' -Margin '0,8,0,0')
+    )
 
     Add-PASUIChild $Page @(
         (New-PASUIText 'Where is the installer media?' 'H1'),
-        (New-PASUIText 'The folder with what you downloaded from CyberArk (the one big ZIP or the separate ZIPs), your license file and the recovery public key.' 'Lead' -Margin '0,0,0,18'),
-        (New-PASUICard -Content @($drop, $line, (New-PASUIRegion 'MediaSources'))),
-        (New-PASUIRegion 'MediaResult')
+        (New-PASUIText 'What you downloaded from CyberArk, your license file and your keys. They can lie in different places: add as many folders and single files as you need.' 'Lead' -Margin '0,0,0,18'),
+        (New-PASUICard 'Add a folder or a file' @($line, $pick)),
+        (New-PASUIRegion 'MediaSources'),
+        (New-PASUIRegion 'MediaResult'),
+        $looksFor
     )
     Show-PASUIMediaSources
     Show-PASUIMediaResult
 }
 
 function Show-PASUIMediaSources {
-    # The files and folders that were dropped, with a button to forget them.
-    $sources = @($S.MediaSources)
-    if (-not $sources.Count) {
+    # The folders and files that were added, each with what was found in it and a button to remove it.
+    $rows = @(Get-PASUIMediaSourceRows $S)
+    if (-not $rows.Count) {
         Set-PASUIRegion 'MediaSources'
         return
     }
-    $content = @((New-PASUIText 'Also used:' 'Hint' -Margin '0,12,0,4'))
-    foreach ($source in $sources) {
-        $content += New-PASUIText ([string]$source) -Brush 'TextSoft' -Margin '0,1,0,1'
+    $grid = New-PASUIGrid @('*', 'Auto')
+    $number = 0
+    foreach ($row in $rows) {
+        $what = New-Object Windows.Controls.StackPanel
+        $what.Margin = '0,5,14,5'
+        $found = 'Being looked through...'
+        if ($S.MediaScanned) {
+            $found = 'Nothing recognised here'
+            if ($row.Count) {
+                $found = 'Found here: ' + ($row.Labels -join ', ')
+            }
+        }
+        $note = New-PASUIText $found 'Hint'
+        if ($S.MediaScanned -and $row.Missing) {
+            $note = New-PASUIText 'This folder or file does not exist. Remove it and add the right path.' -Brush 'BadFg'
+        }
+        Add-PASUIChild $what @((New-PASUIText ([string]$row.Path)), $note)
+        $remove = New-PASUIButton ('act-media-remove-' + [string]$row.Index) 'Remove' 'Small' -Margin '0,5,0,5' -Label ('Remove ' + [string]$row.Path)
+        $remove.VerticalAlignment = 'Top'
+        Add-PASUICell $grid $what $number 0
+        Add-PASUICell $grid $remove $number 1
+        $number++
     }
-    $content += New-PASUIButton 'act-media-clear' 'Remove these' 'Small' -Margin '0,8,0,0'
-    $content[-1].HorizontalAlignment = 'Left'
-    Set-PASUIRegion 'MediaSources' $content
+    $title = 'Where the window looks (' + [string]$rows.Count + ')'
+    Set-PASUIRegion 'MediaSources' @((New-PASUICard $title @($grid)))
 }
 
 function Show-PASUIMediaResult {
-    # What was recognised in the media folder, one line per kind of installer.
+    # What was recognised in everything that was added: one line per kind of media, with the place it came from.
+    if ($S.Scanning) {
+        Set-PASUIRegion 'MediaResult' @((New-PASUIBox 'busy' 'Looking for installers.' 'Folders and ZIP files are looked through. This takes a few seconds.'))
+        return
+    }
     if (-not $S.MediaScanned) {
         Set-PASUIRegion 'MediaResult'
         return
     }
     $rows = @(Get-PASUIMediaRows $S)
     if (-not @($rows | Where-Object { $_.Found }).Count) {
-        Set-PASUIRegion 'MediaResult' @((New-PASUIBox 'bad' 'No CyberArk installer was recognised in that folder.' 'Check that it is the folder with the ZIP files as downloaded, not an unpacked copy.'))
+        Set-PASUIRegion 'MediaResult' @((New-PASUIBox 'bad' 'No CyberArk installer was recognised.' 'Add the folder with the ZIP files as downloaded from CyberArk, not an unpacked copy.'))
         return
     }
-    $grid = New-PASUIGrid @('Auto', '*')
-    $number = 0
+    $grid = New-PASUIGrid @('Auto', '2*', '3*')
+    Add-PASUICell $grid (New-PASUIText ' ' 'ColHead' -Margin '0,0,14,6') 0 0
+    Add-PASUICell $grid (New-PASUIText 'What' 'ColHead' -Margin '0,0,14,6') 0 1
+    Add-PASUICell $grid (New-PASUIText 'Found in' 'ColHead' -Margin '0,0,0,6') 0 2
+    $number = 1
     foreach ($row in $rows) {
         $pill = New-PASUIPill 'not found' 'idle'
         if ($row.Found) {
@@ -305,18 +329,32 @@ function Show-PASUIMediaResult {
         $pill.Margin = '0,5,14,5'
         $pill.VerticalAlignment = 'Top'
         $what = New-Object Windows.Controls.StackPanel
-        $what.Margin = '0,4,0,4'
+        $what.Margin = '0,4,14,4'
         Add-PASUIChild $what @((New-PASUIText ([string]$row.Label)))
         if ([string]$row.Detail) {
             Add-PASUIChild $what @((New-PASUIText ([string]$row.Detail) 'Hint'))
         }
+        $where = New-Object Windows.Controls.StackPanel
+        $where.Margin = '0,4,0,4'
+        if ([string]$row.Source) {
+            Add-PASUIChild $where @((New-PASUIText ([string]$row.Source) -Brush 'TextSoft'))
+            if ([string]$row.Inside) {
+                Add-PASUIChild $where @((New-PASUIText ('inside ' + [string]$row.Inside) 'Hint'))
+            }
+        }
         Add-PASUICell $grid $pill $number 0
         Add-PASUICell $grid $what $number 1
+        Add-PASUICell $grid $where $number 2
         $number++
     }
-    Set-PASUIRegion 'MediaResult' @((New-PASUICard 'Found in this folder' @(
-                $grid,
-                (New-PASUIText 'Parts that are not found can simply be left out of the lab on the next step.' 'Hint' -Margin '0,8,0,0'))))
+    $content = @((New-PASUICard 'What was found' @($grid)))
+    $missing = @(Get-PASUIMissingMedia $S)
+    if ($missing.Count) {
+        $content += New-PASUIBox 'warn' 'Not found yet for the lab that is chosen:' 'Add the folder or file that holds them, or leave these parts out of the lab on the next step.' $missing
+    } else {
+        $content += New-PASUIBox 'ok' 'Everything the chosen lab needs was found.' 'You can still add more. Parts that are not found can be left out of the lab on the next step.'
+    }
+    Set-PASUIRegion 'MediaResult' $content
 }
 
 # ------------------------------------------------------------------ step 2: lab
@@ -327,7 +365,7 @@ function Add-PASUILabPage {
     foreach ($preset in Get-PASUIPresets) {
         $note = ''
         if ($preset.Counts) {
-            $copy = @{ VaultMode = $preset.VaultMode; Counts = $preset.Counts; Colocate = $true }
+            $copy = @{ VaultMode = $preset.VaultMode; Counts = $preset.Counts; Colocate = [bool]$S.Colocate; Domain = 'None' }
             $note = [string]@(Get-PASUIServerSlots $copy).Count + ' servers'
         }
         $badge = ''
@@ -343,6 +381,12 @@ function Add-PASUILabPage {
     )
     if ($S.Preset -eq 'custom') {
         Add-PASUIChild $Page @((New-PASUICustomLabCard))
+    }
+    if ([int]$S.Counts.PVWA -gt 0 -and [int]$S.Counts.CPM -gt 0) {
+        # In every lab that has both: CPM next to PVWA, or on a server of its own.
+        Add-PASUIChild $Page @((New-PASUICard 'Server for CPM' @(
+                    (New-PASUICheck 'f-colocate' 'Install CPM on the PVWA server (one server less)' ([bool]$S.Colocate)),
+                    (New-PASUIText 'Switch it off to give CPM a server of its own. The Servers step then has one more line.' 'Hint' -Margin '0,6,0,0'))))
     }
 
     $domains = New-Object Windows.Controls.WrapPanel
@@ -409,8 +453,7 @@ function New-PASUICustomLabCard {
         $modes,
         (New-PASUIText 'Components' 'H2' -Margin '0,6,0,6'),
         $grid,
-        (New-PASUIText "Up to $max of each. Two of each were tested; the Vault license decides how many can register." 'Hint' -Margin '0,6,0,0'),
-        (New-PASUICheck 'f-colocate' 'Install CPM on the PVWA server (one server less)' ([bool]$S.Colocate))
+        (New-PASUIText "Up to $max of each. Two of each were tested; the Vault license decides how many can register." 'Hint' -Margin '0,6,0,0')
     )
 }
 
@@ -498,7 +541,10 @@ function Add-PASUIServersPage {
                     (New-PASUIRow @(
                             (New-PASUIField 'User name' (New-PASUITextBox 'f-installer-name' ([string]$S.InstallerName) 'User name' 220)),
                             (New-PASUIField 'Company' (New-PASUITextBox 'f-installer-company' ([string]$S.InstallerCompany) 'Company' 220)))),
-                    (New-PASUIText 'What the CyberArk installers record as registered user and company. Empty: the CyberArk defaults.' 'Hint')))
+                    (New-PASUIText 'What the CyberArk installers record as registered user and company. Empty: the CyberArk defaults.' 'Hint'))),
+            (New-PASUICard 'Hardening' @(
+                    (New-PASUICheck 'f-hardening' 'Apply the vendor hardening' ([bool]$S.Hardening)),
+                    (New-PASUIText 'On: every server is hardened the way CyberArk prescribes (the Vault firewall and services, PVWA, CPM, PSM, PSMP, and the hardening GPOs of a new domain). Switch it off only for tests that need servers without these security settings: everything is installed and registered, nothing is hardened.' 'Hint' -Margin '0,6,0,0')))
         )
         if ([int]$S.Counts['PTA'] -gt 0) {
             Add-PASUIChild $Page @((New-PASUICard 'PTA' @((New-PASUIField 'Time zone of the Vault server' (New-PASUITextBox 'f-vault-timezone' ([string]$S.VaultTimezone) 'Time zone of the Vault server' 220 -Placeholder 'UTC') `
@@ -612,6 +658,9 @@ function Add-PASUIReviewPage {
         (New-PASUIText "This is what will be installed. It takes about $minutes minutes and needs no attention while it runs." 'Lead' -Margin '0,0,0,18'),
         (New-PASUICard -Content @($grid))
     )
+    if (-not $S.Hardening) {
+        Add-PASUIChild $Page @((New-PASUIRegion 'ReviewHardening' @((New-PASUIBox 'warn' 'The servers will NOT be hardened.' 'You switched off "Apply the vendor hardening". The components are installed and registered, but the Vault, PVWA, CPM, PSM and PSMP servers keep their unhardened settings. Use such a lab for tests only.'))))
+    }
     $warnings = @($check.Warnings | Where-Object { $_ })
     if ($warnings.Count) {
         Add-PASUIChild $Page @((New-PASUIBox 'warn' "Lab shortcuts in use ($($warnings.Count))." 'Fine for a lab, not for production.' $warnings))
@@ -662,8 +711,8 @@ function Add-PASUIRunPage {
     Add-PASUIChild $Page @(
         (New-PASUIRegion 'RunStatus'),
         (New-PASUICard -Content @((New-PASUIRegion 'RunComps'))),
-        $logCard,
-        (New-PASUIRegion 'RunAdvanced')
+        (New-PASUIRegion 'RunAdvanced'),
+        $logCard
     )
     Show-PASUIRunParts
 }
@@ -840,7 +889,10 @@ function Show-PASUIRunAdvanced {
         return
     }
     $id = [string]$S.Run.RunId
-    $content = @((New-PASUIPre ("Get-PASRun -RunId $id`nGet-PASRunEvent -RunId $id -Failed`nResume-PASRun -RunId $id`nExport-PASDiagnostics -RunId $id")))
+    $content = @(
+        (New-PASUIText 'Follow, continue or stop this installation from a PowerShell prompt on this computer. It keeps running when the window is closed.' 'Hint' -Margin '0,0,0,6'),
+        (New-PASUIPre ("Get-PASRun -RunId $id`nGet-PASRunEvent -RunId $id -Failed`nResume-PASRun -RunId $id`nStop-PASRun -RunId $id`nExport-PASDiagnostics -RunId $id -Path .\logs.zip"))
+    )
     if (Test-PASUIRunActive ([string]$S.Run.Status)) {
         $stop = New-PASUIButton 'act-stop' 'Stop the installation' 'Danger' -Margin '0,12,0,0'
         $stop.HorizontalAlignment = 'Left'
