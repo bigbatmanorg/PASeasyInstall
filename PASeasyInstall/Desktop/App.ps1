@@ -69,7 +69,7 @@ function Get-PASUILocalAddress {
 
 $S = New-PASUIState -Backend $Backend -StartDirectory $StartDirectory -ControllerAddress (Get-PASUILocalAddress)
 $Catalog = @{}
-foreach ($type in @('Vault', 'DR', 'PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'AD')) {
+foreach ($type in @('Vault', 'DR', 'PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'PTA', 'AD')) {
     $Catalog[$type] = @(Get-PASStageCatalog -Component $type).Count
 }
 
@@ -735,7 +735,7 @@ function Invoke-PASUIClick {
             Show-PASUIScreen 'lab'
             return
         }
-        '^cnt-(PVWA|CPM|PSM|PSMP|HTML5GW)-(inc|dec)$' {
+        '^cnt-(PVWA|CPM|PSM|PSMP|HTML5GW|PTA)-(inc|dec)$' {
             $count = [int]$S.Counts[$Matches[1]]
             if ($Matches[2] -eq 'inc' -and $count -lt (Get-PASUIMaxCount $S)) {
                 $count++
@@ -866,6 +866,7 @@ function Set-PASUIField {
         '^sec-(VaultAdmin|VaultMaster|DRPassword)$' { $S.Secrets[$Matches[1]] = $Value; return }
         '^f-controller$' { $S.Controller = $Value; return }
         '^f-installer-name$' { $S.InstallerName = $Value; return }
+        '^f-vault-timezone$' { $S.VaultTimezone = $Value; return }
         '^f-installer-company$' { $S.InstallerCompany = $Value; return }
         '^srv-([a-z0-9]+)-name$' { Set-PASUISlotValue $S $Matches[1] 'Name' $Value; return }
         '^srv-([a-z0-9]+)-user$' { Set-PASUISlotValue $S $Matches[1] 'User' $Value; return }
