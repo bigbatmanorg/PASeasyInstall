@@ -269,7 +269,8 @@ function Invoke-PASeasyPsmStage {
     $xmlPath = Join-Path (Split-Path -Parent $command) ($vendorStage + '\' + $vendorStage + 'Config.xml')
     if (-not(Test-Path -LiteralPath $xmlPath -PathType Leaf)) { throw "PSM vendor configuration missing for $Stage" }
     $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString('o')
-    $previous = @{Install = 'Prerequisites'; Register = 'Install'; Harden = 'Register'; PostInstall = 'Harden' }[$Stage]
+    # The vendor's order: installation, post-installation, hardening, registration.
+    $previous = @{Install = 'Prerequisites'; PostInstall = 'Install'; Harden = 'PostInstall'; Register = 'Harden' }[$Stage]
     if ($previous) {
         $priorPath = Join-Path $markers ($previous + '.json')
         if (-not(Test-Path -LiteralPath $priorPath)) { throw "PSM $Stage requires verified $previous stage" }
@@ -283,7 +284,8 @@ function Invoke-PASeasyPsmStage {
         if ($saved.schemaVersion -ne 2 -or $saved.stage -ne $Stage) { throw 'Unrecognized PSM stage checkpoint; reconcile before retry' }
         if (-not $saved.restartRequired) {
             $started = @()
-            if ($Stage -eq 'PostInstall') {
+            if ($Stage -eq 'Register') {
+                # Registration is the last stage: from here on the PSM service has to stay up.
                 $started = @(Start-PASeasyPsmStoppedService)
             }
             $note = ''

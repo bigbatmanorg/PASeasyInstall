@@ -329,7 +329,10 @@ function Get-PASPvwaTrustBundle {
 }
 function Get-PASPvwaCertificate {
     <# Reads the certificate bound to PVWA's HTTPS port from the PVWA server itself (authenticated),
-       stores the public DER in the run directory and returns @{File;SHA256}. #>
+       stores the public DER in the run directory and returns @{File;SHA256}. While PVWA is still being
+       installed nothing is bound yet: then it is the certificate that stage Certificate put into the machine
+       store (the lab certificate of this component, or the one named by tlsCertificateThumbprint), which
+       ConfigureTLS binds later. #>
     param($Configuration, [string]$PvwaId, [hashtable]$Credentials, [string]$Directory)
     $file = Join-Path $Directory ('pvwa-trust-' + $PvwaId + '.cer')
     if (Test-Path -LiteralPath $file -PathType Leaf) {
@@ -341,9 +344,12 @@ function Get-PASPvwaCertificate {
     $cred = $Credentials[$hostId]
     if (-not $cred) { $cred = $Credentials[$PvwaId] }
     if (-not $cred) { throw "No credential for PVWA server $hostId" }
+    $configured = [string](Get-PASValue (Get-PASValue $e 'options' $null) 'tlsCertificateThumbprint' '')
+    $owned = 'PASeasyInstall:' + $PvwaId + ':PVWA:LabTLS'
     $s = New-PASManagementSession -Configuration $Configuration -HostId $hostId -Credential $cred
     try {
-        $b64 = Invoke-Command -Session $s -ErrorAction Stop -ScriptBlock {
+        $b64 = Invoke-Command -Session $s -ErrorAction Stop -ArgumentList $configured, $owned -ScriptBlock {
+            param([string]$Configured, [string]$Owned)
             $thumb = $null
             $store = 'My'
             try {
@@ -359,7 +365,16 @@ function Get-PASPvwaCertificate {
                 if ($out -match 'Certificate Hash\s*:\s*([0-9a-fA-F]{40})') { $thumb = $Matches[1] }
                 if ($out -match 'Certificate Store Name\s*:\s*(\S+)' -and $Matches[1] -ne '(null)') { $store = $Matches[1] }
             }
-            if (-not $thumb) { throw 'PVWA has no certificate bound to HTTPS port 443' }
+            if (-not $thumb -and $Configured) {
+                $thumb = ($Configured -replace '\s', '').ToUpperInvariant()
+            }
+            if (-not $thumb) {
+                $mine = @(Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.FriendlyName -ceq $Owned })
+                if ($mine.Count -eq 1) {
+                    $thumb = [string]$mine[0].Thumbprint
+                }
+            }
+            if (-not $thumb) { throw 'PVWA has no certificate bound to HTTPS port 443 and none prepared for it' }
             $cert = Get-Item -LiteralPath ('Cert:\LocalMachine\' + $store + '\' + $thumb) -ErrorAction Stop
             [Convert]::ToBase64String($cert.RawData)
         }

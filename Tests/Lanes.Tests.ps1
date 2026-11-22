@@ -71,20 +71,22 @@ Describe 'What a component of a parallel run waits for' {
     It 'lets the first PVWA register as soon as the Vault is there, and announce it' {
         $gate = Get-Gate 'pvwa01'
         ($gate.VaultAfter -join ',') | Should -Be 'Vault'
-        ($gate.StepSignals['register'] -join ',') | Should -Be 'PvwaRegistered'
-        ($gate.StepSignals['configuretls'] -join ',') | Should -Be 'Cert:pvwa01'
+        ($gate.StepSignals['register'] -join ',') | Should -Be 'Registered:pvwa01,PvwaRegistered'
+        ($gate.StepSignals['certificate'] -join ',') | Should -Be 'Cert:pvwa01'
         $gate.DoneSignals | Should -Contain 'Done:pvwa01'
     }
-    It 'makes every other component register after the first PVWA' {
+    It 'registers in the order PVWA, CPM, then the rest' {
         ((Get-Gate 'pvwa02').VaultAfter -join ',') | Should -Be 'Vault,PvwaRegistered'
-        ((Get-Gate 'psm01').VaultAfter -join ',') | Should -Be 'Vault,PvwaRegistered'
+        ((Get-Gate 'cpm01').VaultAfter -join ',') | Should -Be 'Vault,Registered:pvwa01,Registered:pvwa02'
+        ((Get-Gate 'cpm01').StepSignals['register'] -join ',') | Should -Be 'Registered:cpm01'
+        ((Get-Gate 'psm01').VaultAfter -join ',') | Should -Be 'Vault,PvwaRegistered,Registered:cpm01'
         (Get-Gate 'psm01').StartAfter.Count | Should -Be 0
     }
     It 'starts a component that trusts the PVWA certificate only when every PVWA has one' {
         ((Get-Gate 'cpm01').StartAfter -join ',') | Should -Be 'Cert:pvwa01,Cert:pvwa02'
     }
     It 'configures PTA only when every PVWA is finished' {
-        ((Get-Gate 'pta01').VaultAfter -join ',') | Should -Be 'Vault,Done:pvwa01,Done:pvwa02'
+        ((Get-Gate 'pta01').VaultAfter -join ',') | Should -Be 'Vault,Done:pvwa01,Done:pvwa02,Registered:cpm01'
     }
 }
 

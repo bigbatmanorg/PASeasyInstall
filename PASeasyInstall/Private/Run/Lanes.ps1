@@ -8,7 +8,8 @@
 #             Domain          the new forest is installed (set from the start when the run creates none)
 #             Vault           the Vault sequence is finished (set from the start when the run installs none)
 #             PvwaRegistered  the first PVWA finished its step 'register'
-#             Cert:<id>       PVWA <id> has its HTTPS certificate (step 'configuretls')
+#             Registered:<id> PVWA or CPM <id> finished its step 'register'
+#             Cert:<id>       PVWA <id> has its HTTPS certificate (its first step, 'certificate')
 #             Done:<id>       PVWA <id> is installed and verified
 #             Cancel          a lane failed: lanes that wait give up, no lane starts another component
 #   What waits for what (see Docs\PARALLEL.md):
@@ -17,7 +18,9 @@
 #             the PVWA certificate     Cert of every PVWA, before it starts (CPM, HTML5 Gateway, PTA)
 #             a step that signs in
 #             to the Vault             Vault; every component except the first PVWA also PvwaRegistered;
-#                                      PTA waits for Done of every PVWA instead
+#                                      everything except PVWA and CPM also Registered of every CPM
+#                                      (the vendor's order: PVWA, CPM, then the rest); PTA waits for Done of
+#                                      every PVWA
 #           One Vault sign-in at a time is the Vault lock that every such step takes (Engine\Locks.ps1).
 # What follows the lanes stays in order in the controller: gateway registration, PTA trust, GPOs.
 
@@ -81,29 +84,41 @@ function Get-PASLaneComponentGate {
          StartAfter   names of the signals it waits for before it starts
          VaultAfter   names of the signals its Vault steps wait for
          StepSignals  @{ <step id> = names of the signals that step sets }
-         DoneSignals  names of the signals set when the component is installed and verified #>
+         DoneSignals  names of the signals set when the component is installed and verified
+       The registrations follow the vendor's order: the first PVWA, the other PVWAs, every CPM, then the rest. #>
     param([Parameter(Mandatory)]$Config, [Parameter(Mandatory)][hashtable]$Component)
     $id = [string]$Component.id
     $type = [string]$Component.type
     $pvwas = @($Config.components | Where-Object { $_.type -eq 'PVWA' } | ForEach-Object { [string]$_.id })
+    $cpms = @($Config.components | Where-Object { $_.type -eq 'CPM' } | ForEach-Object { [string]$_.id })
     $gate = @{ StartAfter = @(); VaultAfter = @('Vault'); StepSignals = @{}; DoneSignals = @() }
     if ([string](Get-PASValue (Get-PASValue $Component 'options' $null) 'pvwaTrustFrom' '')) {
         $gate.StartAfter = @($pvwas | ForEach-Object { 'Cert:' + $_ })
     }
     if ($type -eq 'PVWA') {
-        $gate.StepSignals['configuretls'] = @('Cert:' + $id)
-        $gate.DoneSignals = @(('Cert:' + $id), ('Done:' + $id))
+        $gate.StepSignals['certificate'] = @('Cert:' + $id)
+        $gate.StepSignals['register'] = @('Registered:' + $id)
+        $gate.DoneSignals = @(('Cert:' + $id), ('Registered:' + $id), ('Done:' + $id))
         if ($pvwas.Count -and $pvwas[0] -eq $id) {
-            $gate.StepSignals['register'] = @('PvwaRegistered')
+            $gate.StepSignals['register'] += 'PvwaRegistered'
             $gate.DoneSignals += 'PvwaRegistered'
         } else {
             $gate.VaultAfter += 'PvwaRegistered'
         }
+    } elseif ($type -eq 'CPM') {
+        # The CPM registration looks at the certificate of every PVWA that is registered in the Vault.
+        $gate.VaultAfter += @($pvwas | ForEach-Object { 'Registered:' + $_ })
+        $gate.StepSignals['register'] = @('Registered:' + $id)
+        $gate.DoneSignals = @('Registered:' + $id)
     } elseif ($type -eq 'PTA') {
         # The PTA configuration names the PVWA and signs in through it: the PVWA servers must be finished.
         $gate.VaultAfter += @($pvwas | ForEach-Object { 'Done:' + $_ })
-    } elseif ($pvwas.Count) {
-        $gate.VaultAfter += 'PvwaRegistered'
+        $gate.VaultAfter += @($cpms | ForEach-Object { 'Registered:' + $_ })
+    } else {
+        if ($pvwas.Count) {
+            $gate.VaultAfter += 'PvwaRegistered'
+        }
+        $gate.VaultAfter += @($cpms | ForEach-Object { 'Registered:' + $_ })
     }
     return $gate
 }
@@ -127,8 +142,12 @@ function New-PASLaneSignals {
         [void]$signals.PvwaRegistered.Set()
     }
     foreach ($pvwa in $pvwas) {
+        $signals['Registered:' + [string]$pvwa.id] = New-Object System.Threading.ManualResetEvent -ArgumentList $false
         $signals['Cert:' + [string]$pvwa.id] = New-Object System.Threading.ManualResetEvent -ArgumentList $false
         $signals['Done:' + [string]$pvwa.id] = New-Object System.Threading.ManualResetEvent -ArgumentList $false
+    }
+    foreach ($cpm in @($components | Where-Object { $_.type -eq 'CPM' })) {
+        $signals['Registered:' + [string]$cpm.id] = New-Object System.Threading.ManualResetEvent -ArgumentList $false
     }
     return $signals
 }

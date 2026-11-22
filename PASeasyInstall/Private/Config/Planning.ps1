@@ -210,12 +210,17 @@ function Get-PASComponentStageNames {
     param([Parameter(Mandatory)][string]$Type)
     switch ($Type) {
         'AD' { return @('ad-prerequisites', 'ad-install', 'ad-reboot', 'ad-verify') }
-        'PVWA' { return @('Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Register', 'Harden', 'Verify') }
-        'CPM' { return @('Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Register', 'Harden', 'Verify') }
-        'PSM' { return @('Extract', 'Prerequisites', 'Install', 'Register', 'Harden', 'PostInstall', 'Verify') }
+        # Certificate comes first: what has to trust this PVWA copies its certificate then (Lanes.ps1).
+        # Registration with the Vault is the last stage before the final check, after hardening: the vendor
+        # documents that order for PSM (post-installation, hardening, registration), allows it for PVWA and CPM
+        # ("it's possible to perform hardening before registration") and uses it in its own automation. So a
+        # server does everything that needs no Vault first, and only the registrations wait for the Vault.
+        'PVWA' { return @('Certificate', 'Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Harden', 'Register', 'Verify') }
+        'CPM' { return @('Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Harden', 'Register', 'Verify') }
+        'PSM' { return @('Extract', 'Prerequisites', 'Install', 'PostInstall', 'Harden', 'Register', 'Verify') }
         'HTML5GW' { return @('Extract', 'Prerequisites', 'Install', 'Verify') }
         'PTA' { return @('Extract', 'Prerequisites', 'Install', 'Register', 'Verify') }
-        default { return @('Extract', 'Prerequisites', 'Install', 'Register', 'Harden', 'Verify') }
+        default { return @('Extract', 'Prerequisites', 'Install', 'Harden', 'Register', 'Verify') }
     }
 }
 function New-PASComponentWorkflow {
@@ -395,8 +400,8 @@ function New-PASComponentWorkflow {
                 $step.Remove('Script')
                 $step.Kind = 'Verify'
             }
-            if ($stage -in @('Install', 'ConfigureTLS', 'Register', 'Harden')) { $step['Critical'] = $true }
-            if ($stage -in @('Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Register', 'Harden', 'PostInstall') -and
+            if ($stage -in @('Certificate', 'Install', 'ConfigureTLS', 'Register', 'Harden')) { $step['Critical'] = $true }
+            if ($stage -in @('Certificate', 'Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Register', 'Harden', 'PostInstall') -and
                 $mode -in @('WindowsComponent', 'LinuxComponent', 'Html5Gateway', 'Pta')) { $step['Mode'] = 'Detached' }
             if ($stage -eq 'Register') {
                 $step.Inputs['VaultPassword'] = @{SecretRef = 'VaultAdmin' }
