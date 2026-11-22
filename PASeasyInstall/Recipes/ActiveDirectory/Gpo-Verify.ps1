@@ -4,7 +4,8 @@ $ErrorActionPreference = 'Stop'
 if ($Stage -eq 'Prepare') {
     $rule = Get-NetFirewallRule -Name 'PASeasyInstall-Management' -ErrorAction SilentlyContinue
     $allowed = [bool]($rule -and $rule.Enabled -eq 'True' -and $rule.Action -eq 'Allow' -and
-        ($rule | Get-NetFirewallPortFilter).LocalPort -contains [string][int]$Settings.ManagementPort)
+        ($rule | Get-NetFirewallPortFilter).LocalPort -contains [string][int]$Settings.ManagementPort -and
+        ($rule | Get-NetFirewallApplicationFilter).Program -eq 'System')
     return [pscustomobject]@{
         Passed = $allowed
         Message = "Firewall rule for the management port $($Settings.ManagementPort): $allowed"
@@ -16,10 +17,13 @@ if ($Stage -eq 'Member') {
     $name = [string]$Settings.GpoName
     $report = (@(& gpresult.exe /scope computer /r 2>&1) | ForEach-Object { [string]$_ }) -join "`n"
     $applied = $report.Contains($name)
+    # After the GPO the rule for the management port must still be in force.
+    $rule = Get-NetFirewallRule -PolicyStore ActiveStore -Name 'PASeasyInstall-Management' -ErrorAction SilentlyContinue
+    $enforced = [bool]($rule -and @($rule.EnforcementStatus) -contains 'Enforced')
     return [pscustomobject]@{
-        Passed = $applied
-        Message = "Applied computer GPOs include '$name': $applied"
-        Evidence = @("GpoApplied=$applied")
+        Passed = ($applied -and $enforced)
+        Message = "Applied computer GPOs include '$name': $applied; management port rule in force: $enforced"
+        Evidence = @("GpoApplied=$applied", "ManagementRuleEnforced=$enforced")
     }
 }
 Import-Module GroupPolicy -ErrorAction Stop

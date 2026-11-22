@@ -15,14 +15,19 @@ if ($Stage -eq 'Prepare') {
         throw 'The management port of this server is not known'
     }
     $ruleName = 'PASeasyInstall-Management'
+    # The vendor GPOs do not allow local exceptions that name only a port (they are ignored on the domain
+    # profile). A rule that names the program too stays in force, like the WinRM rule Windows ships.
+    # WinRM listens through the HTTP driver of Windows, which is the program "System".
     $rule = Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue
-    if ($rule -and ($rule | Get-NetFirewallPortFilter).LocalPort -contains [string]$port -and $rule.Enabled -eq 'True') {
+    if ($rule -and $rule.Enabled -eq 'True' -and
+        ($rule | Get-NetFirewallPortFilter).LocalPort -contains [string]$port -and
+        ($rule | Get-NetFirewallApplicationFilter).Program -eq 'System') {
         return [pscustomobject]@{Changed = $false; Message = "The firewall allows the management port $port already" }
     }
     if ($rule) {
         Remove-NetFirewallRule -Name $ruleName -ErrorAction Stop
     }
-    $null = New-NetFirewallRule -Name $ruleName -DisplayName 'PASeasyInstall management (WinRM)' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $port -ErrorAction Stop
+    $null = New-NetFirewallRule -Name $ruleName -DisplayName 'PASeasyInstall management (WinRM)' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $port -Program 'System' -ErrorAction Stop
     return [pscustomobject]@{Changed = $true; Message = "Firewall rule added for the management port $port" }
 }
 
