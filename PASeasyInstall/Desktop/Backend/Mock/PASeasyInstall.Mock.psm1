@@ -8,16 +8,23 @@
 #
 # A simulated run walks the plan one component after another; every stage of the real stage catalog
 # takes $env:PASUI_MOCK_STAGE_SECONDS seconds (default 1). The lab name selects the scenario:
-#   name contains "fail"  the first install stage fails and the run ends Failed (Resume-PASRun finishes it)
+#   name contains "fail"     the first install stage fails and the run ends Failed (Resume-PASRun finishes it)
+#   name contains "unreach"  the server check reports one server that does not answer
 #   name contains "warn"  reboot stages report a warning and continue
-# Runs live in memory only and are gone when the process ends.
+# Runs live in memory only and are gone when the process ends. Every runspace of the process sees the same
+# runs: the window calls these commands from background runspaces.
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'Backend.Contract.ps1')
 Import-Module (Get-PASUICoreModule) -ErrorAction Stop
 
-$script:Runs = @{}
+# One table for the whole process, kept with the application domain.
+$script:Runs = [AppDomain]::CurrentDomain.GetData('PASeasyInstall.Mock.Runs')
+if ($null -eq $script:Runs) {
+    $script:Runs = [hashtable]::Synchronized(@{})
+    [AppDomain]::CurrentDomain.SetData('PASeasyInstall.Mock.Runs', $script:Runs)
+}
 
 function Get-PASMockStageSeconds {
     if ($env:PASUI_MOCK_STAGE_SECONDS) {
@@ -101,7 +108,7 @@ function New-PASMockTimeline {
 function Get-PASMockRun {
     param([string]$RunId)
     if (-not $script:Runs.ContainsKey($RunId)) {
-        throw "Run not found: $RunId (simulated runs exist only in the window that started them)"
+        throw "Run not found: $RunId (simulated runs exist only in the process that started them)"
     }
     return $script:Runs[$RunId]
 }
@@ -289,6 +296,11 @@ function Install-PASLab {
         })
     $events.AddRange($timeline.Events)
     $runId = [guid]::NewGuid().ToString('N')
+    # As a real run does, the simulated one keeps its configuration (no password is in it), so that the
+    # window can ask for the accounts of an installation it did not start.
+    $runDirectory = Join-Path (Join-Path ([IO.Path]::GetTempPath()) 'PASeasyInstall-Mock') $runId
+    $null = New-Item -ItemType Directory -Path $runDirectory -Force
+    $null = Export-PASLabConfiguration -Configuration $cfg -Path (Join-Path $runDirectory 'config.json') -Force
     $script:Runs[$runId] = @{
         Name = $name
         StartUtc = [datetime]::UtcNow
@@ -298,7 +310,7 @@ function Install-PASLab {
         End = $timeline.End
         Outcome = $timeline.Outcome
         StoppedAt = $null
-        RunDirectory = (Join-Path (Join-Path ([IO.Path]::GetTempPath()) 'PASeasyInstall-Mock') $runId)
+        RunDirectory = $runDirectory
     }
     return $runId
 }
@@ -421,14 +433,14 @@ function Export-PASDiagnostics {
 }
 
 function Test-PASPreflight {
-    <# Simulated: one "answers" row per server of the plan. A lab whose name contains "fail" reports
+    <# Simulated: one "answers" row per server of the plan. A lab whose name contains "unreach" reports
        one server that does not answer. Contacts nothing. #>
     [CmdletBinding()]
     param($Configuration, [hashtable]$CredentialMap = @{}, [securestring]$LabPassword, [switch]$ConnectivityOnly)
     $plan = Get-PASLabPlan -Configuration $Configuration
     $seen = @{}
     $rows = New-Object System.Collections.ArrayList
-    $bad = ([string]$Configuration['name'] -match '(?i)fail')
+    $bad = ([string]$Configuration['name'] -match '(?i)unreach')
     foreach ($item in @($plan.Items)) {
         $address = [string]$item.Address
         if ($seen.ContainsKey($address)) {

@@ -8,23 +8,20 @@ Stages the module with Tools\Build-GalleryPackage.ps1, then lays out:
     PASeasyInstall-Shell.cmd / .ps1     PowerShell window with the PASeasyInstall commands loaded
     README-PORTABLE.txt, LICENSE.txt, THIRD_PARTY_*.txt
     PASeasyInstall\                     the module (commands and desktop window)
-    NativeHTMLKit\                      desktop runtime (SDK with its native window host)
 The launchers clear the internet zone mark inside the folder, put the folder first on PSModulePath for
 their own process only, and run Windows PowerShell 5.1 with -NoProfile -ExecutionPolicy Bypass. They
 change nothing on the computer, need no administrator rights to start, and work from any folder.
 Writes <Output>\PASeasyInstall-<version>-portable.zip and <Output>\SHA256SUMS.
-.PARAMETER NativeHTMLKitPath
-Folder that already contains the NativeHTMLKit module folder (offline build).
-Default: Save-Module NativeHTMLKit (exact version) from the PowerShell Gallery.
+The desktop window is drawn with WPF, which is part of Windows: the package holds no runtime and the
+build needs no download.
 .EXAMPLE
 .\Tools\Build-PortableRelease.ps1
 .EXAMPLE
-.\Tools\Build-PortableRelease.ps1 -Output C:\Temp\dist -NativeHTMLKitPath 'C:\Program Files\WindowsPowerShell\Modules'
+.\Tools\Build-PortableRelease.ps1 -Output C:\Temp\dist
 #>
 [CmdletBinding()]
 param(
     [string]$Output = '',
-    [string]$NativeHTMLKitPath = '',
     [switch]$AllowMissingLicense
 )
 $ErrorActionPreference = 'Stop'
@@ -35,8 +32,6 @@ if (-not $Output) {
     $Output = Join-Path $repo 'dist'
 }
 $Output = [IO.Path]::GetFullPath($Output)
-# The exact NativeHTMLKit version this release is built and tested with.
-$nativeKitVersion = '0.1.2'
 
 $gallery = & (Join-Path $PSScriptRoot 'Build-GalleryPackage.ps1') -Output $Output -AllowMissingLicense:$AllowMissingLicense
 $name = "PASeasyInstall-$($gallery.Version)-portable"
@@ -47,7 +42,7 @@ if (Test-Path -LiteralPath $root) {
 }
 New-Item -ItemType Directory -Path $root -Force | Out-Null
 
-# 1. Both modules, each in a folder with the module's name
+# 1. The module, in a folder with its name
 foreach ($package in @($gallery.Packages)) {
     $target = Join-Path $root $package.Module
     New-Item -ItemType Directory -Path $target -Force | Out-Null
@@ -58,29 +53,7 @@ foreach ($file in @(Get-ChildItem -LiteralPath $coreStage -File | Where-Object {
     Copy-Item -LiteralPath $file.FullName -Destination $root -Force
 }
 
-# 2. Desktop runtime
-if ($NativeHTMLKitPath) {
-    foreach ($module in @('NativeHTMLKit')) {
-        $source = Join-Path $NativeHTMLKitPath $module
-        if (-not (Test-Path -LiteralPath $source)) {
-            throw "$module not found in $NativeHTMLKitPath"
-        }
-        Copy-Item -LiteralPath $source -Destination $root -Recurse -Force
-    }
-} else {
-    Save-Module -Name NativeHTMLKit -RequiredVersion $nativeKitVersion -Repository PSGallery -Path $root -Force
-}
-foreach ($module in @('NativeHTMLKit')) {
-    if (-not (Test-Path -LiteralPath (Join-Path $root $module))) {
-        throw "Portable layout is missing $module"
-    }
-}
-$nativeHosts = @(Get-ChildItem -LiteralPath (Join-Path $root 'NativeHTMLKit') -Recurse -File -Filter 'nativehtmlkit-host*')
-if (-not @($nativeHosts | Where-Object { $_.Name -eq 'nativehtmlkit-host.exe' }).Count) {
-    throw 'NativeHTMLKit native host (win-x64) is missing from the portable layout'
-}
-
-# 3. Launchers. The .ps1 files carry a BOM so Windows PowerShell 5.1 reads them as UTF-8.
+# 2. Launchers. The .ps1 files carry a BOM so Windows PowerShell 5.1 reads them as UTF-8.
 $utf8Bom = New-Object Text.UTF8Encoding($true)
 $ascii = New-Object Text.ASCIIEncoding
 $common = @'
@@ -124,8 +97,7 @@ $cmdShell = "@echo off`r`nrem PASeasyInstall portable: PowerShell window with th
 [IO.File]::WriteAllText((Join-Path $root 'Start-PASeasyInstall.cmd'), $cmdStart, $ascii)
 [IO.File]::WriteAllText((Join-Path $root 'PASeasyInstall-Shell.cmd'), $cmdShell, $ascii)
 
-# 4. README
-$kitVersion = (Get-ChildItem -LiteralPath (Join-Path $root 'NativeHTMLKit') -Directory | Select-Object -First 1).Name
+# 3. README
 $readme = @"
 PASeasyInstall $($gallery.Version) - portable edition
 ====================================================
@@ -139,7 +111,7 @@ Start
 1. Before extracting, right-click the ZIP > Properties > Unblock (or: Unblock-File <zip>). This avoids
    Windows security prompts for the extracted launchers.
 2. Extract anywhere, for example C:\PASeasyInstall or a USB drive.
-3. Double-click Start-PASeasyInstall.cmd. The six-step wizard opens. Nothing is sent to a server until
+3. Double-click Start-PASeasyInstall.cmd. The window opens. Nothing is sent to a server until
    you press Install on the last step.
 
    Start-PASeasyInstall.cmd -Backend Mock          the same window with a simulated installation (demo)
@@ -164,13 +136,13 @@ Nothing is installed or changed on the computer. Execution policy enforced by Gr
 Contents
 --------
 PASeasyInstall\                       the module: the commands and the desktop window (Start-PASeasyInstall)
-NativeHTMLKit\$kitVersion             NativeHTMLKit SDK and native window host (https://nativehtmlkit.github.io/)
+The window is drawn with WPF, which is part of Windows. No other runtime is needed or included.
 
 Documentation: https://bigbatmanorg.github.io/PASeasyInstall/
 "@
 [IO.File]::WriteAllText((Join-Path $root 'README-PORTABLE.txt'), ($readme -replace "`r?`n", "`r`n"), $utf8Bom)
 
-# 5. ZIP with forward-slash entries (Windows PowerShell 5.1's CreateFromDirectory writes backslashes).
+# 4. ZIP with forward-slash entries (Windows PowerShell 5.1's CreateFromDirectory writes backslashes).
 $zipPath = Join-Path $Output ($name + '.zip')
 if (Test-Path -LiteralPath $zipPath) {
     Remove-Item -LiteralPath $zipPath -Force
@@ -200,6 +172,5 @@ $sums = Join-Path $Output 'SHA256SUMS'
     SizeMB = [math]::Round((Get-Item -LiteralPath $zipPath).Length / 1MB, 1)
     SHA256 = $hash
     Folder = $root
-    NativeHTMLKit = $kitVersion
     GalleryRoot = $gallery.GalleryRoot
 }

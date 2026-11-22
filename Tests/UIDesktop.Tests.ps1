@@ -1,5 +1,6 @@
-# The desktop window (PASeasyInstall\Desktop) and the public commands it calls. No window, no server, no vendor
-# execution: synthetic media in TestDrive.
+# The desktop window (PASeasyInstall\Desktop) and the public commands it calls. No server, no vendor
+# execution: synthetic media in TestDrive. The screens are WPF controls: they are built here without showing
+# a window and read back as text. One test starts the window process, one walks it with the simulated installer.
 BeforeAll {
     . (Join-Path $PSScriptRoot 'TestHelpers.ps1')
     $repo = $PASRepoRoot
@@ -48,8 +49,54 @@ BeforeAll {
         New-PASLabConfiguration -Environment MyPAM -VaultMode PrimaryDR -Instances $Instances -ControllerAddress 198.51.100.250 `
             -PrimaryAddress 192.0.2.31 -DRAddress 192.0.2.32 -Media $script:selection -SecurityProfile $Profile -AcceptEula:(-not $NoEula)
     }
+    # The screens: the shell of the window is read from Window.xaml but never shown. WPF needs an STA thread,
+    # which Windows PowerShell 5.1 has by default.
+    $script:CanDraw = ($env:OS -eq 'Windows_NT' -and [Threading.Thread]::CurrentThread.GetApartmentState() -eq 'STA')
+    . (Join-Path $uiRoot 'Model.ps1')
+    if ($script:CanDraw) {
+        Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Xaml
+        $script:window = [Windows.Markup.XamlReader]::Parse([IO.File]::ReadAllText((Join-Path $uiRoot 'Window.xaml')))
+        $script:ui = @{}
+        foreach ($name in @('Shell', 'Main', 'Steps', 'OptAdvanced', 'Notice', 'NoticeIcon', 'NoticeText', 'Bar', 'BtnBack', 'BtnNext',
+                'NextBusy', 'NextText', 'NextArrow', 'BarText', 'Page', 'PageHost')) {
+            $script:ui[$name] = $script:window.FindName($name)
+        }
+        $script:R = @{}
+        $script:PasswordBoxes = @{}
+        $script:Catalog = @{}
+        $script:S = New-PASUIState
+        . (Join-Path $uiRoot 'Controls.ps1')
+        . (Join-Path $uiRoot 'Views.ps1')
+    }
+    function Get-TestPage {
+        # Builds one screen for a state, as the window does, and returns its controls and its text.
+        param([hashtable]$State, [string]$Screen)
+        $script:S = $State
+        $State.Screen = $Screen
+        $script:R.Clear()
+        $panel = New-Object Windows.Controls.StackPanel
+        switch ($Screen) {
+            'home' { Add-PASUIHomePage $panel }
+            'media' { Add-PASUIMediaPage $panel }
+            'lab' { Add-PASUILabPage $panel }
+            'servers' { Add-PASUIServersPage $panel }
+            'review' { Add-PASUIReviewPage $panel }
+            'run' { Add-PASUIRunPage $panel }
+        }
+        return [pscustomobject]@{ Panel = $panel; Text = (Get-PASUIShownText $panel) }
+    }
+    function Test-PageControl {
+        # Is there a control with this id on the page?
+        param($Page, [string]$Id)
+        return [bool](Find-PASUIControl $Page.Panel $Id)
+    }
 }
-AfterAll { $env:PAS_EASY_DATA_ROOT = $script:SavedDataRoot }
+AfterAll {
+    $env:PAS_EASY_DATA_ROOT = $script:SavedDataRoot
+    if ($script:CanDraw) {
+        Stop-PASUITasks
+    }
+}
 
 Describe 'UI backend contract' {
     It 'is satisfied by the PASeasyInstall module (Live) and by the Mock' {
@@ -324,11 +371,7 @@ Describe 'Desktop model' {
 }
 
 Describe 'Desktop screens' {
-    BeforeAll {
-        . (Join-Path $uiRoot 'Model.ps1')
-        . (Join-Path $uiRoot 'Views.ps1')
-    }
-    It 'escapes everything that comes from the user or a server' {
+    It 'shows what comes from the user or a server as plain text, and offers to try a failed step again' {
         $state = New-PASUIState
         $state.LabName = '<script>alert(1)</script>'
         $state.Run = [pscustomobject]@{
@@ -336,42 +379,55 @@ Describe 'Desktop screens' {
             Components = @([pscustomobject]@{ Id = 'vault'; Type = 'Vault'; Status = 'Failed'; Message = '' })
             Events = @([pscustomobject]@{ TimestampUtc = '2026-11-21T10:00:00Z'; Component = 'vault'; Stage = 'install'; Event = 'TaskFailed'; Level = 'Error'; Status = 'Failed'; Message = '<img src=x>' })
         }
-        $html = (Get-PASUIRunHtml $state @{ Vault = 3 }) + (Get-PASUILabHtml $state)
-        $html | Should -Not -Match '<script>|<b>lab</b>|<img src=x>'
-        $html | Should -Match '&lt;img src=x&gt;'
-        $html | Should -Match 'id="act-retry"'
+        $page = Get-TestPage $state 'run'
+        $page.Text | Should -Match ([regex]::Escape('<b>lab</b>'))
+        $page.Text | Should -Match ([regex]::Escape('<img src=x>'))
+        $page.Text | Should -Match 'The installation stopped'
+        Test-PageControl $page 'act-retry' | Should -BeTrue
+        Test-PageControl $page 'act-health' | Should -BeFalse
+        (Get-TestPage $state 'lab').Text | Should -Match 'What do you want to build'
     }
     It 'shows the problems and no Install button when the plan is not valid' {
         $state = New-PASUIState
         $state.Check = @{ Valid = $false; Issues = @('Vault media file is Missing'); Warnings = @() }
-        $html = Get-PASUIReviewHtml $state
-        $html | Should -Match 'Vault media file is Missing'
-        $html | Should -Not -Match 'act-install'
+        $page = Get-TestPage $state 'review'
+        $page.Text | Should -Match 'Vault media file is Missing'
+        Test-PageControl $page 'act-install' | Should -BeFalse
     }
     It 'keeps advanced settings out of the simple view' {
         $state = New-PASUIState
         Set-PASUIPreset $state 'standard'
-        Get-PASUIServersHtml $state | Should -Not -Match 'f-controller'
+        Test-PageControl (Get-TestPage $state 'servers') 'f-controller' | Should -BeFalse
         $state.Advanced = $true
-        Get-PASUIServersHtml $state | Should -Match 'f-controller'
+        Test-PageControl (Get-TestPage $state 'servers') 'f-controller' | Should -BeTrue
     }
     It 'shows the step line only inside the four steps' {
+        $script:S = New-PASUIState
+        Show-PASUISteps
+        $script:ui.Steps.Children.Count | Should -Be 0
+        $script:S.Screen = 'servers'
+        Show-PASUISteps
+        $steps = @($script:ui.Steps.Children | Where-Object { $_ -is [Windows.Controls.Button] })
+        ($steps | ForEach-Object { [string]$_.Tag }) -join ',' | Should -Be 'step-media,step-lab,step-servers,step-review'
+        # Finished steps can be pressed; the current one and the ones ahead cannot.
+        ($steps | ForEach-Object { [string]$_.IsEnabled }) -join ',' | Should -Be 'True,True,False,False'
+    }
+    It 'lists the installations of this computer on the start page' {
         $state = New-PASUIState
-        Get-PASUIStepsHtml $state | Should -BeNullOrEmpty
-        $state.Screen = 'servers'
-        $steps = Get-PASUIStepsHtml $state
-        $steps | Should -Match 'step done.*step done.*step current'
-        $steps | Should -Match 'id="step-review" class="step" disabled'
+        $state.Runs = @([pscustomobject]@{ RunId = ('b' * 32); Name = 'Lab01'; Status = 'Succeeded'; StartedUtc = '2026-11-21T10:00:00Z' })
+        $page = Get-TestPage $state 'home'
+        $page.Text | Should -Match 'Build a CyberArk PAM lab'
+        $page.Text | Should -Match 'Lab01'
+        Test-PageControl $page ('run-' + ('b' * 32)) | Should -BeTrue
     }
 }
 
-Describe 'Desktop window (headless, simulated installation)' -Skip:(-not [bool](Get-Module -ListAvailable NativeHTMLKit)) {
+Describe 'Desktop window (simulated installation)' -Skip:($env:OS -ne 'Windows_NT') {
     It 'Start-PASeasyInstall opens the window in its own process and returns at once' {
-        # Headless: the window process starts, shows nothing and waits. It is found by its start folder and stopped.
+        # The window process starts and waits. It is found by its start folder and stopped.
         $folder = Join-Path $TestDrive 'start-here'
         New-Item -ItemType Directory -Path $folder | Out-Null
-        $saved = @{ Mode = $env:NATIVEHTMLKIT_TEST_MODE; Root = $env:PAS_EASY_DATA_ROOT }
-        $env:NATIVEHTMLKIT_TEST_MODE = '1'
+        $saved = @{ Root = $env:PAS_EASY_DATA_ROOT }
         $env:PAS_EASY_DATA_ROOT = Join-Path $TestDrive 'start-data'
         Push-Location $folder
         try {
@@ -384,29 +440,29 @@ Describe 'Desktop window (headless, simulated installation)' -Skip:(-not [bool](
         } finally {
             Pop-Location
             Get-CimInstance Win32_Process | Where-Object { [string]$_.CommandLine -like "*start-here*" -and $_.ProcessId -ne $PID } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-            $env:NATIVEHTMLKIT_TEST_MODE = $saved.Mode
             $env:PAS_EASY_DATA_ROOT = $saved.Root
         }
     }
     It 'walks from the start page to a finished and checked lab' {
         $out = Join-Path $TestDrive 'selftest.out'
         $err = Join-Path $TestDrive 'selftest.err'
-        $saved = @{ Mode = $env:NATIVEHTMLKIT_TEST_MODE; Seconds = $env:PASUI_MOCK_STAGE_SECONDS }
-        $env:NATIVEHTMLKIT_TEST_MODE = '1'
+        $saved = @{ Seconds = $env:PASUI_MOCK_STAGE_SECONDS }
         $env:PASUI_MOCK_STAGE_SECONDS = '0.05'
         try {
             # Components are added to an existing Vault: the synthetic media has no real Vault installer.
             $scenario = Join-Path $TestDrive 'scenario.json'
-            @{ media = $media; labName = 'SelfTest'; preset = 'custom'; existingVault = '192.0.2.5' } | ConvertTo-Json | Set-Content -LiteralPath $scenario -Encoding UTF8
+            # It walks every screen: the Advanced view, the confirmation, the installation page and, because the
+            # window is told to forget the accounts, the accounts dialog before the lab check.
+            @{ media = $media; labName = 'SelfTest'; preset = 'custom'; existingVault = '192.0.2.5'; advanced = $true; forgetAccounts = $true } |
+                ConvertTo-Json | Set-Content -LiteralPath $scenario -Encoding UTF8
             $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + (Join-Path $uiRoot 'App.ps1') + '"'), '-Backend', 'Mock',
                 '-StartDirectory', ('"' + $TestDrive + '"'), '-SelfTest', ('"' + $scenario + '"'))
             $process = Start-Process powershell.exe -ArgumentList $arguments -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
             if (-not $process.WaitForExit(240000)) {
                 $process.Kill()
-                throw 'The headless desktop did not finish within four minutes'
+                throw 'The window did not finish its walk within four minutes'
             }
         } finally {
-            $env:NATIVEHTMLKIT_TEST_MODE = $saved.Mode
             $env:PASUI_MOCK_STAGE_SECONDS = $saved.Seconds
         }
         $text = (Get-Content -LiteralPath $out -Raw)
@@ -416,20 +472,17 @@ Describe 'Desktop window (headless, simulated installation)' -Skip:(-not [bool](
 }
 
 Describe 'Servers form and server check' {
-    BeforeAll {
-        . (Join-Path $uiRoot 'Model.ps1')
-        . (Join-Path $uiRoot 'Views.ps1')
-    }
     It 'asks for an account and a password per server and for the Vault passwords, not for one lab password' {
         $state = New-PASUIState
         Set-PASUIPreset $state 'full'
-        $html = Get-PASUIServersHtml $state
+        $page = Get-TestPage $state 'servers'
         foreach ($id in 'srv-vault-user', 'srv-vault-pass', 'srv-dr-pass', 'srv-pvwa1-user', 'srv-psmp1-pass', 'sec-VaultAdmin', 'sec-VaultMaster', 'sec-DRPassword') {
-            $html | Should -Match ('id="' + $id + '"') -Because $id
+            Test-PageControl $page $id | Should -BeTrue -Because $id
         }
-        $html | Should -Match 'id="srv-psmp1-user"[^>]*value="root"'
-        $html | Should -Match 'id="srv-vault-user"[^>]*value="Administrator"'
-        $html | Should -Not -Match 'f-labpassword|Lab password'
+        (Find-PASUIControl $page.Panel 'srv-psmp1-user').Text | Should -Be 'root'
+        (Find-PASUIControl $page.Panel 'srv-vault-user').Text | Should -Be 'Administrator'
+        (Find-PASUIControl $page.Panel 'srv-vault-pass') | Should -BeOfType ([Windows.Controls.PasswordBox])
+        $page.Text | Should -Not -Match 'Lab password'
         $state.VaultMode = 'Existing'
         @(Get-PASUIVaultSecrets $state | ForEach-Object { $_.Key }) | Should -Be @('VaultAdmin')
     }
@@ -443,26 +496,35 @@ Describe 'Servers form and server check' {
     It 'shows every problem of the server check in words and never the typed passwords' {
         $state = New-PASUIState
         Set-PASUIPreset $state 'starter'
-        Set-PASUISlotValue $state 'vault' 'Password' 'SYNTHETIC_PASSWORD_642'
         $state.Preflight = @(
             [pscustomobject]@{ Server = 'vault01'; Address = '192.0.2.11'; Check = 'TCP port 5986'; Passed = $false; Detail = 'WinRM HTTPS port 5986 did not answer within 4 seconds.' }
             [pscustomobject]@{ Server = 'pvwa01'; Address = '192.0.2.12'; Check = 'TCP port 5986'; Passed = $true; Detail = 'answers' })
-        $html = Get-PASUIPreflightHtml $state
-        $html | Should -Match 'The servers are not ready'
-        $html | Should -Match '192\.0\.2\.11 vault01'
-        $html | Should -Match 'did not answer within 4 seconds'
-        $html | Should -Not -Match 'SYNTHETIC_PASSWORD_642'
+        $page = Get-TestPage $state 'servers'
+        # A password is typed into its box: the model only learns that there is one, the page never shows it.
+        (Find-PASUIControl $page.Panel 'srv-vault-pass').Password = 'SYNTHETIC_PASSWORD_642'
+        $state.Slots['vault']['Password'] | Should -Be 'set'
+        $state.Advanced = $true
+        $page = Get-TestPage $state 'servers'
+        $page.Text | Should -Match 'The servers are not ready'
+        $page.Text | Should -Match '192\.0\.2\.11 vault01'
+        $page.Text | Should -Match 'did not answer within 4 seconds'
+        $page.Text | Should -Not -Match 'SYNTHETIC_PASSWORD_642'
+        ($state | ConvertTo-Json -Depth 6 -WarningAction SilentlyContinue) | Should -Not -Match 'SYNTHETIC_PASSWORD_642'
         $state.Checking = $true
-        Get-PASUIBarHtml (@{ Screen = 'servers'; Checking = $true }) | Should -Match 'disabled'
+        Show-PASUIBar
+        $script:ui.BtnNext.IsEnabled | Should -BeFalse
+        $script:ui.NextText.Text | Should -Be 'Checking...'
+        (Find-PASUIControl $page.Panel 'srv-vault-pass').Clear()
     }
     It 'says which part of the server check is running' {
         $state = New-PASUIState
         $state.Configuration = @{ hosts = [ordered]@{ a = @{}; b = @{}; c = @{} } }
         $state.Checking = $true
         $state.CheckPhase = 'reach'
-        Get-PASUIPreflightHtml $state | Should -Match 'part 1 of 2.*the 3 servers answer'
+        Set-PASUIPreset $state 'starter'
+        (Get-TestPage $state 'servers').Text | Should -Match 'part 1 of 2.*the 3 servers answer'
         $state.CheckPhase = 'signin'
-        Get-PASUIPreflightHtml $state | Should -Match 'part 2 of 2.*signing in to the 3 servers'
+        (Get-TestPage $state 'servers').Text | Should -Match 'part 2 of 2.*signing in to the 3 servers'
     }
     It 'counts a step, its restart and its continuation as one step' {
         $events = @()
@@ -494,7 +556,11 @@ Describe 'Servers form and server check' {
         $rows[1].Waiting | Should -Be 'Waiting for PVWA'
         $state = New-PASUIState
         $state.Run = $snapshot
-        Get-PASUIRunComponentsHtml $state @{ PSM = 10; PTA = 7 } | Should -Match 'Waiting for its turn at the Vault'
+        $script:Catalog = @{ PSM = 10; PTA = 7 }
+        $text = (Get-TestPage $state 'run').Text
+        $script:Catalog = @{}
+        $text | Should -Match 'Waiting for its turn at the Vault'
+        $text | Should -Match 'Waiting for PVWA'
     }
     It 'offers the Advanced switch only on a page that has something more to show' {
         $state = New-PASUIState
@@ -566,10 +632,6 @@ Describe 'Server check of a Linux server before its SSH key exists' {
 }
 
 Describe '"Who installs": user and company name for the vendor installers' {
-    BeforeAll {
-        . (Join-Path $uiRoot 'Model.ps1')
-        . (Join-Path $uiRoot 'Views.ps1')
-    }
     It 'is optional, is kept in the configuration and reaches every Windows component' {
         $plain = New-LabConfig
         $plain.options.Contains('installerName') | Should -BeFalse
@@ -592,12 +654,12 @@ Describe '"Who installs": user and company name for the vendor installers' {
     It 'has a field pair in the Advanced view of the Servers step' {
         $state = New-PASUIState
         Set-PASUIPreset $state 'starter'
-        Get-PASUIServersHtml $state | Should -Not -Match 'f-installer-name'
+        Test-PageControl (Get-TestPage $state 'servers') 'f-installer-name' | Should -BeFalse
         $state.Advanced = $true
         $state.InstallerCompany = 'Example Corp'
-        $html = Get-PASUIServersHtml $state
-        $html | Should -Match 'id="f-installer-name"'
-        $html | Should -Match 'id="f-installer-company" value="Example Corp"'
+        $page = Get-TestPage $state 'servers'
+        Test-PageControl $page 'f-installer-name' | Should -BeTrue
+        (Find-PASUIControl $page.Panel 'f-installer-company').Text | Should -Be 'Example Corp'
     }
 }
 
@@ -644,24 +706,22 @@ Describe 'A lab with an Active Directory domain' {
 }
 
 Describe 'Desktop: a lab with a domain' {
-    BeforeAll {
-        . (Join-Path $uiRoot 'Model.ps1')
-        . (Join-Path $uiRoot 'Views.ps1')
-    }
     It 'adds one server line for a new domain and none without a domain' {
         $state = New-PASUIState
         Set-PASUIPreset $state 'standard'
         $before = @(Get-PASUIServerSlots $state).Count
-        Get-PASUILabHtml $state | Should -Match 'id="domain-New"'
-        Get-PASUILabHtml $state | Should -Not -Match 'f-domainname'
+        $page = Get-TestPage $state 'lab'
+        Test-PageControl $page 'domain-New' | Should -BeTrue
+        Test-PageControl $page 'f-domainname' | Should -BeFalse
         $state.Domain = 'New'
         $slots = @(Get-PASUIServerSlots $state)
         $slots.Count | Should -Be ($before + 1)
         $slots[0].Key | Should -Be 'dc'
         @(Get-PASUIInstances $state | Where-Object { $_.Type -eq 'AD' }).Count | Should -Be 0
-        Get-PASUILabHtml $state | Should -Match 'id="f-domainname" value="pam.lab"'
-        Get-PASUIServersHtml $state | Should -Match 'id="srv-dc-addr"'
-        Get-PASUIServersHtml $state | Should -Match 'restore mode password'
+        (Find-PASUIControl (Get-TestPage $state 'lab').Panel 'f-domainname').Text | Should -Be 'pam.lab'
+        $page = Get-TestPage $state 'servers'
+        Test-PageControl $page 'srv-dc-addr' | Should -BeTrue
+        $page.Text | Should -Match 'restore mode password'
         Get-PASUICommandText $state | Should -Match '-DomainMode New -DomainName pam\.lab'
     }
     It 'asks for the domain name and offers a line for an existing domain' {
@@ -672,15 +732,13 @@ Describe 'Desktop: a lab with a domain' {
         (Get-PASUIInputIssues $state 'lab') -join ' ' | Should -Match 'DNS name of the domain'
         $state.DomainName = 'corp.example'
         (Get-PASUIInputIssues $state 'lab') -join ' ' | Should -Not -Match 'DNS name of the domain'
-        Get-PASUIServersHtml $state | Should -Match 'id="srv-domain-addr"'
+        Test-PageControl (Get-TestPage $state 'servers') 'srv-domain-addr' | Should -BeTrue
         (Get-PASUIInputIssues $state 'servers') -join ' ' | Should -Match 'address of the Existing domain'
     }
 }
 
 Describe 'HTML5 Gateway' {
     BeforeAll {
-        . (Join-Path $uiRoot 'Model.ps1')
-        . (Join-Path $uiRoot 'Views.ps1')
         $gatewayMedia = Join-Path $TestDrive 'gw-media'
         New-TestZip (Join-Path $gatewayMedia 'HTML5 Gateway-Rls-15.0.zip') @('HTML5 Gateway-Rls-15.0/PSMGWDocker/html5_console.sh')
         $script:gatewayInventory = @($script:inventory) + @(Get-PASMediaInventory -Path $gatewayMedia)
@@ -727,16 +785,14 @@ Describe 'HTML5 Gateway' {
         @(Get-PASUIInstances $state | Where-Object Type -eq 'HTML5GW').Count | Should -Be 1
         $state.Counts.PSMP = 0
         (@(Get-PASUIServerSlots $state) | Where-Object { $_.Types -contains 'HTML5GW' }).Roles | Should -Be 'HTML5 Gateway'
-        Get-PASUILabHtml $state | Should -Not -Match 'HTML5 Gateway are being worked on'
+        Test-PageControl (Get-TestPage $state 'lab') 'cnt-HTML5GW-inc' | Should -BeFalse
         $state.Preset = 'custom'
-        Get-PASUILabHtml $state | Should -Match 'id="cnt-HTML5GW-inc"'
+        Test-PageControl (Get-TestPage $state 'lab') 'cnt-HTML5GW-inc' | Should -BeTrue
     }
 }
 
 Describe 'PTA' {
     BeforeAll {
-        . (Join-Path $uiRoot 'Model.ps1')
-        . (Join-Path $uiRoot 'Views.ps1')
         $ptaMedia = Join-Path $TestDrive 'pta-media'
         New-TestZip (Join-Path $ptaMedia 'PTA-Installer-Rls-v15.2.2.zip') @('pta_installer.sh', 'pta-15.2.2.tgz')
         New-TestZip (Join-Path $ptaMedia 'PTA-Upgrade-Rls-v15.2.2.zip') @('x')
@@ -795,9 +851,10 @@ Describe 'PTA' {
         $slot.Count | Should -Be 1
         $slot[0].Os | Should -Be 'Linux'
         (Get-PASUIInstances $state | Where-Object Type -eq 'PTA').VaultTimezone | Should -Be 'Europe/Berlin'
-        Get-PASUILabHtml $state | Should -Not -Match 'Not yet installable'
+        $state.Preset = 'custom'
+        Test-PageControl (Get-TestPage $state 'lab') 'cnt-PTA-inc' | Should -BeTrue
         $state.Advanced = $true
-        Get-PASUIServersHtml $state | Should -Match 'id="f-vault-timezone" placeholder="UTC" value="Europe/Berlin"'
+        (Find-PASUIControl (Get-TestPage $state 'servers').Panel 'f-vault-timezone').Text | Should -Be 'Europe/Berlin'
         (Get-PASUIInputIssues $state 'servers') -join ' ' | Should -Match 'license agreement of the Linux installers'
     }
 }

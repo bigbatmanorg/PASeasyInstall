@@ -74,8 +74,8 @@ The configuration file never contains a password.
 Start-PASeasyInstall
 ```
 
-`Start-PASeasyInstall` is part of the same module. Its window only calls the commands above. The first time, it
-offers to install NativeHTMLKit, the module that draws the window; the commands themselves need nothing else. Four steps build a lab: media
+`Start-PASeasyInstall` is part of the same module. Its window only calls the commands above. It is drawn with WPF,
+which is part of Windows, so nothing else has to be installed. Four steps build a lab: media
 folder, the lab to build, servers and password, review and install. Each installation then has a page with live
 progress, retry and a lab check. Nothing is sent to a server before you press **Install** on the last step.
 `Start-PASeasyInstall -Config .\MyLab.json` reopens a saved lab file.
@@ -83,7 +83,7 @@ progress, retry and a lab check. Nothing is sent to a server before you press **
 
 **Portable ZIP:** download `PASeasyInstall-<version>-portable.zip` from
 [Releases](https://github.com/bigbatmanorg/PASeasyInstall/releases), unblock it, extract it, and double-click
-`Start-PASeasyInstall.cmd`. The module and the NativeHTMLKit runtime are inside. Nothing is installed.
+`Start-PASeasyInstall.cmd`. The module is inside and needs nothing else. Nothing is installed.
 
 Full tour with screenshots: [Desktop UI](https://bigbatmanorg.github.io/PASeasyInstall/gui/).
 
@@ -171,8 +171,8 @@ and SSH (Linux).
 - Every step is a recorded attempt on the server, verified by a separate check. An interrupted run resumes from
   what actually happened on the server. An installer is never rerun blindly.
 - Passwords live only in memory.
-- The desktop is a native window built with [NativeHTMLKit](https://nativehtmlkit.github.io/). There is no
-  browser, web server or JavaScript.
+- The desktop is a native Windows window (WPF). There is no browser, web server or JavaScript, and no
+  module besides PASeasyInstall.
 
 What works now, what is experimental and what comes later is in [Docs/STATUS.md](Docs/STATUS.md).
 The mental model, the files a run leaves behind and the known debt are in [Docs/DESIGN.md](Docs/DESIGN.md).
@@ -201,7 +201,7 @@ PASeasyInstall/                 the core module (no dependencies)
   Private/Diagnostics           health, logs, diagnostics export
   Recipes/                      scripts that run on the servers: Vault, WindowsComponent, LinuxComponent, ActiveDirectory
   Controllers/                  entry script of the detached run controller process
-PASeasyInstall/Desktop/         the desktop window (NativeHTMLKit SDK); calls only the public commands
+PASeasyInstall/Desktop/         the desktop window (WPF: XAML and PowerShell); calls only the public commands
 Start-PASeasyInstall.ps1        opens the desktop from a source checkout
 Tests/, Tools/                  Pester tests and build/check tools
 Docs/                           DESIGN.md, third-party licenses, README screenshots

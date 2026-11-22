@@ -72,6 +72,10 @@ function New-PASUIState {
         Advanced = $false
         Notice = $null
 
+        # Work that is under way in the background: the list of installations, the media scan.
+        RunsLoading = $false
+        Scanning = $false
+
         MediaPath = ''
         MediaSources = @()
         MediaItems = @()
@@ -89,6 +93,8 @@ function New-PASUIState {
         DomainName = 'pam.lab'
 
         # Per server: Name, Address, User, Password. Vault passwords: VaultAdmin, VaultMaster, DRPassword.
+        # The window writes only a mark ('set') for a password that is typed; the password itself stays in
+        # its password box as a SecureString. The checks below need no more than "typed or not".
         Slots = @{}
         Secrets = @{}
         Controller = $ControllerAddress
@@ -126,6 +132,8 @@ function New-PASUIState {
         DialogRequirements = @()
         Polling = $false
         ResumeUntil = $null
+        # The activity log of the installation page is unfolded.
+        LogOpen = $false
     }
 }
 

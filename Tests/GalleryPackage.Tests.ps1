@@ -30,19 +30,19 @@ Describe 'Gallery package stages' {
         Test-Path -LiteralPath $script:core.Inventory | Should -BeTrue
     }
     It 'puts the desktop window and its Mock backend into the same package' {
-        foreach ($rel in 'Public/Start-PASeasyInstall.ps1', 'Desktop/App.ps1', 'Desktop/Model.ps1', 'Desktop/Views.ps1', 'Desktop/Web/index.html',
-            'Desktop/Web/style.css', 'Desktop/Web/PASeasyInstall.ico', 'Desktop/Backend/Backend.Contract.ps1', 'Desktop/Backend/Mock/PASeasyInstall.Mock.psd1') {
+        foreach ($rel in 'Public/Start-PASeasyInstall.ps1', 'Desktop/App.ps1', 'Desktop/Model.ps1', 'Desktop/Views.ps1', 'Desktop/Controls.ps1',
+            'Desktop/Window.xaml', 'Desktop/PASeasyInstall.ico', 'Desktop/Backend/Backend.Contract.ps1', 'Desktop/Backend/Mock/PASeasyInstall.Mock.psd1') {
             Test-Path -LiteralPath (Join-Path $script:core.Stage $rel) | Should -BeTrue -Because $rel
         }
     }
-    It 'requires no other module; only the Desktop folder loads the window engine' {
+    It 'requires no other module; only the Desktop folder loads the window code (WPF)' {
         $data = Import-PowerShellDataFile (Join-Path $script:core.Stage 'PASeasyInstall.psd1')
         $required = @()
         if ($data.ContainsKey('RequiredModules')) { $required = @($data.RequiredModules) }
         $required.Count | Should -Be 0
         $loads = @(Get-ChildItem -LiteralPath $script:core.Stage -Recurse -File -Include '*.ps1', '*.psm1' |
                 Where-Object { $_.FullName -notmatch '[\\/]Desktop[\\/]' } |
-                Select-String -Pattern 'Import-Module\s+NativeHTMLKit')
+                Select-String -Pattern 'PresentationFramework')
         $loads.Count | Should -Be 0
     }
     It 'leaves out tests, tools and docs' {

@@ -1,7 +1,7 @@
 # Portable ZIP
 
-The portable release contains both PASeasyInstall modules (the commands and the desktop) **and** everything they
-need to run: the NativeHTMLKit module with its native window host. Unzip it and run it. Nothing is installed on the controller, and
+The portable release contains the PASeasyInstall module (the commands and the desktop). It needs nothing else:
+the window is drawn with WPF, which is part of Windows. Unzip it and run it. Nothing is installed on the controller, and
 the controller needs no internet access.
 
 ## Download and run
@@ -24,7 +24,6 @@ C:\PASeasyInstall\
   PASeasyInstall-Shell.cmd / .ps1     a PowerShell window with every PASeasyInstall command loaded
   README-PORTABLE.txt, LICENSE.txt, THIRD_PARTY_*.txt
   PASeasyInstall\                     the module: commands and desktop window
-  NativeHTMLKit\                      the desktop runtime, including its native host
 ```
 
 The launchers unblock the extracted files, put the folder first on `PSModulePath` for their own

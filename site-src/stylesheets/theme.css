@@ -1,4 +1,4 @@
-/* PASeasyInstall docs colour theme (from the NativeHTMLKit docs site) on top of the slate scheme: soft, low-glare text with colour-coded
+/* PASeasyInstall docs colour theme on top of the slate scheme: soft, low-glare text with colour-coded
    structure (headings, emphasis, code, links) so content is easy to scan. */
 [data-md-color-scheme="slate"] {
   --md-default-bg-color: #14171f;

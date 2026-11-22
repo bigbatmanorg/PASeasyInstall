@@ -1,10 +1,9 @@
-# The screens of the desktop window as HTML text. Every function takes the state and returns a string:
-# no window, no installer call. Every value that is not written in this file goes through ConvertTo-PASUIText.
-
-function ConvertTo-PASUIText {
-    param([AllowNull()][string]$Value)
-    return [Net.WebUtility]::HtmlEncode([string]$Value)
-}
+# The screens of the desktop window, built from the controls of Controls.ps1. Every function reads the state
+# ($S, see Model.ps1) and fills a part of the window; none of them calls the installer.
+#
+#   $ui   the named parts of the shell (Window.xaml)
+#   $R    the parts of the current page that are filled again on their own (the result of the server check,
+#         the status of an installation, ...), by name. Set-PASUIRegion replaces what one of them shows.
 
 function Get-PASUIFlowSteps {
     return @(
@@ -15,343 +14,513 @@ function Get-PASUIFlowSteps {
     )
 }
 
-function Get-PASUIStepsHtml {
-    # The step line in the top bar. Empty outside the four steps of a new lab.
-    param([hashtable]$State)
+function New-PASUIRegion {
+    # A part of the page that is filled again on its own. Returns the (empty) panel and remembers it by name.
+    param([string]$Name, [object[]]$Content = @())
+    $panel = New-Object Windows.Controls.StackPanel
+    Add-PASUIChild $panel $Content
+    $R[$Name] = $panel
+    return $panel
+}
+
+function Set-PASUIRegion {
+    # Replaces what a part of the page shows. Nothing happens when the page that has it is not on screen.
+    param([string]$Name, [object[]]$Content = @())
+    if (-not $R.ContainsKey($Name)) {
+        return
+    }
+    $R[$Name].Children.Clear()
+    Add-PASUIChild $R[$Name] $Content
+}
+
+function Show-PASUISteps {
+    # The step line in the top bar: finished steps with a check mark (they can be pressed), the current one
+    # filled, the ones ahead as an outline. Empty outside the four steps of a new lab.
+    $ui.Steps.Children.Clear()
     $steps = @(Get-PASUIFlowSteps)
     $ids = @($steps | ForEach-Object { $_.Id })
-    $position = [array]::IndexOf($ids, [string]$State.Screen)
+    $position = [array]::IndexOf($ids, [string]$S.Screen)
     if ($position -lt 0) {
-        return ''
+        return
     }
-    $html = New-Object System.Text.StringBuilder
     for ($i = 0; $i -lt $steps.Count; $i++) {
-        $class = 'step'
-        $disabled = ''
-        if ($i -eq $position) {
-            $class = 'step current'
-        } elseif ($i -lt $position) {
-            $class = 'step done'
-        } else {
-            $disabled = ' disabled'
+        if ($i -gt 0) {
+            $joint = New-Object Windows.Shapes.Rectangle
+            $joint.Width = 18
+            $joint.Height = 1
+            $joint.Margin = '6,0'
+            $joint.Fill = Get-PASUIBrush 'LineStrong'
+            [void]$ui.Steps.Children.Add($joint)
         }
-        [void]$html.Append("<button id=`"step-$($steps[$i].Id)`" class=`"$class`"$disabled><span class=`"num`">$($i + 1)</span>$($steps[$i].Title)</button>")
+        $content = New-Object Windows.Controls.StackPanel
+        $content.Orientation = 'Horizontal'
+        $dot = New-Object Windows.Controls.Border
+        $dot.Width = 20
+        $dot.Height = 20
+        $dot.CornerRadius = '10'
+        $dot.BorderThickness = '1'
+        $dot.Margin = '0,0,7,0'
+        $label = New-PASUIText $steps[$i].Title
+        $label.FontSize = 12.5
+        $label.VerticalAlignment = 'Center'
+        if ($i -eq $position) {
+            $dot.Background = Get-PASUIBrush 'Accent'
+            $dot.BorderBrush = Get-PASUIBrush 'Accent'
+            $number = New-PASUIText ([string]($i + 1))
+            $number.Foreground = [Windows.Media.Brushes]::White
+            $number.FontWeight = [Windows.FontWeights]::Bold
+            $label.FontWeight = [Windows.FontWeights]::SemiBold
+        } elseif ($i -lt $position) {
+            $dot.Background = Get-PASUIBrush 'OkBg'
+            $dot.BorderBrush = Get-PASUIBrush 'OkLine'
+            $number = New-PASUIIcon 0xE73E 'OkFg' 10
+            $label.Foreground = Get-PASUIBrush 'TextSoft'
+        } else {
+            $dot.BorderBrush = Get-PASUIBrush 'LineStrong'
+            $number = New-PASUIText ([string]($i + 1)) -Brush 'Muted'
+            $label.Foreground = Get-PASUIBrush 'Muted'
+        }
+        if ($number.FontSize -gt 11) {
+            $number.FontSize = 11
+        }
+        $number.HorizontalAlignment = 'Center'
+        $number.VerticalAlignment = 'Center'
+        $dot.Child = $number
+        [void]$content.Children.Add($dot)
+        [void]$content.Children.Add($label)
+        $step = New-Object Windows.Controls.Button
+        $step.Style = $window.Resources['StepButton']
+        $step.Content = $content
+        $step.Tag = 'step-' + $steps[$i].Id
+        $step.IsEnabled = ($i -lt $position)
+        [Windows.Automation.AutomationProperties]::SetName($step, ('Step ' + ($i + 1) + ': ' + $steps[$i].Title))
+        $step.Add_Click({
+                param($sender, $eventArgs)
+                $id = [string]$sender.Tag
+                Invoke-PASUISafe { Invoke-PASUIClick $id }
+            })
+        [void]$ui.Steps.Children.Add($step)
     }
-    return $html.ToString()
 }
 
-function Get-PASUINoticeHtml {
-    param([hashtable]$State)
-    if (-not $State.Notice) {
-        return ''
+function Show-PASUIBar {
+    # Back and Next at the bottom of the four steps; hidden elsewhere.
+    $ui.NextBusy.Visibility = 'Collapsed'
+    $ui.NextBusy.Content = $null
+    $ui.NextArrow.Visibility = 'Visible'
+    $ui.BtnNext.Visibility = 'Visible'
+    $ui.BtnNext.IsEnabled = $true
+    $ui.BarText.Text = ''
+    switch ([string]$S.Screen) {
+        'media' {
+            $ui.NextText.Text = 'Next: choose the lab'
+        }
+        'lab' {
+            $ui.NextText.Text = 'Next: servers'
+        }
+        'servers' {
+            if ($S.Checking) {
+                $ui.NextText.Text = 'Checking...'
+                $ui.BarText.Text = 'Checking the servers. Nothing is installed yet.'
+                $ui.BtnNext.IsEnabled = $false
+                $ui.NextArrow.Visibility = 'Collapsed'
+                $ui.NextBusy.Content = New-PASUISpinner 'TextSoft' 14
+                $ui.NextBusy.Visibility = 'Visible'
+            } else {
+                $ui.NextText.Text = 'Next: check the servers'
+                $ui.BarText.Text = 'Next checks that every server answers and that the accounts work. Nothing is installed yet.'
+            }
+        }
+        'review' {
+            $ui.BtnNext.Visibility = 'Collapsed'
+        }
+        default {
+            $ui.Bar.Visibility = 'Collapsed'
+            return
+        }
     }
-    $ring = ''
-    if ([string]$State.Notice.Kind -eq 'busy') {
-        $ring = '<span class="spin"></span>'
-    }
-    return "<div class=`"notice $($State.Notice.Kind)`">" + $ring + (ConvertTo-PASUIText $State.Notice.Text) + '</div>'
+    [Windows.Automation.AutomationProperties]::SetName($ui.BtnNext, [string]$ui.NextText.Text)
+    $ui.Bar.Visibility = 'Visible'
 }
 
-function Get-PASUIIssueBoxHtml {
-    # A red box with what is missing. Empty when nothing is.
+function Show-PASUINotice {
+    # The line under the top bar, from $S.Notice (Kind: busy, ok, error, info, warn; Text).
+    if (-not $S.Notice) {
+        $ui.Notice.Visibility = 'Collapsed'
+        $ui.NoticeIcon.Content = $null
+        $ui.NoticeText.Text = ''
+        return
+    }
+    $kind = [string]$S.Notice.Kind
+    if ($kind -eq 'error') {
+        $kind = 'bad'
+    }
+    if (-not $script:PASUITones.ContainsKey($kind)) {
+        $kind = 'info'
+    }
+    $tone = $script:PASUITones[$kind]
+    $ui.Notice.Background = Get-PASUIBrush $tone.Bg
+    $ui.Notice.BorderBrush = Get-PASUIBrush $tone.Line
+    $ui.NoticeIcon.Content = New-PASUIToneIcon $kind 15
+    $ui.NoticeText.Text = [string]$S.Notice.Text
+    $ui.Notice.Visibility = 'Visible'
+}
+
+function New-PASUIIssueBox {
+    # A red box with what is missing, or nothing when nothing is.
     param([string[]]$Issues, [string]$Title = 'Before you continue')
     $list = @($Issues | Where-Object { $_ })
     if (-not $list.Count) {
-        return ''
+        return $null
     }
-    $items = ($list | ForEach-Object { '<li>' + (ConvertTo-PASUIText $_) + '</li>' }) -join ''
-    return "<div class=`"box bad`"><strong>" + (ConvertTo-PASUIText $Title) + "</strong><ul>$items</ul></div>"
-}
-
-function Get-PASUIBarHtml {
-    # Back and Next at the bottom of the four steps.
-    param([hashtable]$State)
-    switch ([string]$State.Screen) {
-        'media' { return '<button id="act-back" class="btn">Back</button><span class="grow"></span><button id="act-next" class="btn primary">Next: choose the lab</button>' }
-        'lab' { return '<button id="act-back" class="btn">Back</button><span class="grow"></span><button id="act-next" class="btn primary">Next: servers</button>' }
-        'servers' {
-            if ($State.Checking) {
-                return '<button id="act-back" class="btn">Back</button><span class="grow">Checking the servers. Nothing is installed yet.</span><button class="btn primary" disabled><span class="spin"></span>Checking...</button>'
-            }
-            return '<button id="act-back" class="btn">Back</button><span class="grow">Next checks that every server answers and that the accounts work. Nothing is installed yet.</span><button id="act-next" class="btn primary">Next: check the servers</button>'
-        }
-        'review' { return '<button id="act-back" class="btn">Back</button><span class="grow"></span>' }
-    }
-    return ''
+    return New-PASUIBox 'bad' $Title '' $list
 }
 
 # ------------------------------------------------------------------ start page
 
-function Get-PASUIHomeHtml {
-    param([hashtable]$State)
-    $html = New-Object System.Text.StringBuilder
-    [void]$html.Append('<div class="page">')
-    [void]$html.Append('<div class="card hero"><h1>Build a CyberArk PAM lab</h1>')
-    [void]$html.Append('<p class="lead">Media, lab, servers, install. Nothing is changed on any server before you press Install.</p>')
-    [void]$html.Append('<div class="actions"><button id="act-new" class="btn primary big">Start a new lab</button><button id="act-open" class="btn big">Open a saved lab file</button></div></div>')
+function Add-PASUIHomePage {
+    param($Page)
+    $hero = New-PASUICard -Content @(
+        (New-PASUIText 'Build a CyberArk PAM lab' 'H1'),
+        (New-PASUIText 'Media, lab, servers, install. Nothing is changed on any server before you press Install.' 'Lead' -Margin '0,0,0,16'),
+        (New-PASUIRow @(
+                (New-PASUIButton 'act-new' 'Start a new lab' 'PrimaryBig'),
+                (New-PASUIButton 'act-open' 'Open a saved lab file' 'Big')))
+    )
+    $hero.Padding = '22,20'
+    $runs = New-PASUICard 'Your installations' @((New-PASUIRegion 'Runs'))
+    Add-PASUIChild $Page @(
+        $hero,
+        $runs,
+        (New-PASUIText 'PASeasyInstall builds labs. An installation runs in its own process and continues when this window is closed.' 'Hint')
+    )
+    Show-PASUIRunList
+}
 
-    [void]$html.Append('<div class="card"><h2>Your installations</h2>')
-    $runs = @($State.Runs)
-    if (-not $runs.Count) {
-        [void]$html.Append('<p class="hint">No installation has been started from this computer yet.</p>')
-    } else {
-        [void]$html.Append('<ul class="list">')
-        foreach ($run in ($runs | Select-Object -First 12)) {
-            $kind = Get-PASUIStatusKind ([string]$run.Status)
-            [void]$html.Append('<li><span class="grow"><span class="name">' + (ConvertTo-PASUIText $run.Name) + '</span> ')
-            [void]$html.Append('<span class="when">started ' + (ConvertTo-PASUIText (Format-PASUIWhen ([string]$run.StartedUtc))) + '</span></span>')
-            [void]$html.Append("<span class=`"pill $kind`">" + (ConvertTo-PASUIText (Get-PASUIStatusText ([string]$run.Status))) + '</span>')
-            [void]$html.Append("<button id=`"run-$([string]$run.RunId)`" class=`"btn small`">Open</button></li>")
-        }
-        [void]$html.Append('</ul>')
+function Show-PASUIRunList {
+    # The installations of this computer on the start page, newest first.
+    if ($S.RunsLoading) {
+        Set-PASUIRegion 'Runs' @((New-PASUIText 'Looking for earlier installations...' 'Hint'))
+        return
     }
-    [void]$html.Append('</div>')
-
-    [void]$html.Append('<p class="hint">PASeasyInstall builds labs. An installation runs in its own process and continues when this window is closed.</p>')
-    [void]$html.Append('</div>')
-    return $html.ToString()
+    $runs = @($S.Runs)
+    if (-not $runs.Count) {
+        Set-PASUIRegion 'Runs' @((New-PASUIText 'No installation has been started from this computer yet.' 'Hint'))
+        return
+    }
+    $rows = @()
+    foreach ($run in ($runs | Select-Object -First 12)) {
+        $line = New-Object Windows.Controls.DockPanel
+        $line.Margin = '0,4,0,4'
+        $open = New-PASUIButton ('run-' + [string]$run.RunId) 'Open' 'Small' -Margin '12,0,0,0' -Label ('Open ' + [string]$run.Name)
+        [Windows.Controls.DockPanel]::SetDock($open, 'Right')
+        $pill = New-PASUIPill (Get-PASUIStatusText ([string]$run.Status)) (Get-PASUIStatusKind ([string]$run.Status))
+        [Windows.Controls.DockPanel]::SetDock($pill, 'Right')
+        $name = New-Object Windows.Controls.StackPanel
+        $name.Orientation = 'Horizontal'
+        $name.VerticalAlignment = 'Center'
+        Add-PASUIChild $name @(
+            (New-PASUIText ([string]$run.Name) -Bold),
+            (New-PASUIText ('started ' + (Format-PASUIWhen ([string]$run.StartedUtc))) 'Hint' -Margin '10,1,0,0')
+        )
+        Add-PASUIChild $line @($open, $pill, $name)
+        $rows += $line
+    }
+    Set-PASUIRegion 'Runs' $rows
 }
 
 # ------------------------------------------------------------------ step 1: media
 
-function Get-PASUIMediaHtml {
-    param([hashtable]$State)
-    $html = New-Object System.Text.StringBuilder
-    [void]$html.Append('<div class="page"><h1>Where is the installer media?</h1>')
-    [void]$html.Append('<p class="lead">The folder with what you downloaded from CyberArk (the one big ZIP or the separate ZIPs), your license file and the recovery public key.</p>')
-    [void]$html.Append('<div class="card"><div id="media-drop" class="drop" data-nativehtmlkit-drop="files"><strong>Drop the media folder or the ZIP files here</strong><span>or type the folder below</span></div>')
-    [void]$html.Append('<div class="row"><div class="grow"><label for="f-mediapath">Media folder</label>')
-    [void]$html.Append('<input type="text" id="f-mediapath" placeholder="D:\CyberArkMedia" value="' + (ConvertTo-PASUIText $State.MediaPath) + '"></div>')
-    [void]$html.Append('<button id="act-browse" class="btn">Browse</button><button id="act-scan" class="btn primary">Look for installers</button></div>')
-    [void]$html.Append('<div id="media-sources">' + (Get-PASUIMediaSourcesHtml $State) + '</div></div>')
-    [void]$html.Append('<div id="media-result">' + (Get-PASUIMediaResultHtml $State) + '</div></div>')
-    return $html.ToString()
+function Add-PASUIMediaPage {
+    param($Page)
+    $drop = New-Object Windows.Controls.Border
+    $drop.BorderBrush = Get-PASUIBrush 'LineStrong'
+    $drop.BorderThickness = '1'
+    $drop.CornerRadius = '8'
+    $drop.Background = Get-PASUIBrush 'Input'
+    $drop.Padding = '16,18'
+    $drop.Margin = '0,0,0,14'
+    $dropText = New-Object Windows.Controls.StackPanel
+    $dropText.HorizontalAlignment = 'Center'
+    $headline = New-PASUIText 'Drop the media folder or the ZIP files here' -Bold
+    $headline.HorizontalAlignment = 'Center'
+    $second = New-PASUIText 'or type the folder below' 'Hint'
+    $second.HorizontalAlignment = 'Center'
+    Add-PASUIChild $dropText @($headline, $second)
+    $drop.Child = $dropText
+
+    $line = New-Object Windows.Controls.DockPanel
+    $scan = New-PASUIButton 'act-scan' 'Look for installers' 'Primary' -Margin '0,22,0,0'
+    [Windows.Controls.DockPanel]::SetDock($scan, 'Right')
+    $browse = New-PASUIButton 'act-browse' 'Browse' 'Btn' -Margin '0,22,10,0'
+    [Windows.Controls.DockPanel]::SetDock($browse, 'Right')
+    $path = New-PASUITextBox 'f-mediapath' ([string]$S.MediaPath) 'Media folder' -Placeholder 'For example D:\CyberArkMedia'
+    $R['MediaPathBox'] = $path
+    Add-PASUIChild $line @($scan, $browse, (New-PASUIField 'Media folder' $path -Margin '0'))
+
+    Add-PASUIChild $Page @(
+        (New-PASUIText 'Where is the installer media?' 'H1'),
+        (New-PASUIText 'The folder with what you downloaded from CyberArk (the one big ZIP or the separate ZIPs), your license file and the recovery public key.' 'Lead' -Margin '0,0,0,18'),
+        (New-PASUICard -Content @($drop, $line, (New-PASUIRegion 'MediaSources'))),
+        (New-PASUIRegion 'MediaResult')
+    )
+    Show-PASUIMediaSources
+    Show-PASUIMediaResult
 }
 
-function Get-PASUIMediaSourcesHtml {
+function Show-PASUIMediaSources {
     # The files and folders that were dropped, with a button to forget them.
-    param([hashtable]$State)
-    $sources = @($State.MediaSources)
+    $sources = @($S.MediaSources)
     if (-not $sources.Count) {
-        return ''
+        Set-PASUIRegion 'MediaSources'
+        return
     }
-    $items = ($sources | ForEach-Object { '<li>' + (ConvertTo-PASUIText $_) + '</li>' }) -join ''
-    return '<p class="hint" style="margin-top:12px">Also used:</p><ul class="sources">' + $items + '</ul><button id="act-media-clear" class="btn small">Remove these</button>'
+    $content = @((New-PASUIText 'Also used:' 'Hint' -Margin '0,12,0,4'))
+    foreach ($source in $sources) {
+        $content += New-PASUIText ([string]$source) -Brush 'TextSoft' -Margin '0,1,0,1'
+    }
+    $content += New-PASUIButton 'act-media-clear' 'Remove these' 'Small' -Margin '0,8,0,0'
+    $content[-1].HorizontalAlignment = 'Left'
+    Set-PASUIRegion 'MediaSources' $content
 }
 
-function Get-PASUIMediaResultHtml {
-    param([hashtable]$State)
-    if (-not $State.MediaScanned) {
-        return ''
+function Show-PASUIMediaResult {
+    # What was recognised in the media folder, one line per kind of installer.
+    if (-not $S.MediaScanned) {
+        Set-PASUIRegion 'MediaResult'
+        return
     }
-    $rows = @(Get-PASUIMediaRows $State)
-    $found = @($rows | Where-Object { $_.Found })
-    $html = New-Object System.Text.StringBuilder
-    if (-not $found.Count) {
-        [void]$html.Append('<div class="box bad"><strong>No CyberArk installer was recognised in that folder.</strong> Check that it is the folder with the ZIP files as downloaded, not an unpacked copy.</div>')
-        return $html.ToString()
+    $rows = @(Get-PASUIMediaRows $S)
+    if (-not @($rows | Where-Object { $_.Found }).Count) {
+        Set-PASUIRegion 'MediaResult' @((New-PASUIBox 'bad' 'No CyberArk installer was recognised in that folder.' 'Check that it is the folder with the ZIP files as downloaded, not an unpacked copy.'))
+        return
     }
-    [void]$html.Append('<div class="card"><h2>Found in this folder</h2><table><tbody>')
+    $grid = New-PASUIGrid @('Auto', '*')
+    $number = 0
     foreach ($row in $rows) {
-        $pill = '<span class="pill">not found</span>'
+        $pill = New-PASUIPill 'not found' 'idle'
         if ($row.Found) {
-            $pill = '<span class="pill ok">found</span>'
+            $pill = New-PASUIPill 'found' 'ok'
         }
-        [void]$html.Append('<tr><td class="state">' + $pill + '</td><td>' + (ConvertTo-PASUIText $row.Label) + '<span class="sub">' + (ConvertTo-PASUIText $row.Detail) + '</span></td></tr>')
+        $pill.Margin = '0,5,14,5'
+        $pill.VerticalAlignment = 'Top'
+        $what = New-Object Windows.Controls.StackPanel
+        $what.Margin = '0,4,0,4'
+        Add-PASUIChild $what @((New-PASUIText ([string]$row.Label)))
+        if ([string]$row.Detail) {
+            Add-PASUIChild $what @((New-PASUIText ([string]$row.Detail) 'Hint'))
+        }
+        Add-PASUICell $grid $pill $number 0
+        Add-PASUICell $grid $what $number 1
+        $number++
     }
-    [void]$html.Append('</tbody></table><p class="hint">Parts that are not found can simply be left out of the lab on the next step.</p></div>')
-    return $html.ToString()
+    Set-PASUIRegion 'MediaResult' @((New-PASUICard 'Found in this folder' @(
+                $grid,
+                (New-PASUIText 'Parts that are not found can simply be left out of the lab on the next step.' 'Hint' -Margin '0,8,0,0'))))
 }
 
 # ------------------------------------------------------------------ step 2: lab
 
-function Get-PASUILabHtml {
-    param([hashtable]$State)
-    $html = New-Object System.Text.StringBuilder
-    [void]$html.Append('<div class="page"><h1>What do you want to build?</h1>')
-    [void]$html.Append('<p class="lead">Pick a ready-made lab. You can change every part with Custom.</p>')
-
-    [void]$html.Append('<div class="choices">')
+function Add-PASUILabPage {
+    param($Page)
+    $presets = New-Object Windows.Controls.WrapPanel
     foreach ($preset in Get-PASUIPresets) {
-        $class = 'choice'
-        if ($State.Preset -eq $preset.Id) {
-            $class = 'choice selected'
-        }
-        $servers = ''
+        $note = ''
         if ($preset.Counts) {
             $copy = @{ VaultMode = $preset.VaultMode; Counts = $preset.Counts; Colocate = $true }
-            $servers = '<span class="servers">' + @(Get-PASUIServerSlots $copy).Count + ' servers</span>'
+            $note = [string]@(Get-PASUIServerSlots $copy).Count + ' servers'
         }
         $badge = ''
         if ($preset.ContainsKey('Recommended')) {
-            $badge = ' <span class="badge rec">recommended</span>'
+            $badge = 'recommended'
         }
-        [void]$html.Append("<button id=`"preset-$($preset.Id)`" class=`"$class`"><span class=`"title`">$($preset.Title)$badge</span><span class=`"what`">$($preset.What)</span>$servers</button>")
+        Add-PASUIChild $presets @((New-PASUIChoice ('preset-' + $preset.Id) $preset.Title $preset.What ($S.Preset -eq $preset.Id) $note $badge))
     }
-    [void]$html.Append('</div>')
-
-    if ($State.Preset -eq 'custom') {
-        [void]$html.Append((Get-PASUICustomLabHtml $State))
+    Add-PASUIChild $Page @(
+        (New-PASUIText 'What do you want to build?' 'H1'),
+        (New-PASUIText 'Pick a ready-made lab. You can change every part with Custom.' 'Lead' -Margin '0,0,0,18'),
+        $presets
+    )
+    if ($S.Preset -eq 'custom') {
+        Add-PASUIChild $Page @((New-PASUICustomLabCard))
     }
 
-    [void]$html.Append('<div class="card"><h2>Active Directory</h2><div class="choices">')
-    $domains = @(
+    $domains = New-Object Windows.Controls.WrapPanel
+    $options = @(
         @{ Id = 'None'; Title = 'No domain'; What = 'The servers stay as they are.' }
         @{ Id = 'New'; Title = 'New domain'; What = 'One more server becomes the domain controller. PVWA, CPM and PSM servers join it and get the CyberArk hardening GPOs.' }
         @{ Id = 'Existing'; Title = 'A domain I already have'; What = 'PVWA, CPM and PSM servers join it. Its GPOs are not touched.' }
     )
-    foreach ($domain in $domains) {
-        $class = 'choice'
-        if ($State.Domain -eq $domain.Id) {
-            $class = 'choice selected'
-        }
-        [void]$html.Append("<button id=`"domain-$($domain.Id)`" class=`"$class`"><span class=`"title`">$($domain.Title)</span><span class=`"what`">$($domain.What)</span></button>")
+    foreach ($option in $options) {
+        Add-PASUIChild $domains @((New-PASUIChoice ('domain-' + $option.Id) $option.Title $option.What ($S.Domain -eq $option.Id) -Width 250))
     }
-    [void]$html.Append('</div>')
-    if ($State.Domain -ne 'None') {
-        [void]$html.Append('<div class="field"><label for="f-domainname">DNS name of the domain</label>')
-        [void]$html.Append('<input type="text" id="f-domainname" value="' + (ConvertTo-PASUIText $State.DomainName) + '">')
-        [void]$html.Append('<p class="hint">For example pam.lab. The servers restart once when they join. Vault servers are never joined.</p></div>')
+    $domainCard = New-PASUICard 'Active Directory' @($domains)
+    if ($S.Domain -ne 'None') {
+        Add-PASUIChild $domainCard.Child @((New-PASUIField 'DNS name of the domain' (New-PASUITextBox 'f-domainname' ([string]$S.DomainName) 'DNS name of the domain' 260) `
+                    'For example pam.lab. The servers restart once when they join. Vault servers are never joined.' -Margin '0,4,0,0'))
     }
-    [void]$html.Append('</div>')
-
-    [void]$html.Append('<div class="card"><div class="field"><label for="f-labname">Name of the lab</label>')
-    [void]$html.Append('<input type="text" id="f-labname" value="' + (ConvertTo-PASUIText $State.LabName) + '">')
-    [void]$html.Append('<p class="hint">Installations are listed under this name. Letters, digits, dot, dash, underscore.</p></div></div>')
-
-
-    [void]$html.Append('<div id="lab-issues">' + (Get-PASUIIssueBoxHtml (Get-PASUIInputIssues $State 'lab')) + '</div></div>')
-    return $html.ToString()
+    Add-PASUIChild $Page @(
+        $domainCard,
+        (New-PASUICard -Content @((New-PASUIField 'Name of the lab' (New-PASUITextBox 'f-labname' ([string]$S.LabName) 'Name of the lab' 260) `
+                        'Installations are listed under this name. Letters, digits, dot, dash, underscore.' -Margin '0'))),
+        (New-PASUIRegion 'LabIssues' @((New-PASUIIssueBox (Get-PASUIInputIssues $S 'lab'))))
+    )
 }
 
-function Get-PASUICustomLabHtml {
-    param([hashtable]$State)
-    $html = New-Object System.Text.StringBuilder
-    [void]$html.Append('<div class="card"><h2>Vault</h2><div class="choices">')
-    $modes = @(
+function New-PASUICustomLabCard {
+    # The Custom lab: the Vault option and how many of each component.
+    $modes = New-Object Windows.Controls.WrapPanel
+    $options = @(
         @{ Id = 'Primary'; Title = 'New Vault'; What = 'One Vault server.' }
         @{ Id = 'PrimaryDR'; Title = 'New Vault with DR'; What = 'A Vault and a DR Vault that replicates it.' }
         @{ Id = 'Existing'; Title = 'A Vault I already have'; What = 'Only add components to it.' }
     )
-    foreach ($mode in $modes) {
-        $class = 'choice'
-        if ($State.VaultMode -eq $mode.Id) {
-            $class = 'choice selected'
-        }
-        [void]$html.Append("<button id=`"vault-$($mode.Id)`" class=`"$class`"><span class=`"title`">$($mode.Title)</span><span class=`"what`">$($mode.What)</span></button>")
+    foreach ($option in $options) {
+        Add-PASUIChild $modes @((New-PASUIChoice ('vault-' + $option.Id) $option.Title $option.What ($S.VaultMode -eq $option.Id) -Width 250))
     }
-    [void]$html.Append('</div>')
-
-    [void]$html.Append('<h2>Components</h2><table><tbody>')
-    $max = Get-PASUIMaxCount $State
+    $grid = New-PASUIGrid @('*', 'Auto')
+    $max = Get-PASUIMaxCount $S
+    $number = 0
     foreach ($type in $script:PASUIComponentTypes) {
-        $count = [int]$State.Counts[$type]
-        $note = ''
-        if (-not $State.MediaSelection.ContainsKey($type) -and $State.MediaScanned) {
-            $note = '<span class="sub">no installer in the media folder</span>'
+        $what = New-Object Windows.Controls.StackPanel
+        $what.VerticalAlignment = 'Center'
+        $what.Margin = '0,5,0,5'
+        Add-PASUIChild $what @((New-PASUIText ([string]$script:PASUITypeNames[$type])))
+        if (-not $S.MediaSelection.ContainsKey($type) -and $S.MediaScanned) {
+            Add-PASUIChild $what @((New-PASUIText 'no installer in the media folder' 'Hint'))
         }
-        [void]$html.Append('<tr><td>' + (ConvertTo-PASUIText $script:PASUITypeNames[$type]) + $note + '</td><td style="width:150px"><div class="counter">')
-        [void]$html.Append("<button id=`"cnt-$type-dec`" class=`"btn small`" aria-label=`"Fewer $type`">-</button><span class=`"value`">$count</span>")
-        [void]$html.Append("<button id=`"cnt-$type-inc`" class=`"btn small`" aria-label=`"More $type`">+</button></div></td></tr>")
+        $counter = New-Object Windows.Controls.StackPanel
+        $counter.Orientation = 'Horizontal'
+        $counter.VerticalAlignment = 'Center'
+        $value = New-PASUIText ([string][int]$S.Counts[$type]) -Bold
+        $value.Width = 34
+        $value.TextAlignment = 'Center'
+        $value.VerticalAlignment = 'Center'
+        Add-PASUIChild $counter @(
+            (New-PASUIButton "cnt-$type-dec" '-' 'Small' -Margin '0' -Label "Fewer $type"),
+            $value,
+            (New-PASUIButton "cnt-$type-inc" '+' 'Small' -Margin '0' -Label "More $type")
+        )
+        Add-PASUICell $grid $what $number 0
+        Add-PASUICell $grid $counter $number 1
+        $number++
     }
-    [void]$html.Append('</tbody></table>')
-    [void]$html.Append("<p class=`"hint`">Up to $max of each. Two of each were tested; the Vault license decides how many can register.</p>")
-    $checked = ''
-    if ($State.Colocate) {
-        $checked = ' checked'
-    }
-    [void]$html.Append('<label class="check"><input type="checkbox" id="f-colocate"' + $checked + '> Install CPM on the PVWA server (one server less)</label></div>')
-    return $html.ToString()
+    return New-PASUICard 'Vault' @(
+        $modes,
+        (New-PASUIText 'Components' 'H2' -Margin '0,6,0,6'),
+        $grid,
+        (New-PASUIText "Up to $max of each. Two of each were tested; the Vault license decides how many can register." 'Hint' -Margin '0,6,0,0'),
+        (New-PASUICheck 'f-colocate' 'Install CPM on the PVWA server (one server less)' ([bool]$S.Colocate))
+    )
 }
 
 # ------------------------------------------------------------------ step 3: servers
 
-function Get-PASUIServersHtml {
-    # A plain form: one line per server with its address and the account to sign in with, then the Vault passwords.
-    param([hashtable]$State)
-    $html = New-Object System.Text.StringBuilder
-    [void]$html.Append('<div class="page"><h1>Which servers?</h1>')
-    [void]$html.Append('<p class="lead">Freshly installed machines this computer can reach: Windows with WinRM over HTTPS, Linux with SSH. For each one, the account that may administer it.</p>')
-
-    [void]$html.Append('<div class="card"><table class="servers"><thead><tr><th>Server for</th><th>Computer name</th><th>Address</th><th>Account</th><th>Password</th></tr></thead><tbody>')
-    foreach ($slot in Get-PASUIServerSlots $State) {
-        $os = 'Windows'
-        if ($slot.Os -eq 'Linux') {
-            $os = 'Linux'
-        }
-        $key = $slot.Key
-        $role = ConvertTo-PASUIText $slot.Roles
-        $nameCell = '<span class="hint">not needed</span>'
+function Add-PASUIServersPage {
+    param($Page)
+    $grid = New-PASUIGrid @('Auto', '*', '*', '*', '*')
+    $column = 0
+    foreach ($header in @('Server for', 'Computer name', 'Address', 'Account', 'Password')) {
+        $cell = New-PASUIText $header 'ColHead' -Margin '0,0,10,6'
+        Add-PASUICell $grid $cell 0 $column
+        $column++
+    }
+    $row = 1
+    foreach ($slot in Get-PASUIServerSlots $S) {
+        $key = [string]$slot.Key
+        $role = [string]$slot.Roles
+        $roleCell = New-Object Windows.Controls.StackPanel
+        $roleCell.VerticalAlignment = 'Center'
+        $roleCell.Margin = '0,4,14,4'
+        $roleCell.MaxWidth = 170
+        $osTag = New-PASUIPill ([string]$slot.Os) 'idle'
+        $osTag.Margin = '0,3,0,0'
+        Add-PASUIChild $roleCell @((New-PASUIText $role -Bold), $osTag)
+        Add-PASUICell $grid $roleCell $row 0
         if ($slot.Named) {
-            $nameCell = "<input type=`"text`" id=`"srv-$key-name`" aria-label=`"Computer name of the $role server`" value=`"" + (ConvertTo-PASUIText (Get-PASUISlotValue $State $slot 'Name')) + '">'
+            Add-PASUICell $grid (New-PASUITextBox "srv-$key-name" (Get-PASUISlotValue $S $slot 'Name') "Computer name of the $role server") $row 1
+        } else {
+            $none = New-PASUIText 'not needed' -Brush 'Muted'
+            $none.FontStyle = 'Italic'
+            $none.VerticalAlignment = 'Center'
+            Add-PASUICell $grid $none $row 1
         }
-        [void]$html.Append("<tr><td><strong>$role</strong><span class=`"sub`">$os</span></td><td>$nameCell</td>")
-        [void]$html.Append("<td><input type=`"text`" id=`"srv-$key-addr`" aria-label=`"Address of the $role server`" placeholder=`"IP or DNS name`" value=`"" + (ConvertTo-PASUIText (Get-PASUISlotValue $State $slot 'Address')) + '"></td>')
-        [void]$html.Append("<td><input type=`"text`" id=`"srv-$key-user`" aria-label=`"Account on the $role server`" value=`"" + (ConvertTo-PASUIText (Get-PASUISlotValue $State $slot 'User')) + '"></td>')
-        [void]$html.Append("<td><input type=`"password`" id=`"srv-$key-pass`" autocomplete=`"off`" aria-label=`"Password on the $role server`" value=`"" + (ConvertTo-PASUIText (Get-PASUISlotValue $State $slot 'Password')) + '"></td></tr>')
+        Add-PASUICell $grid (New-PASUITextBox "srv-$key-addr" (Get-PASUISlotValue $S $slot 'Address') "Address of the $role server" -Placeholder 'IP address or DNS name') $row 2
+        Add-PASUICell $grid (New-PASUITextBox "srv-$key-user" (Get-PASUISlotValue $S $slot 'User') "Account on the $role server") $row 3
+        Add-PASUICell $grid (Get-PASUIPasswordBox "srv-$key-pass" "Password on the $role server") $row 4
+        $row++
     }
-    [void]$html.Append('</tbody></table><p class="hint">Computer name: the name the server already has. PVWA is reached under this name. Account: a local administrator on Windows, root on Linux.</p>')
-    if ($State.Domain -eq 'New') {
-        [void]$html.Append('<p class="hint">Domain controller: its administrator becomes the administrator of the new domain, with the same password. That password is also set as the restore mode password of the domain.</p>')
+    $servers = New-PASUICard 'Servers' @(
+        $grid,
+        (New-PASUIText 'Computer name: the name the server already has. PVWA is reached under this name. Account: a local administrator on Windows, root on Linux.' 'Hint' -Margin '0,10,0,0')
+    )
+    if ($S.Domain -eq 'New') {
+        Add-PASUIChild $servers.Child @((New-PASUIText 'Domain controller: its administrator becomes the administrator of the new domain, with the same password. That password is also set as the restore mode password of the domain.' 'Hint' -Margin '0,6,0,0'))
     }
-    if ($State.Domain -eq 'Existing') {
-        [void]$html.Append('<p class="hint">Existing domain: the address of one of its DNS servers (usually a domain controller), and a domain account that may join computers.</p>')
+    if ($S.Domain -eq 'Existing') {
+        Add-PASUIChild $servers.Child @((New-PASUIText 'Existing domain: the address of one of its DNS servers (usually a domain controller), and a domain account that may join computers.' 'Hint' -Margin '0,6,0,0'))
     }
-    [void]$html.Append('</div>')
+    $R['ServersGrid'] = $grid
 
-    [void]$html.Append('<div class="card"><h2>Vault</h2>')
-    if ($State.VaultMode -eq 'Existing') {
-        [void]$html.Append('<div class="field"><label for="f-existing">Address of the Vault you already have</label>')
-        [void]$html.Append('<input type="text" id="f-existing" value="' + (ConvertTo-PASUIText $State.ExistingVault) + '"></div>')
+    $vault = New-PASUICard 'Vault'
+    if ($S.VaultMode -eq 'Existing') {
+        Add-PASUIChild $vault.Child @((New-PASUIField 'Address of the Vault you already have' (New-PASUITextBox 'f-existing' ([string]$S.ExistingVault) 'Address of the Vault you already have' 260)))
     }
-    [void]$html.Append('<div class="row top">')
-    foreach ($field in Get-PASUIVaultSecrets $State) {
-        $value = ''
-        if ($State.Secrets.ContainsKey($field.Key)) {
-            $value = [string]$State.Secrets[$field.Key]
-        }
-        [void]$html.Append("<div class=`"grow field`"><label for=`"sec-$($field.Key)`">" + (ConvertTo-PASUIText $field.Label) + '</label>')
-        [void]$html.Append("<input type=`"password`" id=`"sec-$($field.Key)`" autocomplete=`"off`" value=`"" + (ConvertTo-PASUIText $value) + '"><p class="hint">' + (ConvertTo-PASUIText $field.Hint) + '</p></div>')
+    $fields = New-Object Windows.Controls.Primitives.UniformGrid
+    $fields.Rows = 1
+    foreach ($field in Get-PASUIVaultSecrets $S) {
+        Add-PASUIChild $fields @((New-PASUIField ([string]$field.Label) (Get-PASUIPasswordBox ('sec-' + [string]$field.Key) ([string]$field.Label)) ([string]$field.Hint)))
     }
-    [void]$html.Append('</div>')
-    if ([int]$State.Counts.PSMP -gt 0 -or [int]$State.Counts['HTML5GW'] -gt 0 -or [int]$State.Counts['PTA'] -gt 0) {
-        $checked = ''
-        if ($State.AcceptEula) {
-            $checked = ' checked'
-        }
-        [void]$html.Append('<label class="check"><input type="checkbox" id="f-eula"' + $checked + '> I have read and accept the CyberArk end user license agreement of the Linux installers (PSMP, HTML5 Gateway, PTA)</label>')
+    Add-PASUIChild $vault.Child @($fields)
+    $R['VaultFields'] = $fields
+    if ([int]$S.Counts.PSMP -gt 0 -or [int]$S.Counts['HTML5GW'] -gt 0 -or [int]$S.Counts['PTA'] -gt 0) {
+        Add-PASUIChild $vault.Child @((New-PASUICheck 'f-eula' 'I have read and accept the CyberArk end user license agreement of the Linux installers (PSMP, HTML5 Gateway, PTA)' ([bool]$S.AcceptEula)))
     }
-    [void]$html.Append('<p class="hint" style="margin-top:6px">Passwords are kept in memory only, never in a file.</p></div>')
+    $lock = New-Object Windows.Controls.StackPanel
+    $lock.Orientation = 'Horizontal'
+    $lock.Margin = '0,10,0,0'
+    $lockIcon = New-PASUIIcon 0xE72E 'Muted' 12
+    $lockIcon.Margin = '0,2,7,0'
+    Add-PASUIChild $lock @($lockIcon, (New-PASUIText 'Passwords are kept in memory only, never in a file.' 'Hint'))
+    Add-PASUIChild $vault.Child @($lock)
 
-    if ($State.Advanced) {
-        [void]$html.Append('<div class="card advanced"><h2>Network</h2>')
-        [void]$html.Append('<div class="field"><label for="f-controller">Address of this computer</label><input type="text" id="f-controller" value="' + (ConvertTo-PASUIText $State.Controller) + '">')
-        [void]$html.Append('<p class="hint">As the Vault sees it. The hardened Vault firewall is opened for it.</p></div></div>')
-        [void]$html.Append('<div class="card advanced"><h2>Who installs</h2><div class="row">')
-        [void]$html.Append('<div class="grow field"><label for="f-installer-name">User name</label><input type="text" id="f-installer-name" value="' + (ConvertTo-PASUIText $State.InstallerName) + '"></div>')
-        [void]$html.Append('<div class="grow field"><label for="f-installer-company">Company</label><input type="text" id="f-installer-company" value="' + (ConvertTo-PASUIText $State.InstallerCompany) + '"></div>')
-        [void]$html.Append('</div><p class="hint">What the CyberArk installers record as registered user and company. Empty: the CyberArk defaults.</p></div>')
-        if ([int]$State.Counts['PTA'] -gt 0) {
-            [void]$html.Append('<div class="card advanced"><h2>PTA</h2><div class="field"><label for="f-vault-timezone">Time zone of the Vault server</label>')
-            [void]$html.Append('<input type="text" id="f-vault-timezone" placeholder="UTC" value="' + (ConvertTo-PASUIText $State.VaultTimezone) + '">')
-            [void]$html.Append('<p class="hint">A tz database name such as Europe/Berlin. PTA reads the times in the Vault audit with it. Empty: UTC.</p></div></div>')
+    Add-PASUIChild $Page @(
+        (New-PASUIText 'Which servers?' 'H1'),
+        (New-PASUIText 'Freshly installed machines this computer can reach: Windows with WinRM over HTTPS, Linux with SSH. For each one, the account that may administer it.' 'Lead' -Margin '0,0,0,18'),
+        $servers,
+        $vault
+    )
+    if ($S.Advanced) {
+        Add-PASUIChild $Page @(
+            (New-PASUICard 'Network' @((New-PASUIField 'Address of this computer' (New-PASUITextBox 'f-controller' ([string]$S.Controller) 'Address of this computer' 220) `
+                            'As the Vault sees it. The hardened Vault firewall is opened for it.' -Margin '0'))),
+            (New-PASUICard 'Who installs' @(
+                    (New-PASUIRow @(
+                            (New-PASUIField 'User name' (New-PASUITextBox 'f-installer-name' ([string]$S.InstallerName) 'User name' 220)),
+                            (New-PASUIField 'Company' (New-PASUITextBox 'f-installer-company' ([string]$S.InstallerCompany) 'Company' 220)))),
+                    (New-PASUIText 'What the CyberArk installers record as registered user and company. Empty: the CyberArk defaults.' 'Hint')))
+        )
+        if ([int]$S.Counts['PTA'] -gt 0) {
+            Add-PASUIChild $Page @((New-PASUICard 'PTA' @((New-PASUIField 'Time zone of the Vault server' (New-PASUITextBox 'f-vault-timezone' ([string]$S.VaultTimezone) 'Time zone of the Vault server' 220 -Placeholder 'UTC') `
+                                'A tz database name such as Europe/Berlin. PTA reads the times in the Vault audit with it. Empty: UTC.' -Margin '0'))))
         }
     }
-
-    [void]$html.Append('<div id="servers-issues"></div>')
-    [void]$html.Append('<div id="preflight-result">' + (Get-PASUIPreflightHtml $State) + '</div></div>')
-    return $html.ToString()
+    Add-PASUIChild $Page @((New-PASUIRegion 'ServersIssues'), (New-PASUIRegion 'PreflightResult'))
+    Show-PASUIPreflight
 }
 
-function Get-PASUIPreflightHtml {
-    # The result of the server check. Problems first and in full; what passed only as a count,
-    # or line by line in the advanced view.
-    param([hashtable]$State)
-    if ($State.Checking) {
+function Show-PASUIPreflight {
+    # The server check on the Servers step: which part is running, or its result. Problems in full; what
+    # passed as a count, and every check line by line in the advanced view.
+    if ($R.ContainsKey('ServersGrid')) {
+        $R['ServersGrid'].IsEnabled = -not $S.Checking
+        $R['VaultFields'].IsEnabled = -not $S.Checking
+    }
+    if ($S.Checking) {
         # The servers of a configuration are a table keyed by their id.
         $count = 0
-        if ($State.Configuration -and $State.Configuration.hosts -is [System.Collections.IDictionary]) {
-            $count = $State.Configuration.hosts.Count
+        if ($S.Configuration -and $S.Configuration.hosts -is [System.Collections.IDictionary]) {
+            $count = $S.Configuration.hosts.Count
         }
         $servers = 'the servers'
         if ($count -eq 1) {
@@ -359,133 +528,160 @@ function Get-PASUIPreflightHtml {
         } elseif ($count -gt 1) {
             $servers = "the $count servers"
         }
-        if ([string]$State.CheckPhase -eq 'plan') {
-            return '<div class="box busy"><span class="spin"></span><strong>Checking the servers.</strong> Getting ready...</div>'
+        $box = New-PASUIBox 'busy' 'Checking the servers, part 2 of 2.' "All of them answer. Now signing in to $servers and checking that each is ready. This takes up to a minute per server; nothing is installed."
+        if ([string]$S.CheckPhase -eq 'plan') {
+            $box = New-PASUIBox 'busy' 'Checking the servers.' 'Getting ready...'
+        } elseif ([string]$S.CheckPhase -eq 'reach') {
+            $box = New-PASUIBox 'busy' 'Checking the servers, part 1 of 2.' "Looking whether $servers answer. This takes a few seconds."
         }
-        if ([string]$State.CheckPhase -eq 'reach') {
-            return '<div class="box busy"><span class="spin"></span><strong>Checking the servers, part 1 of 2.</strong> Looking whether ' + $servers + ' answer. This takes a few seconds.</div>'
-        }
-        return '<div class="box busy"><span class="spin"></span><strong>Checking the servers, part 2 of 2.</strong> All of them answer. Now signing in to ' + $servers + ' and checking that each is ready. This takes up to a minute per server; nothing is installed.</div>'
+        Set-PASUIRegion 'PreflightResult' @($box)
+        return
     }
-    if (-not $State.Preflight) {
-        return ''
+    if (-not $S.Preflight) {
+        Set-PASUIRegion 'PreflightResult'
+        return
     }
-    $rows = @($State.Preflight)
+    $rows = @($S.Preflight)
     $failed = @($rows | Where-Object { $_.Passed -is [bool] -and -not $_.Passed })
     $passed = @($rows | Where-Object { $_.Passed -is [bool] -and $_.Passed })
-    $html = New-Object System.Text.StringBuilder
+    $content = @()
     if ($failed.Count) {
-        [void]$html.Append('<div class="box bad"><strong>The servers are not ready.</strong> Correct this, then press Next again.<ul>')
-        foreach ($row in $failed) {
-            [void]$html.Append('<li><strong>' + (ConvertTo-PASUIText (([string]$row.Address + ' ' + [string]$row.Server).Trim())) + '</strong>: ' + (ConvertTo-PASUIText $row.Detail) + '</li>')
-        }
-        [void]$html.Append('</ul></div>')
+        $items = @($failed | ForEach-Object { (([string]$_.Address + ' ' + [string]$_.Server).Trim()) + ': ' + [string]$_.Detail })
+        $content += New-PASUIBox 'bad' 'The servers are not ready.' 'Correct this, then press Next again.' $items
     } else {
-        [void]$html.Append('<div class="box ok"><strong>All servers answered and look ready</strong> (' + $passed.Count + ' checks passed).</div>')
+        $content += New-PASUIBox 'ok' 'All servers answered and look ready.' "$($passed.Count) checks passed."
     }
-    if ($State.Advanced) {
-        [void]$html.Append('<div class="card flat"><table><thead><tr><th></th><th>Server</th><th>Check</th><th>Result</th></tr></thead><tbody>')
-        foreach ($row in $rows) {
-            $pill = '<span class="pill">skipped</span>'
-            if ($row.Passed -is [bool] -and $row.Passed) {
-                $pill = '<span class="pill ok">ok</span>'
-            } elseif ($row.Passed -is [bool]) {
-                $pill = '<span class="pill bad">problem</span>'
-            }
-            [void]$html.Append('<tr><td class="state">' + $pill + '</td><td>' + (ConvertTo-PASUIText $row.Server) + '<span class="sub">' + (ConvertTo-PASUIText $row.Address) + '</span></td>')
-            [void]$html.Append('<td>' + (ConvertTo-PASUIText $row.Check) + '</td><td>' + (ConvertTo-PASUIText $row.Detail) + '</td></tr>')
-        }
-        [void]$html.Append('</tbody></table></div>')
+    if ($S.Advanced) {
+        $list = New-PASUIList 'CheckRow' @($rows | ForEach-Object {
+                $result = 'skipped'
+                if ($_.Passed -is [bool] -and $_.Passed) {
+                    $result = 'ok'
+                } elseif ($_.Passed -is [bool]) {
+                    $result = 'problem'
+                }
+                [pscustomobject]@{ Result = $result; Server = [string]$_.Server; Address = [string]$_.Address; Check = [string]$_.Check; Detail = [string]$_.Detail }
+            })
+        $card = New-PASUICard -Flat -Content @($list)
+        [Windows.Controls.Grid]::SetIsSharedSizeScope($card.Child, $true)
+        $content += $card
     }
-    return $html.ToString()
+    Set-PASUIRegion 'PreflightResult' $content
 }
 
 # ------------------------------------------------------------------ step 4: review and install
 
-function Get-PASUIReviewHtml {
-    param([hashtable]$State)
-    $html = New-Object System.Text.StringBuilder
-    [void]$html.Append('<div class="page"><h1>Review and install</h1>')
-    $check = $State.Check
+function Add-PASUIReviewPage {
+    param($Page)
+    Add-PASUIChild $Page @((New-PASUIText 'Review and install' 'H1'))
+    $check = $S.Check
     if (-not $check) {
-        [void]$html.Append('<div class="box bad">The plan could not be prepared. Go back and check the entries.</div></div>')
-        return $html.ToString()
+        Add-PASUIChild $Page @((New-PASUIBox 'bad' 'The plan could not be prepared.' 'Go back and check the entries.'))
+        return
     }
     $issues = @($check.Issues)
     if ($issues.Count) {
-        [void]$html.Append('<p class="lead">The plan has problems. Nothing can be installed until they are solved.</p>')
-        [void]$html.Append((Get-PASUIIssueBoxHtml $issues 'To solve'))
-        [void]$html.Append('</div>')
-        return $html.ToString()
+        Add-PASUIChild $Page @(
+            (New-PASUIText 'The plan has problems. Nothing can be installed until they are solved.' 'Lead' -Margin '0,0,0,18'),
+            (New-PASUIIssueBox $issues 'To solve')
+        )
+        return
     }
-    $items = @($State.Plan.Items)
-    $minutes = Get-PASUIEstimateMinutes $State
-    [void]$html.Append('<p class="lead">This is what will be installed, in this order. It takes about ' + $minutes + ' minutes and needs no attention while it runs.</p>')
-
-    [void]$html.Append('<div class="card"><table><thead><tr><th>#</th><th>What</th><th>On server</th><th>Installer</th></tr></thead><tbody>')
+    $minutes = Get-PASUIEstimateMinutes $S
+    $grid = New-PASUIGrid @('Auto', '2*', '2*', '3*')
+    $column = 0
+    foreach ($header in @('#', 'What', 'On server', 'Installer')) {
+        Add-PASUICell $grid (New-PASUIText $header 'ColHead' -Margin '0,0,14,6') 0 $column
+        $column++
+    }
     $number = 0
-    foreach ($item in $items) {
+    foreach ($item in @($S.Plan.Items)) {
         $number++
         $media = ''
         if ([string]$item.Media) {
             $media = [IO.Path]::GetFileName([string]$item.Media)
         }
-        [void]$html.Append("<tr><td>$number</td><td><strong>" + (ConvertTo-PASUIText $script:PASUITypeNames[[string]$item.Type]) + '</strong></td>')
-        [void]$html.Append('<td>' + (ConvertTo-PASUIText $item.Address) + '<span class="sub">' + (ConvertTo-PASUIText $item.Name) + '</span></td><td class="hint">' + (ConvertTo-PASUIText $media) + '</td></tr>')
+        $where = New-Object Windows.Controls.StackPanel
+        $where.Margin = '0,4,14,4'
+        Add-PASUIChild $where @((New-PASUIText ([string]$item.Address)), (New-PASUIText ([string]$item.Name) 'Hint'))
+        Add-PASUICell $grid (New-PASUIText ([string]$number) -Brush 'Muted' -Margin '0,4,14,4') $number 0
+        Add-PASUICell $grid (New-PASUIText ([string]$script:PASUITypeNames[[string]$item.Type]) -Bold -Margin '0,4,14,4') $number 1
+        Add-PASUICell $grid $where $number 2
+        Add-PASUICell $grid (New-PASUIText $media 'Hint' -Margin '0,5,0,4') $number 3
     }
-    [void]$html.Append('</tbody></table></div>')
-
+    Add-PASUIChild $Page @(
+        (New-PASUIText "This is what will be installed. It takes about $minutes minutes and needs no attention while it runs." 'Lead' -Margin '0,0,0,18'),
+        (New-PASUICard -Content @($grid))
+    )
     $warnings = @($check.Warnings | Where-Object { $_ })
     if ($warnings.Count) {
-        $list = ($warnings | ForEach-Object { '<li>' + (ConvertTo-PASUIText $_) + '</li>' }) -join ''
-        [void]$html.Append('<details><summary>Lab shortcuts in use (' + $warnings.Count + '). Fine for a lab, not for production.</summary><div class="box warn"><ul>' + $list + '</ul></div></details>')
+        Add-PASUIChild $Page @((New-PASUIBox 'warn' "Lab shortcuts in use ($($warnings.Count))." 'Fine for a lab, not for production.' $warnings))
     }
-
-    if ($State.Advanced) {
-        [void]$html.Append('<div class="card advanced"><h2>The same from PowerShell</h2><p class="hint">Everything this window does can be done from the prompt. The lab file holds the choices, never a password.</p>')
-        [void]$html.Append('<pre>' + (ConvertTo-PASUIText (Get-PASUICommandText $State)) + '</pre>')
-        [void]$html.Append('<div class="actions"><button id="act-save" class="btn">Save the lab file</button></div></div>')
+    if ($S.Advanced) {
+        $save = New-PASUIButton 'act-save' 'Save the lab file' 'Btn' -Margin '0,10,0,0'
+        $save.HorizontalAlignment = 'Left'
+        Add-PASUIChild $Page @((New-PASUICard 'The same from PowerShell' @(
+                    (New-PASUIText 'Everything this window does can be done from the prompt. The lab file holds the choices, never a password.' 'Hint'),
+                    (New-PASUIPre (Get-PASUICommandText $S)),
+                    $save)))
     }
-
-    [void]$html.Append('<div class="card hero"><button id="act-install" class="btn primary big">Install the lab</button>')
-    [void]$html.Append('<p class="hint" style="margin-top:10px">The installation runs in its own process. You can close this window and open it again later.</p></div>')
-    [void]$html.Append('<div id="review-issues"></div></div>')
-    return $html.ToString()
+    $install = New-PASUIButton 'act-install' 'Install the lab' 'PrimaryBig' -Margin '0'
+    $install.HorizontalAlignment = 'Left'
+    $R['InstallButton'] = $install
+    $hero = New-PASUICard -Content @(
+        $install,
+        (New-PASUIText 'The installation runs in its own process. You can close this window and open it again later.' 'Hint' -Margin '0,10,0,0')
+    )
+    Add-PASUIChild $Page @($hero)
 }
 
-# ------------------------------------------------------------------ run page
+# ------------------------------------------------------------------ the page of one installation
 
-function Get-PASUIRunHtml {
-    # The page of one installation. It is built from four parts with their own ids, so a refresh can
-    # replace each part and leave the scroll position and the opened activity log as they are.
-    # Catalog: @{ <type> = <number of steps> }.
-    param([hashtable]$State, [hashtable]$Catalog = @{})
-    if (-not $State.Run) {
-        return '<div class="page"><div class="box bad">This installation could not be read.</div></div>'
+function Add-PASUIRunPage {
+    # Built from parts that are filled again on their own, so a refresh leaves the scroll position and the
+    # opened activity log as they are.
+    param($Page)
+    if (-not $S.Run) {
+        Add-PASUIChild $Page @((New-PASUIBox 'bad' 'This installation could not be read.'))
+        return
     }
-    $open = ''
-    if ($State.Advanced) {
-        $open = ' open'
+    $toggle = New-PASUIButton 'act-log' 'Activity log' 'Ghost' -Margin '0'
+    $toggle.Padding = '4,0'
+    $last = New-PASUIText '' 'Hint' -Margin '12,0,0,0'
+    $last.VerticalAlignment = 'Center'
+    $last.TextTrimming = 'CharacterEllipsis'
+    $last.TextWrapping = 'NoWrap'
+    $R['RunLast'] = $last
+    $head = New-Object Windows.Controls.DockPanel
+    [Windows.Controls.DockPanel]::SetDock($toggle, 'Left')
+    Add-PASUIChild $head @($toggle, $last)
+    $logCard = New-PASUICard -Content @($head, (New-PASUIRegion 'RunLog'))
+    $logCard.Padding = '12,8'
+    if ($S.Advanced) {
+        $S.LogOpen = $true
     }
-    $html = New-Object System.Text.StringBuilder
-    [void]$html.Append('<div class="page"><div id="run-status">' + (Get-PASUIRunStatusHtml $State $Catalog) + '</div>')
-    [void]$html.Append('<div class="card" id="run-comps">' + (Get-PASUIRunComponentsHtml $State $Catalog) + '</div>')
-    [void]$html.Append("<details class=`"logbox`"$open><summary>Activity log<span class=`"last`" id=`"run-last`">" + (Get-PASUIRunLastLineHtml $State) + "</span></summary><div class=`"log`" id=`"run-log`">" + (Get-PASUIRunLogHtml $State) + '</div></details>')
-    [void]$html.Append('<div id="run-adv">' + (Get-PASUIRunAdvancedHtml $State) + '</div></div>')
-    return $html.ToString()
+    Add-PASUIChild $Page @(
+        (New-PASUIRegion 'RunStatus'),
+        (New-PASUICard -Content @((New-PASUIRegion 'RunComps'))),
+        $logCard,
+        (New-PASUIRegion 'RunAdvanced')
+    )
+    Show-PASUIRunParts
 }
 
-function Get-PASUIRunStatusHtml {
-    # Name, status, progress bar and what to do next.
-    param([hashtable]$State, [hashtable]$Catalog = @{})
-    $run = $State.Run
+function Show-PASUIRunParts {
+    # Fills every part of the installation page from $S.Run.
+    Show-PASUIRunStatus
+    Show-PASUIRunComponents
+    Show-PASUIRunLog
+    Show-PASUIRunAdvanced
+}
+
+function Show-PASUIRunStatus {
+    # Name, status, progress bar and what to do next; below it the result of the lab check.
+    $run = $S.Run
     $status = [string]$run.Status
     $kind = Get-PASUIStatusKind $status
-    $progress = Get-PASUIRunProgress -Snapshot $run -Catalog $Catalog -PlanItems $State.RunPlan
-    $html = New-Object System.Text.StringBuilder
-    [void]$html.Append('<div class="runhead"><h1>' + (ConvertTo-PASUIText $run.Name) + '</h1>')
-    [void]$html.Append("<span class=`"pill $kind`">" + (ConvertTo-PASUIText (Get-PASUIStatusText $status)) + '</span>')
-
+    $progress = Get-PASUIRunProgress -Snapshot $run -Catalog $Catalog -PlanItems $S.RunPlan
     $elapsed = ''
     if ($run.PSObject.Properties['StartedUtc']) {
         $finished = ''
@@ -494,51 +690,58 @@ function Get-PASUIRunStatusHtml {
         }
         $elapsed = Format-PASUIDuration ([string]$run.StartedUtc) $finished
     }
-    $meterClass = 'meter'
-    if ($kind -eq 'ok') {
-        $meterClass = 'meter ok'
-    } elseif ($kind -eq 'bad') {
-        $meterClass = 'meter bad'
-    }
     $line = "$($progress.Done) of $($progress.Total) steps"
     if ($elapsed) {
         $line += ", $elapsed"
     }
-    [void]$html.Append('<span class="grow">' + (ConvertTo-PASUIText $line) + '</span></div>')
-    [void]$html.Append("<div class=`"$meterClass`"><div class=`"fill`" style=`"width:$($progress.Percent)%`"></div></div>")
+    $head = New-Object Windows.Controls.WrapPanel
+    $head.Margin = '0,0,0,8'
+    $name = New-PASUIText ([string]$run.Name) 'H1' -Margin '0,0,14,0'
+    $count = New-PASUIText $line -Brush 'TextSoft' -Margin '14,0,0,0'
+    $count.VerticalAlignment = 'Center'
+    Add-PASUIChild $head @($name, (New-PASUIPill (Get-PASUIStatusText $status) $kind), $count)
+    $meter = New-PASUIMeter $progress.Percent $kind 10
+    $meter.Margin = '0,0,0,12'
+    $content = @($head, $meter)
 
     if (Test-PASUIRunActive $status) {
-        [void]$html.Append('<p class="hint">Running on its own: you can close this window and open it again later.</p>')
+        $content += New-PASUIText 'Running on its own: you can close this window and open it again later.' 'Hint' -Margin '0,0,0,14'
     } elseif ($status -eq 'Succeeded') {
-        [void]$html.Append('<div class="box ok"><strong>The lab is installed.</strong> Check that every component is connected to the Vault before you use it.')
-        [void]$html.Append('<div class="actions"><button id="act-health" class="btn primary">Check the lab</button></div></div>')
+        $health = New-PASUIButton 'act-health' 'Check the lab' 'Primary' -Margin '0,12,0,0'
+        $health.HorizontalAlignment = 'Left'
+        $content += New-PASUIBox 'ok' 'The lab is installed.' 'Check that every component is connected to the Vault before you use it.' -Content @($health)
     } elseif ($status -eq 'Abandoned') {
-        [void]$html.Append('<div class="box warn"><strong>This installation was stopped.</strong> The servers keep what was installed until then.</div>')
+        $content += New-PASUIBox 'warn' 'This installation was stopped.' 'The servers keep what was installed until then.'
     } else {
         $failure = Get-PASUIFailure $run
-        [void]$html.Append('<div class="box bad"><strong>The installation stopped.</strong> ')
+        $text = [string]$run.Message
+        $inner = @()
         if ($failure) {
-            [void]$html.Append('It stopped at "' + (ConvertTo-PASUIText (Get-PASUIStageText $failure.Stage)) + '" of ' + (ConvertTo-PASUIText $failure.Component) + '.<pre>' + (ConvertTo-PASUIText $failure.Message) + '</pre>')
-        } else {
-            [void]$html.Append((ConvertTo-PASUIText $run.Message))
+            $text = 'It stopped at "' + (Get-PASUIStageText $failure.Stage) + '" of ' + [string]$failure.Component + '.'
+            $inner += New-PASUIPre ([string]$failure.Message)
         }
-        [void]$html.Append('<p style="margin-top:10px">Correct the cause on the server, then continue. Steps that are finished are not repeated.</p><div class="actions">')
+        $inner += New-PASUIText 'Correct the cause on the server, then continue. Steps that are finished are not repeated.' -Brush 'TextSoft' -Margin '0,10,0,10'
+        $actions = @()
         if ($failure) {
-            [void]$html.Append('<button id="act-retry" class="btn primary">Try this step again</button>')
+            $actions += New-PASUIButton 'act-retry' 'Try this step again' 'Primary' -Margin '0,0,10,6'
         }
-        [void]$html.Append('<button id="act-resume" class="btn">Continue without repeating it</button><button id="act-diag" class="btn">Save the logs as a ZIP</button></div></div>')
+        $actions += New-PASUIButton 'act-resume' 'Continue without repeating it' 'Btn' -Margin '0,0,10,6'
+        $actions += New-PASUIButton 'act-diag' 'Save the logs as a ZIP' 'Btn' -Margin '0,0,10,6'
+        $inner += New-PASUIRow $actions
+        $content += New-PASUIBox 'bad' 'The installation stopped.' $text -Content $inner
     }
-    if ($State.Health) {
-        [void]$html.Append((Get-PASUIHealthHtml $State))
+    if ($S.Health) {
+        $content += New-PASUIHealthCard
     }
-    return $html.ToString()
+    Set-PASUIRegion 'RunStatus' $content
 }
 
-function Get-PASUIRunComponentsHtml {
-    # One line per component: state, where, progress bar, current step.
-    param([hashtable]$State, [hashtable]$Catalog = @{})
-    $progress = Get-PASUIRunProgress -Snapshot $State.Run -Catalog $Catalog -PlanItems $State.RunPlan
-    $html = New-Object System.Text.StringBuilder
+function Show-PASUIRunComponents {
+    # One line per component: state, where, progress bar, current step. Several can be installing at once.
+    $progress = Get-PASUIRunProgress -Snapshot $S.Run -Catalog $Catalog -PlanItems $S.RunPlan
+    $active = Test-PASUIRunActive ([string]$S.Run.Status)
+    $grid = New-PASUIGrid @('Auto', '2*', '3*', 'Auto')
+    $number = 0
     foreach ($row in @($progress.Components)) {
         $now = Get-PASUIStatusText $row.Status
         if ($row.Kind -eq 'run' -and $row.Current) {
@@ -546,88 +749,137 @@ function Get-PASUIRunComponentsHtml {
         } elseif ($row.Kind -eq 'bad' -and $row.Current) {
             $now = 'Stopped at: ' + (Get-PASUIStageText $row.Current)
         }
-        if ($row.Waiting -and (Test-PASUIRunActive ([string]$State.Run.Status))) {
+        $waiting = ($row.Waiting -and $active)
+        if ($waiting) {
             $now = [string]$row.Waiting
         }
-        [void]$html.Append("<div class=`"comp $($row.Kind)`"><span class=`"dot`"></span><span class=`"who`"><span class=`"name`">" + (ConvertTo-PASUIText $script:PASUITypeNames[$row.Type]) + '</span>')
-        [void]$html.Append('<span class="addr">' + (ConvertTo-PASUIText (($row.Address + ' ' + $row.Id).Trim())) + '</span></span>')
-        [void]$html.Append("<span class=`"prog`"><div class=`"mini`"><div class=`"fill`" style=`"width:$($row.Percent)%`"></div></div><span class=`"now`">" + (ConvertTo-PASUIText $now) + '</span></span>')
-        [void]$html.Append("<span class=`"count`">$($row.Done) / $($row.Total)</span></div>")
+        $sign = New-Object Windows.Controls.ContentControl
+        $sign.Width = 16
+        $sign.Height = 16
+        $sign.Margin = '0,8,12,0'
+        $sign.VerticalAlignment = 'Top'
+        $sign.Focusable = $false
+        if ($waiting) {
+            $sign.Content = New-PASUIIcon 0xE823 'WarnFg' 14
+        } elseif ($row.Kind -eq 'run' -and $active) {
+            $sign.Content = New-PASUISpinner 'AccentFg' 14
+        } elseif ($row.Kind -eq 'ok') {
+            $sign.Content = New-PASUIIcon 0xE930 'OkFg' 14
+        } elseif ($row.Kind -eq 'bad') {
+            $sign.Content = New-PASUIIcon 0xE783 'BadFg' 14
+        } else {
+            $sign.Content = New-PASUIIcon 0xEA3A 'Muted' 14
+        }
+        $who = New-Object Windows.Controls.StackPanel
+        $who.Margin = '0,5,14,5'
+        $typeName = [string]$row.Type
+        if ($script:PASUITypeNames.ContainsKey([string]$row.Type)) {
+            $typeName = [string]$script:PASUITypeNames[[string]$row.Type]
+        } elseif ([string]$row.Type -eq 'DomainJoin') {
+            $typeName = 'Joining the domain'
+        }
+        Add-PASUIChild $who @((New-PASUIText $typeName -Bold), (New-PASUIText (([string]$row.Address + ' ' + [string]$row.Id).Trim()) 'Hint'))
+        $prog = New-Object Windows.Controls.StackPanel
+        $prog.Margin = '0,9,14,5'
+        $meterKind = $row.Kind
+        if ($waiting) {
+            $meterKind = 'idle'
+        }
+        $nowText = New-PASUIText $now 'Hint' -Margin '0,4,0,0'
+        Add-PASUIChild $prog @((New-PASUIMeter $row.Percent $meterKind 6), $nowText)
+        $count = New-PASUIText "$($row.Done) / $($row.Total)" -Brush 'TextSoft' -Margin '0,6,0,0'
+        $count.FontFamily = 'Consolas'
+        Add-PASUICell $grid $sign $number 0
+        Add-PASUICell $grid $who $number 1
+        Add-PASUICell $grid $prog $number 2
+        Add-PASUICell $grid $count $number 3
+        $number++
     }
-    return $html.ToString()
+    Set-PASUIRegion 'RunComps' @($grid)
 }
 
-function Get-PASUIRunLogHtml {
-    # The newest 200 events, newest first. One line each: time, component, step, message.
-    # A coloured bar on the left tells what kind of line it is (finished, started, warning, failed).
-    param([hashtable]$State)
-    $html = New-Object System.Text.StringBuilder
-    $events = @($State.Run.Events | Select-Object -Last 200)
-    [array]::Reverse($events)
-    foreach ($entry in $events) {
-        $kind = Get-PASUIEventKind $entry
-        $step = Get-PASUIStageText ([string]$entry.Stage)
-        [void]$html.Append("<div class=`"ev $kind`"><span class=`"t`">" + (ConvertTo-PASUIText (Format-PASUITime ([string]$entry.TimestampUtc))) + '</span>')
-        [void]$html.Append('<span class="c">' + (ConvertTo-PASUIText $entry.Component) + '</span><span class="s">' + (ConvertTo-PASUIText $step) + '</span>')
-        [void]$html.Append('<span class="m">' + (ConvertTo-PASUIText $entry.Message) + '</span></div>')
+function Show-PASUIRunLog {
+    # The newest 200 events, newest first, when the log is open; next to its title always the newest event.
+    $events = @($S.Run.Events)
+    $text = ''
+    if ($events.Count) {
+        $newest = $events[-1]
+        $message = [string]$newest.Message
+        if ($message.Length -gt 90) {
+            $message = $message.Substring(0, 90) + '...'
+        }
+        $text = "$($events.Count) events, latest " + (Format-PASUITime ([string]$newest.TimestampUtc)) + ': ' + $message
     }
-    return $html.ToString()
+    if ($R.ContainsKey('RunLast')) {
+        $R['RunLast'].Text = $text
+    }
+    if (-not $S.LogOpen) {
+        Set-PASUIRegion 'RunLog'
+        return
+    }
+    $shown = @($events | Select-Object -Last 200)
+    [array]::Reverse($shown)
+    $rows = @($shown | ForEach-Object {
+            [pscustomobject]@{
+                Kind = (Get-PASUIEventKind $_)
+                Time = (Format-PASUITime ([string]$_.TimestampUtc))
+                Component = [string]$_.Component
+                Step = (Get-PASUIStageText ([string]$_.Stage))
+                Message = [string]$_.Message
+            }
+        })
+    $list = New-PASUIList 'LogRow' $rows
+    $list.Margin = '0,8,0,2'
+    Set-PASUIRegion 'RunLog' @($list)
 }
 
-function Get-PASUIRunLastLineHtml {
-    # The number of events and the newest one, shown next to "Activity log" while the log is folded.
-    param([hashtable]$State)
-    $events = @($State.Run.Events)
-    if (-not $events.Count) {
-        return ''
+function Show-PASUIRunAdvanced {
+    # The PowerShell commands for this installation, and Stop. Only in the advanced view.
+    if (-not $S.Advanced) {
+        Set-PASUIRegion 'RunAdvanced'
+        return
     }
-    $last = $events[-1]
-    $text = [string]$last.Message
-    if ($text.Length -gt 90) {
-        $text = $text.Substring(0, 90) + '...'
+    $id = [string]$S.Run.RunId
+    $content = @((New-PASUIPre ("Get-PASRun -RunId $id`nGet-PASRunEvent -RunId $id -Failed`nResume-PASRun -RunId $id`nExport-PASDiagnostics -RunId $id")))
+    if (Test-PASUIRunActive ([string]$S.Run.Status)) {
+        $stop = New-PASUIButton 'act-stop' 'Stop the installation' 'Danger' -Margin '0,12,0,0'
+        $stop.HorizontalAlignment = 'Left'
+        $content += $stop
     }
-    return (ConvertTo-PASUIText ("$($events.Count) events, latest " + (Format-PASUITime ([string]$last.TimestampUtc)) + ': ' + $text))
+    Set-PASUIRegion 'RunAdvanced' @((New-PASUICard 'This installation from PowerShell' $content))
 }
 
-function Get-PASUIRunAdvancedHtml {
-    # The PowerShell commands for this run, and Stop. Only in the advanced view.
-    param([hashtable]$State)
-    if (-not $State.Advanced) {
-        return ''
-    }
-    $id = [string]$State.Run.RunId
-    $html = New-Object System.Text.StringBuilder
-    [void]$html.Append('<div class="card advanced"><h2>This installation from PowerShell</h2>')
-    [void]$html.Append('<pre>' + (ConvertTo-PASUIText ("Get-PASRun -RunId $id`nGet-PASRunEvent -RunId $id -Failed`nResume-PASRun -RunId $id`nExport-PASDiagnostics -RunId $id")) + '</pre>')
-    if (Test-PASUIRunActive ([string]$State.Run.Status)) {
-        [void]$html.Append('<div class="actions"><button id="act-stop" class="btn danger">Stop the installation</button></div>')
-    }
-    [void]$html.Append('</div>')
-    return $html.ToString()
-}
-
-function Get-PASUIHealthHtml {
-    param([hashtable]$State)
-    $health = $State.Health
-    $html = New-Object System.Text.StringBuilder
-    [void]$html.Append('<div class="card"><h2>Lab check</h2>')
+function New-PASUIHealthCard {
+    # The result of "Check the lab": healthy or what is wrong, and one line per component.
+    $health = $S.Health
+    $content = @()
     if ($health.Healthy) {
-        [void]$html.Append('<div class="box ok"><strong>Healthy.</strong> ' + (ConvertTo-PASUIText $health.Message) + '</div>')
+        $content += New-PASUIBox 'ok' 'Healthy.' ([string]$health.Message)
     } else {
-        [void]$html.Append((Get-PASUIIssueBoxHtml @($health.Issues) 'Not healthy yet'))
+        $content += New-PASUIBox 'bad' 'Not healthy yet' '' @($health.Issues)
     }
     $rows = @($health.Components)
     if ($rows.Count) {
-        [void]$html.Append('<table><thead><tr><th></th><th>Component</th><th>Server</th><th>Version</th></tr></thead><tbody>')
-        foreach ($row in $rows) {
-            $pill = '<span class="pill bad">not connected</span>'
-            if ($row.LoggedOn) {
-                $pill = '<span class="pill ok">connected</span>'
-            }
-            [void]$html.Append('<tr><td class="state" style="width:120px">' + $pill + '</td><td>' + (ConvertTo-PASUIText $row.User) + '</td><td>' + (ConvertTo-PASUIText $row.Address) + '</td><td>' + (ConvertTo-PASUIText $row.Version) + '</td></tr>')
+        $grid = New-PASUIGrid @('Auto', '2*', '2*', '*')
+        $column = 0
+        foreach ($header in @('', 'Component', 'Server', 'Version')) {
+            Add-PASUICell $grid (New-PASUIText $header 'ColHead' -Margin '0,0,14,6') 0 $column
+            $column++
         }
-        [void]$html.Append('</tbody></table>')
+        $number = 0
+        foreach ($row in $rows) {
+            $number++
+            $pill = New-PASUIPill 'not connected' 'bad'
+            if ($row.LoggedOn) {
+                $pill = New-PASUIPill 'connected' 'ok'
+            }
+            $pill.Margin = '0,4,14,4'
+            Add-PASUICell $grid $pill $number 0
+            Add-PASUICell $grid (New-PASUIText ([string]$row.User) -Margin '0,4,14,4') $number 1
+            Add-PASUICell $grid (New-PASUIText ([string]$row.Address) -Brush 'TextSoft' -Margin '0,4,14,4') $number 2
+            Add-PASUICell $grid (New-PASUIText ([string]$row.Version) -Brush 'TextSoft' -Margin '0,4,0,4') $number 3
+        }
+        $content += $grid
     }
-    [void]$html.Append('</div>')
-    return $html.ToString()
+    return New-PASUICard 'Lab check' $content
 }

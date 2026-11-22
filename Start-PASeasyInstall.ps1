@@ -3,7 +3,7 @@
 Opens the PASeasyInstall desktop from a source checkout or the portable ZIP.
 .DESCRIPTION
 Imports the PASeasyInstall module from this folder and runs Start-PASeasyInstall: four steps
-that build a CyberArk PAM lab. Windows PowerShell 5.1 only; needs the NativeHTMLKit module.
+that build a CyberArk PAM lab. Windows PowerShell 5.1 only; the window is WPF and needs nothing else.
 Nothing is sent to any server until Install on the last step. -Backend Mock runs the same window against a
 simulated installation that never contacts a server (demos, training, UI work).
 .EXAMPLE
