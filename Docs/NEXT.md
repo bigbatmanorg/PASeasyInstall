@@ -1,7 +1,8 @@
 # What is left to do
 
 Work list for the next sessions, written on 2026-11-22 after release 2.0.3 and updated the same day after the
-small fixes. Start at the top. Part 1 is what is left of the small fixes; Part 2 is the four big pieces.
+small fixes. Start at the top. Part 1 is what is left of the small fixes; Part 2 is the four big pieces;
+Part 3 is improvements that are not needed for the lab to work.
 
 Read first: [`AGENTS.md`](../AGENTS.md) (rules of this repository), [`STATUS.md`](STATUS.md) (what works, what
 was tested), [`DESIGN.md`](DESIGN.md) (how a run works).
@@ -157,6 +158,71 @@ with the slash 15.2 answers 404, which looked like a missing call on 2026-11-21.
 - [ ] Run the window with PTA against real servers (only the simulated installation was walked).
 - [ ] Remove the unused PTA branches from `Recipes/LinuxComponent/Task.sh` and `Verify.sh`.
 - [ ] RHEL 8, and memory under load (lower the heap sizes with `changeComponentResource.sh` if 8 GB are too small).
+
+---
+
+## Part 2.5: install the servers at the same time
+
+Owner's request of 2026-11-22. Analysed, not built: the design, the rules of what must stay in order, the code
+that has to change and how to prove it are in [PARALLEL.md](PARALLEL.md). Short: one lane per server, three
+gates (domain, Vault ready, first PVWA), and the Vault lock that exists already as the queue for registrations.
+Estimate: a Full lab with DR in about 20 to 24 minutes instead of 41.
+
+- [ ] Build it as described in PARALLEL.md, behind `execution.parallel`.
+- [ ] Prove it with the four lab runs and the failure run listed there.
+
+---
+
+## Part 3: improvements (not needed for the lab to work)
+
+Written on 2026-11-22 after release 2.0.4, from a look at what a complete lab would still want. None of this
+blocks using the tool. In the order of usefulness.
+
+### 3.1 A lab that does something after the installation
+
+Today the last step of a run is "the component is connected". Nothing proves that a password is managed or that
+a session opens.
+
+- [ ] Sample content: one safe, one Windows account and one Linux account of the lab servers, and a CPM password
+      change on each.
+- [ ] A PSM session and a PSMP session to those accounts as a verification step.
+- [ ] Directory integration: when the lab creates a domain, connect the Vault and PVWA to it (LDAP), so that
+      domain users can sign in to PVWA.
+- [ ] PSM with domain users on a joined server (`registerpsmwithdomain`, also listed in 2.1).
+
+### 3.2 Vault events for PTA
+
+Listed in 2.4 (Vault syslog forwarding). Without it PTA is installed and connected but sees no Vault events.
+
+### 3.3 Credential providers
+
+- [ ] Central Credential Provider (CCP): an IIS application and a provider on a Windows server. The only common
+      self-hosted component without a component type.
+- [ ] Credential Provider agent (CP) on a Windows or Linux server, when somebody needs it.
+
+### 3.4 Changing a lab that exists
+
+Every run assumes clean servers.
+
+- [ ] Add a component to an installed lab (the gateway case is listed in 2.2).
+- [ ] Upgrade a lab (15.0 to 15.2).
+- [ ] Remove a component.
+
+### 3.5 A stronger lab check
+
+- [ ] `Test-PASHealth` looks at the services of each component, not only at the Vault's "logged on" flag (also
+      listed in 2.1).
+- [ ] After 3.1: the lab check can verify a password and open a test session.
+
+### 3.6 DR beyond replication
+
+- [ ] Run a failover to the DR Vault and back, once, and write down what the components do.
+
+### 3.7 Tests
+
+- [ ] `ControllerBootstrap.Tests.ps1` failed once on the GitHub-hosted runner on 2026-11-22 (status
+      `LaunchFailed` instead of `Failed` after 1.5 seconds: the controller process could not be started) and
+      passed when the job was run again. Find out why, or move it to `Tests/ci-exclude-hosted.txt`.
 
 ---
 

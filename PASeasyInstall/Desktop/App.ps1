@@ -107,6 +107,51 @@ function Show-PASUIScreen {
     Set-PASUIHtml 'steps' (Get-PASUIStepsHtml $S)
     Set-PASUIHtml 'view' $html
     Set-PASUIHtml 'bar' (Get-PASUIBarHtml $S)
+    # The Advanced switch is shown only on a page that has something more to show.
+    if (Test-PASUIAdvancedApplies $S) {
+        $null = Set-NativeHTMLKitDocumentAttribute -Document $doc -Element 'adv-switch' -Name 'hidden' -Remove
+    } else {
+        $null = Set-NativeHTMLKitDocumentAttribute -Document $doc -Element 'adv-switch' -Name 'hidden' -Value 'hidden'
+    }
+}
+
+function Set-PASUIWindowIcon {
+    # Gives the window (title bar, taskbar, Alt+Tab) the PASeasyInstall icon instead of the icon of the program
+    # that draws it. The window library has no setting for it, so Windows is asked directly. Cosmetic: a failure
+    # is ignored.
+    try {
+        $iconPath = Join-Path (Join-Path $PSScriptRoot 'Web') 'PASeasyInstall.ico'
+        if (-not (Test-Path -LiteralPath $iconPath)) {
+            return
+        }
+        Add-Type -AssemblyName System.Drawing
+        if (-not ('PASeasyInstall.WindowIcon' -as [type])) {
+            Add-Type -Namespace PASeasyInstall -Name WindowIcon -MemberDefinition '[DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);'
+        }
+        # The window belongs to the host program of the window library: the process that started this one.
+        $me = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $PID"
+        $hostProcess = Get-Process -Id ([int]$me.ParentProcessId) -ErrorAction Stop
+        $handle = [IntPtr]::Zero
+        for ($try = 0; $try -lt 20 -and $handle -eq [IntPtr]::Zero; $try++) {
+            $hostProcess.Refresh()
+            if ($hostProcess.MainWindowTitle -eq 'PASeasyInstall') {
+                $handle = $hostProcess.MainWindowHandle
+            } else {
+                Start-Sleep -Milliseconds 100
+            }
+        }
+        if ($handle -eq [IntPtr]::Zero) {
+            return
+        }
+        # Kept in script scope: Windows uses the icons for as long as the window lives.
+        $script:PASUIIconSmall = New-Object System.Drawing.Icon -ArgumentList $iconPath, 16, 16
+        $script:PASUIIconBig = New-Object System.Drawing.Icon -ArgumentList $iconPath, 32, 32
+        $setIcon = 0x80
+        $null = [PASeasyInstall.WindowIcon]::SendMessage($handle, $setIcon, [IntPtr]0, $script:PASUIIconSmall.Handle)
+        $null = [PASeasyInstall.WindowIcon]::SendMessage($handle, $setIcon, [IntPtr]1, $script:PASUIIconBig.Handle)
+    } catch {
+        $null = $_
+    }
 }
 
 function Invoke-PASUISafe {
@@ -365,53 +410,114 @@ function Invoke-PASUIMediaScan {
 }
 
 function Start-PASUIServerCheck {
-    # "Next" on the Servers step. First, within seconds: does every server answer at all? Then, in the
-    # background so that the window stays usable: sign in to each one and check that it is ready.
-    # Only when everything passed the review step is shown.
-    Update-PASUIPlan
+    # "Next" on the Servers step. The window says at once that it is checking and stays usable: both parts
+    # run in the background. Part 1, within seconds: does every server answer at all? Part 2: sign in to each
+    # one and check that it is ready. Only when everything passed the review step is shown.
+    # First of all the window says that it is working: laying out the plan takes some seconds too. The click
+    # ends here, so that the window draws the message; the work goes on in Start-PASUIServerCheckPlan.
+    $S.Preflight = $null
+    Show-PASUIServerCheckPhase 'plan'
+    try {
+        $null = Start-NativeHTMLKitTask -Application $app -ScriptBlock { $true } -OnCompleted {
+            Invoke-PASUISafe { Start-PASUIServerCheckPlan }
+        } -OnFailed {
+            Invoke-PASUISafe { Start-PASUIServerCheckPlan }
+        }
+    } catch {
+        Start-PASUIServerCheckPlan
+    }
+}
+
+function Start-PASUIServerCheckPlan {
+    # Lays out the plan from the entries, then starts the first part of the server check.
+    try {
+        Update-PASUIPlan
+    } catch {
+        Show-PASUIServerCheckPhase ''
+        throw
+    }
     if (-not $S.Check.Valid) {
+        Show-PASUIServerCheckPhase ''
         Set-PASUIHtml 'servers-issues' (Get-PASUIIssueBoxHtml @($S.Check.Issues) 'The plan has problems')
         return
     }
-    $accounts = Get-PASUIFormAccounts
-    Set-PASUINotice 'busy' 'Looking for the servers...'
-    $S.Preflight = @(Test-PASPreflight -Configuration $S.Configuration -ConnectivityOnly)
-    Set-PASUINotice
-    if (@($S.Preflight | Where-Object { $_.Passed -is [bool] -and -not $_.Passed }).Count) {
-        Set-PASUIHtml 'preflight-result' (Get-PASUIPreflightHtml $S)
-        return
+    $S.CheckAccounts = Get-PASUIFormAccounts
+    Start-PASUIServerCheckPart 'reach'
+}
+
+function Start-PASUIServerCheckPart {
+    # Runs one part of the server check in the background: 'reach' or 'signin'.
+    param([string]$Phase)
+    Show-PASUIServerCheckPhase $Phase
+    $credentials = $null
+    if ($Phase -eq 'signin') {
+        $credentials = $S.CheckAccounts.Credentials
     }
-    $S.Checking = $true
-    Set-PASUIHtml 'preflight-result' (Get-PASUIPreflightHtml $S)
-    Set-PASUIHtml 'bar' (Get-PASUIBarHtml $S)
     $contract = Join-Path (Join-Path $PSScriptRoot 'Backend') 'Backend.Contract.ps1'
     try {
-        $null = Start-NativeHTMLKitTask -Application $app -ArgumentList @($contract, [string]$S.Backend, $S.Configuration, $accounts.Credentials) -ScriptBlock {
+        $null = Start-NativeHTMLKitTask -Application $app -ArgumentList @($contract, [string]$S.Backend, $S.Configuration, $credentials) -ScriptBlock {
             param([string]$ContractPath, [string]$Kind, $Configuration, [hashtable]$CredentialMap)
             . $ContractPath
             $null = Import-PASUIBackend -Kind $Kind
-            Test-PASPreflight -Configuration $Configuration -CredentialMap $CredentialMap
+            if ($CredentialMap) {
+                Test-PASPreflight -Configuration $Configuration -CredentialMap $CredentialMap
+            } else {
+                Test-PASPreflight -Configuration $Configuration -ConnectivityOnly
+            }
         } -OnCompleted {
             param($result)
-            Invoke-PASUISafe { Complete-PASUIServerCheck @($result) }
+            Invoke-PASUISafe { Complete-PASUIServerCheckPart @($result) }
         } -OnFailed {
             param($failure)
-            $S.Checking = $false
+            Show-PASUIServerCheckPhase ''
+            $S.CheckAccounts = $null
             Set-PASUINotice 'error' ('The servers could not be checked: ' + [string]$failure.Message)
-            if ($S.Screen -eq 'servers') {
-                Set-PASUIHtml 'preflight-result' (Get-PASUIPreflightHtml $S)
-                Set-PASUIHtml 'bar' (Get-PASUIBarHtml $S)
-            }
         }
     } catch {
         # No background task could be started: check here. The window does not react until it is done.
-        Complete-PASUIServerCheck @(Test-PASPreflight -Configuration $S.Configuration -CredentialMap $accounts.Credentials)
+        if ($Phase -eq 'signin') {
+            Complete-PASUIServerCheckPart @(Test-PASPreflight -Configuration $S.Configuration -CredentialMap $credentials)
+        } else {
+            Complete-PASUIServerCheckPart @(Test-PASPreflight -Configuration $S.Configuration -ConnectivityOnly)
+        }
+    }
+}
+
+function Complete-PASUIServerCheckPart {
+    # One part is done. After part 1 without a problem, part 2 follows; otherwise the result is shown.
+    param([object[]]$Rows)
+    $problems = @($Rows | Where-Object { $_.Passed -is [bool] -and -not $_.Passed }).Count
+    if ([string]$S.CheckPhase -eq 'reach' -and -not $problems) {
+        Start-PASUIServerCheckPart 'signin'
+        return
+    }
+    $S.CheckAccounts = $null
+    Complete-PASUIServerCheck $Rows
+}
+
+function Show-PASUIServerCheckPhase {
+    # Shows which part of the server check is running: 'reach', 'signin', or '' when none is.
+    param([string]$Phase)
+    $S.Checking = [bool]$Phase
+    $S.CheckPhase = $Phase
+    # Also in the line at the top, which is in view wherever the page is scrolled to.
+    switch ($Phase) {
+        'plan' { Set-PASUINotice 'busy' 'Checking the servers...' }
+        'reach' { Set-PASUINotice 'busy' 'Checking the servers: looking whether they answer...' }
+        'signin' { Set-PASUINotice 'busy' 'Checking the servers: signing in to each one...' }
+        default { Set-PASUINotice }
+    }
+    if ($S.Screen -eq 'servers') {
+        Set-PASUIHtml 'preflight-result' (Get-PASUIPreflightHtml $S)
+        Set-PASUIHtml 'bar' (Get-PASUIBarHtml $S)
     }
 }
 
 function Complete-PASUIServerCheck {
     param([object[]]$Rows)
     $S.Checking = $false
+    $S.CheckPhase = ''
+    Set-PASUINotice
     $S.Preflight = @($Rows)
     if ($S.Screen -ne 'servers') {
         return
@@ -909,6 +1015,7 @@ try {
     # Small by default: the window is made to sit next to other windows. It stays usable down to the minimum.
     $window = New-NativeHTMLKitWindow -Application $app -Title 'PASeasyInstall' -Width 800 -Height 560 -MinWidth 480 -MinHeight 340
     $doc = Open-NativeHTMLKitFile -Window $window -Path (Join-Path (Join-Path $PSScriptRoot 'Web') 'index.html')
+    Set-PASUIWindowIcon
     if ($Backend -eq 'Mock') {
         $null = Set-NativeHTMLKitDocumentAttribute -Document $doc -Element 'mode-badge' -Name 'hidden' -Remove
     }

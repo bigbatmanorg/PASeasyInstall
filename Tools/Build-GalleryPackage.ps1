@@ -85,6 +85,10 @@ function Get-PackageProblems {
             [void]$problems.Add("$relative : vendor license file")
             continue
         }
+        if ($extension -eq '.ico' -and $relative -like '*Desktop*Web*') {
+            # The window icon: own artwork, not text.
+            continue
+        }
         if ($extension -notin $textExtensions) {
             [void]$problems.Add("$relative : unexpected file type (add it to the build allow-list if intended)")
             continue

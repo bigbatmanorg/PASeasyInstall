@@ -351,3 +351,7 @@ dialog::backdrop { background: rgba(8, 11, 18, 0.55); }
   .step { font-size: 0; padding: 3px 4px; }
   .step.current { font-size: 12.5px; }
 }
+
+/* A small turning ring in front of a text that says the window is working. */
+.spin { display: inline-block; width: 11px; height: 11px; margin-right: 7px; vertical-align: -1px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

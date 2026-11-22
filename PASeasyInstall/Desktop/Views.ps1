@@ -45,7 +45,11 @@ function Get-PASUINoticeHtml {
     if (-not $State.Notice) {
         return ''
     }
-    return "<div class=`"notice $($State.Notice.Kind)`">" + (ConvertTo-PASUIText $State.Notice.Text) + '</div>'
+    $ring = ''
+    if ([string]$State.Notice.Kind -eq 'busy') {
+        $ring = '<span class="spin"></span>'
+    }
+    return "<div class=`"notice $($State.Notice.Kind)`">" + $ring + (ConvertTo-PASUIText $State.Notice.Text) + '</div>'
 }
 
 function Get-PASUIIssueBoxHtml {
@@ -67,7 +71,7 @@ function Get-PASUIBarHtml {
         'lab' { return '<button id="act-back" class="btn">Back</button><span class="grow"></span><button id="act-next" class="btn primary">Next: servers</button>' }
         'servers' {
             if ($State.Checking) {
-                return '<button id="act-back" class="btn">Back</button><span class="grow">Checking the servers...</span><button class="btn primary" disabled>Checking...</button>'
+                return '<button id="act-back" class="btn">Back</button><span class="grow">Checking the servers. Nothing is installed yet.</span><button class="btn primary" disabled><span class="spin"></span>Checking...</button>'
             }
             return '<button id="act-back" class="btn">Back</button><span class="grow">Next checks that every server answers and that the accounts work. Nothing is installed yet.</span><button id="act-next" class="btn primary">Next: check the servers</button>'
         }
@@ -344,7 +348,24 @@ function Get-PASUIPreflightHtml {
     # or line by line in the advanced view.
     param([hashtable]$State)
     if ($State.Checking) {
-        return '<div class="box busy">Signing in to every server and checking that it is ready. This takes a moment per server; you can keep the window open and wait.</div>'
+        # The servers of a configuration are a table keyed by their id.
+        $count = 0
+        if ($State.Configuration -and $State.Configuration.hosts -is [System.Collections.IDictionary]) {
+            $count = $State.Configuration.hosts.Count
+        }
+        $servers = 'the servers'
+        if ($count -eq 1) {
+            $servers = 'the server'
+        } elseif ($count -gt 1) {
+            $servers = "the $count servers"
+        }
+        if ([string]$State.CheckPhase -eq 'plan') {
+            return '<div class="box busy"><span class="spin"></span><strong>Checking the servers.</strong> Getting ready...</div>'
+        }
+        if ([string]$State.CheckPhase -eq 'reach') {
+            return '<div class="box busy"><span class="spin"></span><strong>Checking the servers, part 1 of 2.</strong> Looking whether ' + $servers + ' answer. This takes a few seconds.</div>'
+        }
+        return '<div class="box busy"><span class="spin"></span><strong>Checking the servers, part 2 of 2.</strong> All of them answer. Now signing in to ' + $servers + ' and checking that each is ready. This takes up to a minute per server; nothing is installed.</div>'
     }
     if (-not $State.Preflight) {
         return ''

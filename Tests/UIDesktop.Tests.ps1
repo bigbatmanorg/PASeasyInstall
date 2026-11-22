@@ -455,6 +455,47 @@ Describe 'Servers form and server check' {
         $state.Checking = $true
         Get-PASUIBarHtml (@{ Screen = 'servers'; Checking = $true }) | Should -Match 'disabled'
     }
+    It 'says which part of the server check is running' {
+        $state = New-PASUIState
+        $state.Configuration = @{ hosts = [ordered]@{ a = @{}; b = @{}; c = @{} } }
+        $state.Checking = $true
+        $state.CheckPhase = 'reach'
+        Get-PASUIPreflightHtml $state | Should -Match 'part 1 of 2.*the 3 servers answer'
+        $state.CheckPhase = 'signin'
+        Get-PASUIPreflightHtml $state | Should -Match 'part 2 of 2.*signing in to the 3 servers'
+    }
+    It 'counts a step, its restart and its continuation as one step' {
+        $events = @()
+        foreach ($stage in 'management', 'media-upload', 'preflight', 'extract', 'prerequisites', 'prerequisites-reboot', 'prerequisites-pass2', 'prerequisites-pass2-reboot', 'install') {
+            $events += [pscustomobject]@{ Component = 'psm'; Stage = $stage; Event = 'TaskStarted' }
+            $events += [pscustomobject]@{ Component = 'psm'; Stage = $stage; Event = 'TaskCompleted' }
+        }
+        $events += [pscustomobject]@{ Component = 'psm'; Stage = 'install-reboot'; Event = 'TaskStarted' }
+        $snapshot = [pscustomobject]@{ Status = 'Running'; Events = $events; Components = @([pscustomobject]@{ Id = 'psm'; Type = 'PSM'; Status = 'Running'; Message = '' }) }
+        $row = (Get-PASUIRunProgress -Snapshot $snapshot -Catalog @{ PSM = 10 }).Components[0]
+        $row.Total | Should -Be 10
+        $row.Done | Should -Be 5
+        $row.Current | Should -Be 'install-reboot'
+        Get-PASUIStageText 'install-pass2' | Should -Match 'continued after the restart'
+        # A step whose own name ends in -reboot stays a step of its own.
+        Get-PASUIStepOfStage 'hardening-reboot' @('harden-primary', 'hardening-reboot') | Should -Be 'hardening-reboot'
+    }
+    It 'offers the Advanced switch only on a page that has something more to show' {
+        $state = New-PASUIState
+        foreach ($screen in 'home', 'media') {
+            $state.Screen = $screen
+            Test-PASUIAdvancedApplies $state | Should -BeFalse
+        }
+        foreach ($screen in 'servers', 'review', 'run') {
+            $state.Screen = $screen
+            Test-PASUIAdvancedApplies $state | Should -BeTrue
+        }
+        $state.Screen = 'lab'
+        $state.Preset = 'standard'
+        Test-PASUIAdvancedApplies $state | Should -BeFalse
+        $state.Preset = 'custom'
+        Test-PASUIAdvancedApplies $state | Should -BeTrue
+    }
 }
 
 Describe 'Fast reachability check before an installation' {

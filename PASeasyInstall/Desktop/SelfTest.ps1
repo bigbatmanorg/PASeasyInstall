@@ -246,6 +246,8 @@ function Invoke-PASUITestWalk {
 
     $watch = [Diagnostics.Stopwatch]::StartNew()
     Invoke-PASUINext
+    # The click must end at once, with the window saying that it checks the servers.
+    Write-PASUITestLine ("INFO the click on Next returned after {0:N0} ms, message shown: {1}" -f $watch.Elapsed.TotalMilliseconds, [bool]$S.Checking)
     Wait-PASUITestServerCheck
     Write-PASUITestLine ("INFO the server check took {0:N0} seconds" -f $watch.Elapsed.TotalSeconds)
     if ($Scenario.PSObject.Properties['expectServerProblem']) {

@@ -1,5 +1,16 @@
 # Release notes
 
+## Not released yet (after 2.0.4)
+
+- **The window says at once that it is checking the servers.** After **Next** on the Servers step the button
+  is disabled immediately and a message shows which of the two parts is running: looking whether the servers
+  answer, then signing in to each. Before, nothing changed for some seconds.
+- **The Advanced switch is shown only where it does something**: on the Custom lab, the Servers step, the
+  review and the installation page.
+- **The step count of a component no longer grows during an installation.** A step, the restart it asked for
+  and its continuation count as one step (PSM showed up to 17 of 10).
+- **The window has its own icon** in the title bar and the taskbar.
+
 ## 2.0.4
 
 - **A lab with an Active Directory domain.** `New-PASLabConfiguration -DomainMode New -DomainName pam.lab

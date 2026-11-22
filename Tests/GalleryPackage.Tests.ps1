@@ -31,7 +31,7 @@ Describe 'Gallery package stages' {
     }
     It 'puts the desktop window and its Mock backend into the same package' {
         foreach ($rel in 'Public/Start-PASeasyInstall.ps1', 'Desktop/App.ps1', 'Desktop/Model.ps1', 'Desktop/Views.ps1', 'Desktop/Web/index.html',
-            'Desktop/Web/style.css', 'Desktop/Backend/Backend.Contract.ps1', 'Desktop/Backend/Mock/PASeasyInstall.Mock.psd1') {
+            'Desktop/Web/style.css', 'Desktop/Web/PASeasyInstall.ico', 'Desktop/Backend/Backend.Contract.ps1', 'Desktop/Backend/Mock/PASeasyInstall.Mock.psd1') {
             Test-Path -LiteralPath (Join-Path $script:core.Stage $rel) | Should -BeTrue -Because $rel
         }
     }

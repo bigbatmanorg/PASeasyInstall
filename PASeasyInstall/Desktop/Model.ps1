@@ -101,8 +101,12 @@ function New-PASUIState {
 
         # Server check of the Servers step: running, and the configuration it passed for.
         Checking = $false
+        # Which part of the server check runs: 'reach' (does each server answer) or 'signin'.
+        CheckPhase = ''
         # An installation is being started in the background: the accounts it was started with, else $null.
         Starting = $null
+        # The accounts of the Servers form while the server check runs.
+        CheckAccounts = $null
         # Accounts and Vault passwords of the installation started from this window (protected in memory),
         # so that "Try again" and "Check the lab" do not ask for them again while the window stays open.
         Kept = $null
@@ -152,6 +156,16 @@ function Set-PASUIPreset {
             $State.Counts[$type] = [int]$preset.Counts[$type]
         }
     }
+}
+
+function Test-PASUIAdvancedApplies {
+    # Does the current page have anything that only the Advanced switch shows? The switch is hidden elsewhere.
+    param([hashtable]$State)
+    if ([string]$State.Screen -in @('servers', 'review', 'run')) {
+        return $true
+    }
+    # The Custom lab allows more instances of a component in the advanced view.
+    return ([string]$State.Screen -eq 'lab' -and [string]$State.Preset -eq 'custom')
 }
 
 function Get-PASUIMaxCount {
@@ -606,8 +620,23 @@ function Get-PASUIStageText {
     if ($Stage -match 'reboot') {
         return 'Restarting the server'
     }
+    if ($Stage -match '^(.+)-pass\d+$') {
+        # The same step again after a restart the vendor installer asked for.
+        return ((Get-PASUIStageText $Matches[1]) + ' (continued after the restart)')
+    }
     $text = $Stage -replace '-', ' '
     return ($text.Substring(0, 1).ToUpperInvariant() + $text.Substring(1))
+}
+
+function Get-PASUIStepOfStage {
+    # The step of the list a stage belongs to. A component can run a step in several parts: the step itself, a
+    # restart of the server (<step>-reboot) and the step again (<step>-pass2). They count as the one step,
+    # so that the number of steps does not grow while a component is installed. Seen: the stages that occurred.
+    param([string]$Stage, [string[]]$Seen)
+    if ($Stage -match '^(.+?)(-pass\d+)?(-reboot)?$' -and $Matches[1] -ne $Stage -and $Seen -contains $Matches[1]) {
+        return [string]$Matches[1]
+    }
+    return $Stage
 }
 
 function Get-PASUIRunProgress {
@@ -622,7 +651,13 @@ function Get-PASUIRunProgress {
         $id = [string]$component.Id
         $type = [string]$component.Type
         $mine = @($events | Where-Object { [string]$_.Component -eq $id -and [string]$_.Stage })
-        $finished = @($mine | Where-Object { [string]$_.Event -in @('TaskCompleted', 'TaskRevalidated') } | ForEach-Object { [string]$_.Stage } | Select-Object -Unique)
+        $seen = @($mine | ForEach-Object { [string]$_.Stage } | Select-Object -Unique)
+        $finished = @($mine | Where-Object { [string]$_.Event -in @('TaskCompleted', 'TaskRevalidated') } | ForEach-Object { Get-PASUIStepOfStage ([string]$_.Stage) $seen } | Select-Object -Unique)
+        if ($mine.Count -and [string]$mine[-1].Event -notin @('TaskCompleted', 'TaskRevalidated', 'TaskSkipped')) {
+            # A later part of a step is running (its restart, or the step again): the step is not finished yet.
+            $running = Get-PASUIStepOfStage ([string]$mine[-1].Stage) $seen
+            $finished = @($finished | Where-Object { $_ -ne $running })
+        }
         $total = 0
         $catalogKey = $type
         if ($type -eq 'DRVault') {
