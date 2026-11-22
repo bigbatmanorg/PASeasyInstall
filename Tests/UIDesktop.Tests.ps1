@@ -543,3 +543,45 @@ Describe '"Who installs": user and company name for the vendor installers' {
         $html | Should -Match 'id="f-installer-company" value="Example Corp"'
     }
 }
+
+Describe 'A lab with an Active Directory domain' {
+    It 'creates a new forest and joins the PVWA, CPM and PSM servers, never the Vault or the Linux server' {
+        $cfg = New-PASLabConfiguration -Environment DomLab -VaultMode Primary -PrimaryAddress 192.0.2.31 -ControllerAddress 198.51.100.250 `
+            -Media $script:selection -SecurityProfile Lab -AcceptEula -Instances $script:lab `
+            -DomainMode New -DomainName pam.lab -DomainControllerAddress 192.0.2.40
+        $cfg.activeDirectory.mode | Should -Be 'Create'
+        $cfg.activeDirectory.domain | Should -Be 'pam.lab'
+        $cfg.activeDirectory.joinUser | Should -Be 'PAM\Administrator'
+        $cfg.hosts['dc01'].address | Should -Be '192.0.2.40'
+        @($cfg.activeDirectory.join).Count | Should -Be 3
+        @($cfg.activeDirectory.join) | Should -Not -Contain 'vault01'
+        @($cfg.activeDirectory.join | Where-Object { $cfg.hosts[$_].os -ne 'Windows' }).Count | Should -Be 0
+        $check = Test-PASLabConfiguration -Configuration $cfg
+        $check.Issues | Should -BeNullOrEmpty
+        $plan = Get-PASLabPlan -Configuration $cfg
+        $plan.Items[0].Type | Should -Be 'AD'
+        @($plan.DomainJoins).Count | Should -Be 3
+        $keys = @(Get-PASCredentialRequirement -Configuration $cfg | ForEach-Object { $_.Key })
+        foreach ($key in @('dc01', 'ADSafeMode', 'DomainJoinPassword', 'PSMDomainInstaller')) {
+            $keys | Should -Contain $key
+        }
+    }
+    It 'uses an existing domain through one of its DNS servers' {
+        $instances = @(@{ Type = 'PVWA'; Name = 'PVWA01'; Address = '192.0.2.33' })
+        $cfg = New-PASLabConfiguration -Environment DomLab -VaultMode Existing -ExistingVaultAddress 192.0.2.5 -Media $script:selection -SecurityProfile Lab `
+            -Instances $instances -DomainMode Existing -DomainName corp.example -DomainControllerAddress 192.0.2.40 -DomainUsername 'CORP\joiner'
+        $cfg.activeDirectory.mode | Should -Be 'Existing'
+        $cfg.activeDirectory.joinUser | Should -Be 'CORP\joiner'
+        @($cfg.activeDirectory.dnsServers) | Should -Be @('192.0.2.40')
+        @($cfg.components | Where-Object { $_.type -eq 'AD' }).Count | Should -Be 0
+        (Test-PASLabConfiguration -Configuration $cfg).Issues | Should -BeNullOrEmpty
+        $missing = New-PASLabConfiguration -Environment DomLab -VaultMode Existing -ExistingVaultAddress 192.0.2.5 -Media $script:selection -SecurityProfile Lab `
+            -Instances $instances -DomainMode Existing -DomainName corp.example
+        ((Test-PASLabConfiguration -Configuration $missing).Issues -join ' ') | Should -Match 'DNS servers'
+    }
+    It 'leaves a lab without a domain as it was' {
+        $cfg = New-LabConfig
+        $cfg.activeDirectory.mode | Should -Be 'None'
+        @($cfg.activeDirectory.join).Count | Should -Be 0
+    }
+}

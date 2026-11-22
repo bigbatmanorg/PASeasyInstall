@@ -51,6 +51,21 @@ function New-PASLabConfiguration {
     .PARAMETER AcceptEula
     Confirms that you read and accept the CyberArk end user license agreement of the PSMP installer.
     Required when the lab contains a PSMP.
+    .PARAMETER DomainMode
+    None (default): the servers stay in their workgroup. New: a new Active Directory forest is created on the
+    server at -DomainControllerAddress. Existing: an existing domain is used. With New and Existing the
+    Windows servers of PVWA, CPM and PSM are joined to the domain before they are installed (they restart
+    once). Vault servers are never joined.
+    .PARAMETER DomainName
+    DNS name of the domain, for example pam.lab.
+    .PARAMETER DomainControllerAddress
+    DomainMode New: IPv4 address of the Windows server that becomes the domain controller (it must have a
+    static address and nothing else is installed on it). DomainMode Existing: IPv4 address of a DNS server
+    of the domain, usually a domain controller.
+    .PARAMETER DomainUsername
+    Account name without the domain, default Administrator. DomainMode New: the local administrator of the
+    new domain controller, who becomes the administrator of the domain. DomainMode Existing: a domain
+    account that may join computers.
     .PARAMETER InstallerName
     User name the CyberArk installers record ("who installs"). Default: what the vendor files contain
     ("Windows User"; "CyberArk Vault Image" for the Vault). Letters, digits, spaces and simple punctuation.
@@ -116,6 +131,18 @@ function New-PASLabConfiguration {
         [string]$SecurityProfile = 'Secure',
 
         [switch]$AcceptEula,
+
+        [ValidateSet('None', 'New', 'Existing')]
+        [string]$DomainMode = 'None',
+
+        [AllowEmptyString()]
+        [string]$DomainName = '',
+
+        [AllowEmptyString()]
+        [string]$DomainControllerAddress = '',
+
+        [AllowEmptyString()]
+        [string]$DomainUsername = '',
 
         [AllowEmptyString()]
         [string]$InstallerName = '',

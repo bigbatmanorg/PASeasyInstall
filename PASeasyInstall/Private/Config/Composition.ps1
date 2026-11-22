@@ -144,6 +144,8 @@ function New-PASDeploymentConfiguration {
         [AllowEmptyString()][string]$PrimaryUsername = '', [AllowEmptyString()][string]$DRUsername = '',
         [ValidateSet('Secure', 'Lab')][string]$SecurityProfile = 'Secure', [switch]$AcceptEula,
         [AllowEmptyString()][string]$InstallerName = '', [AllowEmptyString()][string]$InstallerCompany = '',
+        [ValidateSet('None', 'New', 'Existing')][string]$DomainMode = 'None', [AllowEmptyString()][string]$DomainName = '',
+        [AllowEmptyString()][string]$DomainControllerAddress = '', [AllowEmptyString()][string]$DomainUsername = '',
         [string]$DataRoot = (Get-PASDataRoot))
     $lab = ($SecurityProfile -eq 'Lab')
     $overrides = [ordered]@{}
@@ -304,6 +306,34 @@ function New-PASDeploymentConfiguration {
     if ($lab -and $anyWindows) {
         $overrides['WinRM.SkipCACheck'] = $true
         $overrides['WinRM.SkipCNCheck'] = $true
+    }
+    # Active Directory. New: the server at -DomainControllerAddress becomes the first domain controller of a new
+    # forest. Existing: that address is a DNS server of the domain. Either way the Windows servers of PVWA, CPM
+    # and PSM are joined before anything is installed on them. Vault servers are never joined.
+    if ($DomainMode -ne 'None') {
+        $domain = $DomainName.Trim()
+        $netbios = $domain.Split('.')[0].ToUpperInvariant()
+        $account = $DomainUsername.Trim()
+        if (-not $account) {
+            $account = $Username
+        }
+        $account = $account.Split([char]92)[-1]
+        $c.activeDirectory.domain = $domain
+        $c.activeDirectory.joinUser = $netbios + '\' + $account
+        $c.activeDirectory.join = @($components | Where-Object { $_.type -in @('PVWA', 'CPM', 'PSM') } | ForEach-Object { [string]$_.host } | Select-Object -Unique)
+        if ($DomainMode -eq 'New') {
+            $c.activeDirectory.mode = 'Create'
+            $c.hosts['dc01'] = [ordered]@{address = $DomainControllerAddress.Trim(); os = 'Windows'; user = $account; credentialRef = 'dc01' }
+            [void]$components.Add([ordered]@{id = 'ad'; name = 'Domain controller'; type = 'AD'; host = 'dc01'; variant = 'NewForest' })
+            $anyWindows = $true
+            if ($lab) {
+                $overrides['WinRM.SkipCACheck'] = $true
+                $overrides['WinRM.SkipCNCheck'] = $true
+            }
+        } else {
+            $c.activeDirectory.mode = 'Existing'
+            $c.activeDirectory.dnsServers = @($DomainControllerAddress.Trim())
+        }
     }
     $c.components = @($components.ToArray())
     # A new Vault needs the VC++ runtimes, which CyberArk ships inside the CPM, PVWA and PSM packages. When they

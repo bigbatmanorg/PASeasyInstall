@@ -214,6 +214,14 @@ function Test-PASConfiguration {
     }
 
     if ($c.activeDirectory.mode -notin @('None', 'Create', 'Existing')) { $issues.Add('activeDirectory.mode must be None, Create or Existing') }
+    if ($c.activeDirectory.mode -eq 'Existing' -and @($c.activeDirectory.join).Count) {
+        # The servers that join must ask a DNS server of the domain.
+        $domainDns = @(Get-PASValue $c.activeDirectory 'dnsServers' @() | Where-Object { [string]$_ })
+        $parsed = $null
+        if (-not $domainDns.Count -or @($domainDns | Where-Object { -not [Net.IPAddress]::TryParse([string]$_, [ref]$parsed) }).Count) {
+            $issues.Add('An existing domain needs the IPv4 address of one of its DNS servers (activeDirectory.dnsServers; -DomainControllerAddress)')
+        }
+    }
     if ($c.activeDirectory.mode -eq 'Create' -and
         @($c.components | Where-Object { $_.type -eq 'AD' }).Count -ne 1) { $issues.Add('AD mode Create requires one AD component') }
     if ($c.activeDirectory.mode -eq 'Existing' -and
