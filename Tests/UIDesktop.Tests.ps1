@@ -585,3 +585,37 @@ Describe 'A lab with an Active Directory domain' {
         @($cfg.activeDirectory.join).Count | Should -Be 0
     }
 }
+
+Describe 'Desktop: a lab with a domain' {
+    BeforeAll {
+        . (Join-Path $uiRoot 'Model.ps1')
+        . (Join-Path $uiRoot 'Views.ps1')
+    }
+    It 'adds one server line for a new domain and none without a domain' {
+        $state = New-PASUIState
+        Set-PASUIPreset $state 'standard'
+        $before = @(Get-PASUIServerSlots $state).Count
+        Get-PASUILabHtml $state | Should -Match 'id="domain-New"'
+        Get-PASUILabHtml $state | Should -Not -Match 'f-domainname'
+        $state.Domain = 'New'
+        $slots = @(Get-PASUIServerSlots $state)
+        $slots.Count | Should -Be ($before + 1)
+        $slots[0].Key | Should -Be 'dc'
+        @(Get-PASUIInstances $state | Where-Object { $_.Type -eq 'AD' }).Count | Should -Be 0
+        Get-PASUILabHtml $state | Should -Match 'id="f-domainname" value="pam.lab"'
+        Get-PASUIServersHtml $state | Should -Match 'id="srv-dc-addr"'
+        Get-PASUIServersHtml $state | Should -Match 'restore mode password'
+        Get-PASUICommandText $state | Should -Match '-DomainMode New -DomainName pam\.lab'
+    }
+    It 'asks for the domain name and offers a line for an existing domain' {
+        $state = New-PASUIState
+        Set-PASUIPreset $state 'standard'
+        $state.Domain = 'Existing'
+        $state.DomainName = 'nodots'
+        (Get-PASUIInputIssues $state 'lab') -join ' ' | Should -Match 'DNS name of the domain'
+        $state.DomainName = 'corp.example'
+        (Get-PASUIInputIssues $state 'lab') -join ' ' | Should -Not -Match 'DNS name of the domain'
+        Get-PASUIServersHtml $state | Should -Match 'id="srv-domain-addr"'
+        (Get-PASUIInputIssues $state 'servers') -join ' ' | Should -Match 'address of the Existing domain'
+    }
+}
