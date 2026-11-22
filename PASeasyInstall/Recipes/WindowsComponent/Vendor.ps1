@@ -170,3 +170,35 @@ function Invoke-VendorScript {
     if ($regInfoCount) { Write-Information -MessageData 'PASeasyInstall INFO: accepted exact informational reg import status from pinned v15 PSM source; independent TLS postconditions remain required' -InformationAction Continue }
     return $value
 }
+function Get-PASeasyCpmRegistrationMode {
+    # Clean, or Upgrade when an earlier registration on this server did not finish.
+    # The vendor tool creates the CPM user in the Vault and its credential file in one step. When the file
+    # names our user, an earlier registration got that far: a clean registration would now create a second
+    # user (PasswordManager1). The vendor's upgrade mode registers again with the existing user.
+    param([string]$InstallRoot, [string]$User)
+    $credentialFile = Join-Path $InstallRoot 'Password Manager\Vault\user.ini'
+    if ((Test-Path -LiteralPath $credentialFile -PathType Leaf) -and
+        @(Select-String -LiteralPath $credentialFile -Pattern ('^\s*Username\s*=\s*' + [regex]::Escape($User) + '\s*$')).Count) {
+        return 'Upgrade'
+    }
+    return 'Clean'
+}
+function Get-PASeasyCpmRegistrationProblem {
+    # The upgrade mode reports success also when it could not finish the CPM environment that the earlier
+    # attempt left incomplete (tried in the lab on 2026-11-22: safes without their members, no platforms).
+    # Its log says so. Returns that reason, or '' when the vendor tool finished without errors.
+    # The log holds every attempt; only a line written since -Since counts.
+    param([string]$LogPath, [datetime]$Since)
+    $reason = ''
+    if (-not (Test-Path -LiteralPath $LogPath -PathType Leaf)) {
+        return $reason
+    }
+    $pattern = '^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d),\d+ \w+ - CPMEM041I CPMEnvMgr ended with errors\. Reason:\s*(.+)$'
+    foreach ($line in @(Select-String -LiteralPath $LogPath -Pattern $pattern)) {
+        $written = [datetime]::ParseExact($line.Matches[0].Groups[1].Value, 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
+        if ($written -ge $Since.AddSeconds(-1)) {
+            $reason = [string]$line.Matches[0].Groups[2].Value
+        }
+    }
+    return $reason
+}
