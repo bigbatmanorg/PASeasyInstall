@@ -105,7 +105,7 @@ function Assert-PAPacliBinary {
 }
 function Invoke-PAPacliProcess {
     param([string]$Pacli,
-        [ValidateSet('INIT', 'DEFINE', 'DEFAULT', 'OPENSAFE', 'CLOSESAFE', 'LOGOFF', 'TERM', 'USERDETAILS', 'ADDSAFE', 'EXECUTEFILE')][string]$Operation,
+        [ValidateSet('INIT', 'DEFINE', 'DEFAULT', 'OPENSAFE', 'CLOSESAFE', 'LOGOFF', 'TERM', 'USERDETAILS', 'ADDSAFE', 'EXECUTEFILE', 'RETRIEVEFILE', 'STOREFILE')][string]$Operation,
         [ValidateRange(1, 2147483647)][int]$SessionId,
         [string[]]$Arguments = @(),
         [byte[]]$PipeBytes,
@@ -114,7 +114,7 @@ function Invoke-PAPacliProcess {
     Initialize-PAPacliPipeInterop
     $exe = Assert-PAPacliBinary $Pacli
     foreach ($argument in $Arguments) {
-        if ($argument -notmatch '^(?:VAULT|ADDRESS|USER|DESTUSER|SAFE|TIMEOUT|FILE)=[A-Za-z0-9_.(),=\\:-]+$' -and
+        if ($argument -notmatch '^(?:VAULT|ADDRESS|USER|DESTUSER|SAFE|TIMEOUT|FILE|FOLDER|LOCALFOLDER|LOCALFILE)=[A-Za-z0-9_.(),=\\:-]+$' -and
             $argument -cnotin @('LOCATION=\', 'SIZE=5', 'DESCRIPTION=PAExecReplicationTest') -and
             $argument -notmatch '^OUTPUT\((?:ENCLOSE,)?(?:NAME,DISABLED|SAFEID)\)$') { throw 'Unsafe or secret-bearing PACLI process argument' }
     }
@@ -231,7 +231,8 @@ function Invoke-PAPacliSecretCommand {
     }
 }
 function Open-PAPacliVaultSession {
-    param([string]$Pacli, [string]$Password)
+    # -Address: the Vault as seen from this server. Default: this server is the Vault.
+    param([string]$Pacli, [string]$Password, [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$')][string]$Address = '127.0.0.1')
     $id = Get-Random -Minimum 2000000 -Maximum 2000000000
     # Refuse unsupported text before INIT, and therefore before any login attempt.
     $null = New-PAPacliSecretStatement LOGON $id @{PASSWORD = $Password }
@@ -250,7 +251,7 @@ function Open-PAPacliVaultSession {
                     Args = @()
                 }, @{
                     Op = 'DEFINE'
-                    Args = @('VAULT=v', 'ADDRESS=127.0.0.1', 'TIMEOUT=10')
+                    Args = @('VAULT=v', ('ADDRESS=' + $Address), 'TIMEOUT=10')
                 }, @{
                     Op = 'DEFAULT'
                     Args = @('VAULT=v', 'USER=Administrator')
