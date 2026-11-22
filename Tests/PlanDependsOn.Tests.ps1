@@ -5,7 +5,7 @@ BeforeAll {
     Import-PASTestModule
 }
 Describe 'Plan dependencies' {
-    It 'shows the first PVWA as a dependency of PSM and PSMP, and every PVWA as a dependency of a lab CPM' {
+    It 'shows the first PVWA as a dependency of PSMP, and every PVWA as a dependency of a lab CPM and PSM' {
         $cfg = New-PASLabConfiguration -Environment Lab01 -VaultMode Existing -ExistingVaultAddress 192.0.2.11 `
             -ControllerAddress 192.0.2.2 -SecurityProfile Lab -AcceptEula -Instances @(
             @{ Type = 'PSMP'; Name = 'PSMP01'; Address = '192.0.2.31' },
@@ -20,7 +20,8 @@ Describe 'Plan dependencies' {
         $deps['pvwa02'] | Should -Be ''
         # A lab CPM trusts the certificate of every PVWA of the deployment, so it waits for all of them.
         $deps['cpm01'] | Should -Be 'pvwa01,pvwa02'
-        $deps['psm01'] | Should -Be 'pvwa01'
+        # A lab PSM trusts the PVWA certificates too: its registration calls the PVWA API.
+        $deps['psm01'] | Should -Be 'pvwa01,pvwa02'
         $deps['psmp01'] | Should -Be 'pvwa01'
         # Items come out in the order they are installed: every PVWA before the components that wait for it.
         $order = @($plan.Items | ForEach-Object { $_.Id })

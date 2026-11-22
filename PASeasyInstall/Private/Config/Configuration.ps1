@@ -152,7 +152,7 @@ function Test-PASConfiguration {
         # controller reads that certificate from the PVWA server right before the CPM is installed.
         $trustFrom = [string](Get-PASValue $entryOptions 'pvwaTrustFrom' '')
         if ($trustFrom) {
-            if ($type -notin @('CPM', 'HTML5GW', 'PTA')) { $issues.Add("${label}: options.pvwaTrustFrom is only valid for a CPM, an HTML5 Gateway or PTA") }
+            if ($type -notin @('CPM', 'PSM', 'HTML5GW', 'PTA')) { $issues.Add("${label}: options.pvwaTrustFrom is only valid for a CPM, a PSM, an HTML5 Gateway or PTA") }
             if (@($c.components | Where-Object { $_ -and [string]$_.id -eq $trustFrom -and $_.type -eq 'PVWA' }).Count -ne 1) {
                 $issues.Add("$label trusts PVWA '$trustFrom', which is not part of this deployment")
             }

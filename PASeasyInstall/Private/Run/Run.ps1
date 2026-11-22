@@ -447,7 +447,7 @@ function Initialize-PASComponentRun {
             $Run.Secrets['PTARoot-' + $id] = $rootCredential.Password
         }
     }
-    if (-not $prepared -and $type -in @('CPM', 'HTML5GW', 'PTA')) {
+    if (-not $prepared -and $type -in @('CPM', 'PSM', 'HTML5GW', 'PTA')) {
         $options = Get-PASValue $Component 'options' $null
         $trustFrom = [string](Get-PASValue $options 'pvwaTrustFrom' '')
         if ($trustFrom) {

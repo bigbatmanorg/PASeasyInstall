@@ -340,7 +340,8 @@ function New-PASDeploymentConfiguration {
     # CPM pins the self-signed certificate of the first PVWA installed in this deployment; the
     # installer reads it from that PVWA over the authenticated management channel at install time.
     if ($lab -and $firstPvwa) {
-        foreach ($e in @($components | Where-Object { $_.type -in @('CPM', 'HTML5GW', 'PTA') })) { $e.options.pvwaTrustFrom = $firstPvwa }
+        # PSM too: its registration calls the PVWA API (ApiKeyManager) and must trust the PVWA certificate.
+        foreach ($e in @($components | Where-Object { $_.type -in @('CPM', 'PSM', 'HTML5GW', 'PTA') })) { $e.options.pvwaTrustFrom = $firstPvwa }
         if (@($components | Where-Object { $_.type -eq 'CPM' }).Count) { $overrides['CPM.AllowPinnedLeafTrust'] = $true }
     }
     if ($lab -and $anyWindows) {
