@@ -159,8 +159,9 @@ when you close the window or the prompt.
 - **Nothing is repeated blindly.** A step that failed is never run again on its own. You look at the server,
   correct the cause and name the step.
 
-A Full lab with a DR Vault took 23 minutes in the test lab (CyberArk 15.2); a lab with a new domain took 20
-minutes. `New-PASLabConfiguration -ExecutionMode Sequential` installs one component after the other instead.
+In the test lab (CyberArk 15.2) a lab with Vault, PVWA, CPM on its own server, PSM and PSM for SSH took 19
+minutes; a Full lab with a DR Vault took 23 minutes and a lab with a new domain 20 minutes (both measured with
+2.0.5). `New-PASLabConfiguration -ExecutionMode Sequential` installs one component after the other instead.
 
 ## When something stops
 

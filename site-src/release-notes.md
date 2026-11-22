@@ -1,5 +1,34 @@
 # Release notes
 
+## 2.0.6
+
+- **A server waits for the Vault only when it has nothing else to do.** PVWA and PSM for SSH now harden first
+  and register with the Vault as their last step. CPM and PSM still register before their hardening: CPM's
+  hardening needs a registered CPM, and for PSM the vendor's stage script reports a registration on a hardened
+  server as failed.
+- **A CPM on its own server starts at once.** PVWA creates its HTTPS certificate as its first step, so a CPM,
+  PSM, HTML5 Gateway or PTA on another server copies it about a minute into the run and installs at the same
+  time. Before, such a CPM waited until PVWA was installed.
+- **Registrations follow the vendor's order:** every PVWA, then every CPM, then PSM, PSM for SSH and the rest,
+  one at a time.
+- **PSM trusts PVWA.** The vendor's PSM registration calls the PVWA API. In a lab the PSM server now trusts the
+  PVWA certificate, so that call works; before, the registration ended with a warning that the API gateway
+  connection could not be set up.
+- **Installation without hardening.** `New-PASLabConfiguration -SkipHardening` (Lab profile), or the switch
+  *Apply the vendor hardening* in the Advanced view of the Servers step, installs and registers everything but
+  leaves out the vendor hardening on the Vault, PVWA, CPM, PSM and PSM for SSH and the hardening GPOs. For tests.
+- **Window, Media step:** drag and drop is gone (a dropped folder could freeze the window). Folders and files
+  are added by path or with the pickers, as many as needed; the page shows which place holds which installer,
+  the licence and the keys, and what the chosen lab still misses.
+- **Window:** CPM on the PVWA server or on its own server in every lab, not only in Custom. The PowerShell
+  commands of an installation stand above the activity log (Advanced). The simulated installer shows the
+  servers side by side.
+- **PSM for SSH on Ubuntu** waits for the system's own package jobs before it installs its package.
+- **Documentation** rewritten: README and the whole site, with pictures of the current window.
+
+Measured on clean servers (CyberArk 15.2): Vault, PVWA, CPM on its own server, PSM and PSM for SSH in 19
+minutes; a Full lab with DR without hardening in 21 minutes; both checked Healthy.
+
 ## 2.0.5
 
 - **The window is a native Windows window (WPF). NativeHTMLKit is gone.** `Start-PASeasyInstall` needs nothing

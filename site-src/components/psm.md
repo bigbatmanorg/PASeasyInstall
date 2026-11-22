@@ -37,10 +37,15 @@ and the continuation count as part of the step. No autologon password is stored 
 After the last stage the PSM service is started if it stopped: after a restart it ends itself when it cannot
 reach the Vault at once.
 
+**Trust to PVWA.** The vendor's registration calls the PVWA API (`ApiKeyManager`) and needs trusted
+communication to the PVWA server. In a lab the PVWA certificate is self-signed, so the installer copies the
+public certificate from the PVWA server and adds it to the trusted roots of the PSM server before PSM registers.
+
 **Why PSM registers before its hardening.** CyberArk documents the order post-installation, hardening,
-registration. In the test lab (15.2) the vendor's registration failed on a PSM server that was hardened
-already: its `ApiKeyManager` reported "SSL peer certificate or SSH remote key was not OK". Registration before
-hardening has worked in every run, so PSM keeps that order. PVWA and PSM for SSH register after their hardening.
+registration. In the test lab (15.2) the registration on a PSM server that was hardened already did all its
+work (PSM was connected to the Vault afterwards), and the vendor's stage script still reported the step as
+failed, with an empty error. The installer never turns a vendor failure into a success, so PSM registers before
+its hardening, which has passed in every run. PVWA and PSM for SSH register after their hardening.
 
 ## In a domain
 

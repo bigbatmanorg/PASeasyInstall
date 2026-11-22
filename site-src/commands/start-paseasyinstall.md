@@ -12,7 +12,7 @@ The text of every command below is its own help (`Get-Help <command> -Full`).
 
 Opens the PASeasyInstall desktop: a window that builds a CyberArk PAM lab in four steps.
 
-The steps are: media folder, the lab to build, servers and password, review and install. A start page lists the installations of this computer; each has a page with live progress, retry and a lab check. Nothing is sent to any server before you press Install on the last step. "Advanced" shows the settings most labs never need.
+The steps are: installer media (one or several folders and files), the lab to build, servers and password, review and install. A start page lists the installations of this computer; each has a page with live progress, retry and a lab check. Nothing is sent to any server before you press Install on the last step. "Advanced" shows the settings most labs never need.
 
 The window only calls the other commands of this module (New-PASLabConfiguration, Test-PASLabConfiguration, Get-PASLabPlan, Install-PASLab, Get-PASRun, ...), so everything it does can also be done from the prompt.
 

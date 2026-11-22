@@ -39,7 +39,8 @@ product allows it, so that a server only waits for the Vault when it has nothing
 | PSM | **registration**, hardening, post-installation, final check |
 | PSM for SSH | hardening, **registration**, final check |
 
-CPM and PSM are the exceptions. PSM: the vendor's registration failed on a hardened PSM server in the test lab.
+CPM and PSM are the exceptions. PSM: on a hardened PSM server the vendor's stage script reported the
+registration as failed in the test lab, although it had done its work (see [PSM](psm.md)).
 CPM: its hardening starts the CPM services under a local user, and they only start once CPM is
 registered.
 

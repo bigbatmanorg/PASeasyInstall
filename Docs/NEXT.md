@@ -69,7 +69,8 @@ Needs a person at a Windows desktop, or a real interactive session.
 - [ ] `Start-PASeasyInstall` typed into an interactive Windows PowerShell console opens the window.
 - [ ] The Servers form: a wrong address and a wrong password are named within seconds; correct entries lead to
       the plan (2.0.3). A wrong Linux root password is named too (2026-11-22, by script only).
-- [ ] Dropping a media folder, and single files, on the Media step.
+- [ ] The Media step: several folders and files added with the pickers and by typed path (drag and drop was
+      removed on 2026-11-22: a dropped folder froze the window on a real desktop).
 - [ ] The window at its smallest size (480 x 340) and in a remote desktop session.
 - [ ] Press *Install* and move the window while "Starting the installation..." is shown: it must stay usable
       (2026-11-22, measured by script only).
@@ -175,7 +176,9 @@ the queue for the registrations. Results: [PARALLEL.md](PARALLEL.md) and [STATUS
 - [ ] The step that stopped once with "SSH observation timed out" (PARALLEL.md, "Open"): find the cause.
 - [ ] Let the registrations start when the Primary Vault is ready instead of waiting for the DR Vault.
 - [ ] Two of each component, and a lab with DR and a new domain, in parallel.
-- [ ] The simulated installer of the window installs one component after the other; make it show lanes.
+- [ ] PSM in the vendor's order (register after hardening): the vendor's stage script reports a failure although
+      the registration worked (PARALLEL.md, second round). Find the cause.
+- [ ] `-SkipHardening` for the single `Install-*` commands (today only `New-PASLabConfiguration` and the window).
 - [ ] The server check (`Test-PASPreflight`) signs in to one server after the other: five servers took almost
       five minutes from the window on 2026-11-22. Check the servers at the same time.
 - [ ] `Install-PASLab` needed 108 seconds before the run started (five servers, 15.2 bundle). Find out where

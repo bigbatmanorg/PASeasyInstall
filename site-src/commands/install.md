@@ -11,7 +11,7 @@ The text of every command below is its own help (`Get-Help <command> -Full`).
 
 | Command | What it does |
 |---|---|
-| [`Install-PASLab`](#install-paslab) | Installs everything a lab configuration describes: Vault, DR, PVWA, CPM, PSM, PSMP, Active Directory. |
+| [`Install-PASLab`](#install-paslab) | Installs everything a lab configuration describes: Vault, DR, PVWA, CPM, PSM, PSMP, HTML5 Gateway, PTA, Active Directory. |
 | [`Install-PASVault`](#install-pasvault) | Installs a CyberArk Primary Vault, or a Primary and DR Vault pair, on servers you provide. |
 | [`Install-PASPVWA`](#install-paspvwa) | Installs CyberArk Password Vault Web Access (PVWA) on a Windows server and registers it with an existing Vault. |
 | [`Install-PASCPM`](#install-pascpm) | Installs the CyberArk Central Policy Manager (CPM) on a Windows server and registers it with an existing Vault. |
@@ -21,9 +21,9 @@ The text of every command below is its own help (`Get-Help <command> -Full`).
 
 ## Install-PASLab
 
-Installs everything a lab configuration describes: Vault, DR, PVWA, CPM, PSM, PSMP, Active Directory.
+Installs everything a lab configuration describes: Vault, DR, PVWA, CPM, PSM, PSMP, HTML5 Gateway, PTA, Active Directory.
 
-Takes a configuration file (written by Export-PASLabConfiguration or saved by the desktop wizard) or a configuration object (from New-PASLabConfiguration). The servers are installed at the same time and the registrations with the Vault run one at a time (see [Servers at the same time](../concepts/parallel.md)). A configuration with `execution.mode` Sequential installs one component after the other: Active Directory, domain joins, Vault and DR, then the other components.
+Takes a configuration file (written by Export-PASLabConfiguration or saved by the desktop wizard) or a configuration object (from New-PASLabConfiguration). The servers are installed at the same time. A step that registers a component with the Vault waits until the Vault is installed; the registrations then run one at a time: every PVWA, every CPM, then the other components. A configuration with execution.mode Sequential installs one component after the other instead: Active Directory, domain joins, Vault and DR, then PVWA, CPM, PSM, PSMP.
 
 The command validates the configuration and the installer media and asks for confirmation. Only then it asks for every server account and password that -CredentialMap, -SecretMap or -LabPassword do not supply. With -WhatIf nothing is asked and nothing is contacted. Get-PASCredentialRequirement lists what a configuration needs; Get-PASLabPlan shows what would be installed.
 

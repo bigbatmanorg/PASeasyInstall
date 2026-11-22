@@ -50,8 +50,8 @@ also its hardening, and registers at the end:
 | PSM | registration, hardening, post-installation |
 
 CyberArk's documentation allows hardening before registration for PVWA. CPM registers first because its
-hardening starts services that need the registration. PSM registers first because the vendor's registration
-failed on a hardened PSM server in the test lab (see [PSM](../components/psm.md)).
+hardening starts services that need the registration. PSM registers first because the vendor's stage script
+reported the registration on a hardened PSM server as failed in the test lab (see [PSM](../components/psm.md)).
 
 ## When a server fails
 
@@ -71,7 +71,9 @@ Measured in the test lab with CyberArk 15.2, from clean servers:
 | Vault, DR Vault, PVWA and CPM on one server, PSM, PSM for SSH | 41 minutes | 23 minutes |
 | New domain, Vault, PVWA and CPM on one server, PSM (at the same time also PSM for SSH) | 36 minutes | 20 minutes |
 
-These times were measured before registration was moved behind hardening.
+These two were measured with 2.0.5, before PVWA and PSM for SSH registered after their hardening. With that
+order (2.0.6): Vault, PVWA, CPM on its own server, PSM and PSM for SSH took 19 minutes; a Full lab with a DR
+Vault installed without hardening took 21 minutes.
 
 ## The old order
 

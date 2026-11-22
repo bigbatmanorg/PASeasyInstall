@@ -56,6 +56,35 @@ Other runs of the same day, all from clean servers, all ending Healthy:
   the run ended Failed after 8 minutes. After the account was unlocked, `Resume-PASRun` finished everything in
   another 7 minutes.
 
+## Second round (2026-11-22, evening): what needs the Vault comes last
+
+Owner's requests after trying 2.0.5: a CPM on its own server must not wait for PVWA before it even starts; the
+registrations must follow the vendor's order (PVWA, CPM, then the rest); and registration should come after
+hardening where that is possible, so that a server waits for the Vault only when it has nothing else to do.
+
+- **PVWA creates its certificate as its first step.** Everything that has to trust PVWA (CPM, PSM, gateway, PTA
+  on other servers) copies the public certificate then and starts about a minute into the run.
+- **Order of the registrations:** every PVWA, every CPM, then PSM, PSMP and the rest.
+- **Registration after hardening:** CyberArk's documentation allows it for PVWA and CPM ("it's possible to
+  perform hardening before registration") and documents it for PSM (post-installation, hardening,
+  registration). What the lab showed (15.2):
+
+| Component | Result | Order now |
+|---|---|---|
+| PVWA | works | hardening, registration |
+| PSMP (Ubuntu 24.04) | works | hardening, registration |
+| CPM | hardening fails before registration: it starts the CPM services under a local user and the scanner service of an unregistered CPM does not start | registration, hardening |
+| PSM | the registration on a hardened server does its work, and the vendor's `Execute-Stage.ps1` then reports the step as failed with the empty error "The operation completed successfully" | registration, hardening, post-installation |
+
+- **PSM trusts PVWA.** The vendor's PSM registration calls the PVWA API (`ApiKeyManager`). Without trust to the
+  PVWA certificate that call fails ("SSL peer certificate or SSH remote key was not OK"); before hardening the
+  vendor only warns, so nobody noticed. The installer now adds the public PVWA certificate to the trusted
+  roots of the PSM server (Lab), and both `ApiKeyManager` calls succeed.
+- **Found on the way:** the PSMP package installation collided with Ubuntu's own package jobs because it now
+  starts within the first minute; it waits for them.
+
+Measured, clean servers, 15.2: see [STATUS.md](STATUS.md).
+
 ## Open
 
 - **A step stopped with "SSH observation timed out"** once: the HTML5 Gateway step that followed PSMP on the
@@ -67,4 +96,5 @@ Other runs of the same day, all from clean servers, all ending Healthy:
   Vault sequence restarts it. That would save about seven more minutes on a lab with DR.
 - **Load.** Five installers at once on a small lab host worked. Whether steps time out on a slower host is not known.
 - **Two of each component, and three or four**, were not run in parallel yet.
-- **The simulated installer of the window** still installs one component after the other.
+- **PSM in the vendor's order.** Find out why `Execute-Stage.ps1` reports the registration on a hardened PSM
+  server as failed although it worked; then PSM could register last too.
