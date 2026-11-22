@@ -1,6 +1,2 @@
 # Test files that CI does not run, one per line: <file> | <reason>. Keep this list short and honest;
-# remove a line as soon as its suite passes again.
-# Known failures carried over from before the 2.0 refactor. They were adapted to the new layout by reading
-# only (no PowerShell on the machine that did the refactor) and must be re-checked on a Windows controller.
-ControllerLease.Tests.ps1 | 1 timing-dependent run-lock test (starts real controller processes)
-VaultPadrStandby.Tests.ps1 | 1 assertion out of date with the manual PADR policy change
+# remove a line as soon as its suite passes again. Empty since 2026-11-22.
