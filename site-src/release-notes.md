@@ -1,6 +1,6 @@
 # Release notes
 
-## Not released yet (after 2.0.3)
+## 2.0.4
 
 - **A lab with an Active Directory domain.** `New-PASLabConfiguration -DomainMode New -DomainName pam.lab
   -DomainControllerAddress <ip>` creates a new forest on one more server, joins the PVWA, CPM and PSM servers
