@@ -140,6 +140,18 @@ try {
                 if (-not (Test-PAPacliCleanAcknowledgement $put)) {
                     throw 'The changed PVWA configuration could not be stored in the Vault'
                 }
+                # Read it back: what the Vault holds now must not need the change any more.
+                Remove-Item -LiteralPath $file -Force
+                $again = Invoke-PAPacliProcess -Pacli $pacli -Operation RETRIEVEFILE -SessionId $session.Id -Arguments $transfer -TimeoutSeconds 60
+                $stored = New-Object xml
+                $stored.PreserveWhitespace = $true
+                if (-not (Test-PAPacliCleanAcknowledgement $again) -or -not (Test-Path -LiteralPath $file -PathType Leaf)) {
+                    throw 'The stored PVWA configuration could not be read back'
+                }
+                $stored.Load($file)
+                if (Set-GatewayEntries $stored) {
+                    throw 'The PVWA configuration in the Vault does not contain the gateway after it was stored'
+                }
             }
         } else {
             # Verify: the file as it is in the Vault must not need a change.
@@ -166,4 +178,8 @@ if ($changed) {
     Import-Module WebAdministration -ErrorAction Stop
     Restart-WebAppPool -Name 'PasswordVaultWebAccessPool' -ErrorAction Stop
 }
+# What was registered, for the read-only check of this step (Register-Verify.ps1).
+@{ gatewayId = $gatewayId; address = $gatewayAddress; port = $gatewayPort; psmServers = $psmServers; utc = [DateTime]::UtcNow.ToString('o') } |
+    ConvertTo-Json |
+    Set-Content -LiteralPath (Join-Path $work ('registered-' + $gatewayId + '.json')) -Encoding UTF8
 return [pscustomobject]@{Changed = $changed; Message = "Gateway '$gatewayId' ($gatewayAddress`:$gatewayPort) registered for $psmServers PSM server(s) in the PVWA configuration" }

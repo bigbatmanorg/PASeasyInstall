@@ -3,8 +3,8 @@
 # work: no server is contacted. The only side effect is extracting a selected installer that lives
 # inside a ZIP bundle into the controller's media cache (read-only on the source).
 
-$script:PASComponentTypes = @('PVWA', 'CPM', 'PSM', 'PSMP')
-$script:PASLinuxTypes = @('PSMP')
+$script:PASComponentTypes = @('PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW')
+$script:PASLinuxTypes = @('PSMP', 'HTML5GW')
 # Engine/journal names that must never be used as instance ids (event mapping and credential aliases).
 $script:PASReservedIds = @('vault', 'dr', 'primary', 'primary_final', 'dr_final', 'vault01', 'dr01', 'primaryadmin', 'dradmin', 'controller')
 
@@ -283,6 +283,7 @@ function New-PASDeploymentConfiguration {
                 if ($cpmCount -gt 1) { $options.cpmUser = "PasswordManager$cpmCount" }
             }
             'PSMP' { if ($AcceptEula) { $options.acceptEula = $true } }
+            'HTML5GW' { if ($AcceptEula) { $options.acceptEula = $true } }
         }
         $entry = [ordered]@{
             id = $id
@@ -300,7 +301,7 @@ function New-PASDeploymentConfiguration {
     # CPM pins the self-signed certificate of the first PVWA installed in this deployment; the
     # installer reads it from that PVWA over the authenticated management channel at install time.
     if ($lab -and $firstPvwa) {
-        foreach ($e in @($components | Where-Object { $_.type -eq 'CPM' })) { $e.options.pvwaTrustFrom = $firstPvwa }
+        foreach ($e in @($components | Where-Object { $_.type -in @('CPM', 'HTML5GW') })) { $e.options.pvwaTrustFrom = $firstPvwa }
         if (@($components | Where-Object { $_.type -eq 'CPM' }).Count) { $overrides['CPM.AllowPinnedLeafTrust'] = $true }
     }
     if ($lab -and $anyWindows) {
@@ -334,6 +335,10 @@ function New-PASDeploymentConfiguration {
             $c.activeDirectory.mode = 'Existing'
             $c.activeDirectory.dnsServers = @($DomainControllerAddress.Trim())
         }
+    }
+    # An HTML5 Gateway is entered into the PVWA configuration with PACLI, run on a PVWA server of the lab.
+    if (@($components | Where-Object { $_.type -eq 'HTML5GW' }).Count -and $Media.ContainsKey('PACLI')) {
+        $c.options.pacliPackage = Resolve-PASMediaItemPath $Media.PACLI $DataRoot
     }
     $c.components = @($components.ToArray())
     # A new Vault needs the VC++ runtimes, which CyberArk ships inside the CPM, PVWA and PSM packages. When they

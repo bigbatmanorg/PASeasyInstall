@@ -95,7 +95,7 @@ function Test-PASConfiguration {
     if ($c.hosts -isnot [System.Collections.IDictionary]) { $issues.Add('hosts must be an object') }
     $ids = @{}
     $windows = @('Vault', 'DRVault', 'PVWA', 'CPM', 'PSM', 'AD')
-    $linux = @('PSMP')
+    $linux = @('PSMP', 'HTML5GW')
     if ($c.vault -is [System.Collections.IDictionary]) {
         foreach ($field in @('secretRef', 'masterSecretRef', 'drSecretRef')) {
             if ($c.vault.Contains($field) -and
@@ -119,6 +119,18 @@ function Test-PASConfiguration {
         $entryOptions = Get-PASValue $entry 'options' $null
         $label = [string](Get-PASValue $entry 'name' '')
         if (-not $label) { $label = $id }
+        if ($type -eq 'HTML5GW') {
+            if (-not [bool](Get-PASValue $entryOptions 'acceptEula' $false)) {
+                $issues.Add("Accept the CyberArk license agreement (EULA) for the HTML5 Gateway ($label): options.acceptEula = true")
+            }
+            # The gateway is entered into the PVWA configuration from a PVWA server of the same lab.
+            if (-not @($c.components | Where-Object { $_ -and $_.type -eq 'PVWA' }).Count) {
+                $issues.Add("The HTML5 Gateway ($label) needs a PVWA in the same lab: it is registered there")
+            }
+            if (-not [string](Get-PASValue (Get-PASValue $c 'options' @{}) 'pacliPackage' '')) {
+                $issues.Add("The HTML5 Gateway ($label) needs the PACLI package in the media folder: it enters the gateway into the PVWA configuration")
+            }
+        }
         if ($type -eq 'PSMP' -and -not [bool](Get-PASValue $entryOptions 'acceptEula' $false)) {
             $issues.Add("Accept the CyberArk license agreement (EULA) for the PSMP installer ($label): options.acceptEula = true")
         }
@@ -126,7 +138,7 @@ function Test-PASConfiguration {
         # controller reads that certificate from the PVWA server right before the CPM is installed.
         $trustFrom = [string](Get-PASValue $entryOptions 'pvwaTrustFrom' '')
         if ($trustFrom) {
-            if ($type -ne 'CPM') { $issues.Add("${label}: options.pvwaTrustFrom is only valid for a CPM") }
+            if ($type -notin @('CPM', 'HTML5GW')) { $issues.Add("${label}: options.pvwaTrustFrom is only valid for a CPM or an HTML5 Gateway") }
             if (@($c.components | Where-Object { $_ -and [string]$_.id -eq $trustFrom -and $_.type -eq 'PVWA' }).Count -ne 1) {
                 $issues.Add("$label trusts PVWA '$trustFrom', which is not part of this deployment")
             }
@@ -201,7 +213,7 @@ function Test-PASConfiguration {
     }
     if (@($c.components).Count -eq 0 -and
         -not $joinOnly) { $issues.Add('At least one component or an explicit Existing AD Windows domain join is required') }
-    foreach ($limited in @('PVWA', 'CPM', 'PSM', 'PSMP')) {
+    foreach ($limited in @('PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW')) {
         if (@($c.components | Where-Object { $_ -and $_.type -eq $limited }).Count -gt 4) { $issues.Add("At most 4 $limited server(s) are supported") }
     }
     # 'execution' is written by New-PASDeploymentConfiguration. A run always installs one component after

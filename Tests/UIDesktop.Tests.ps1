@@ -619,3 +619,59 @@ Describe 'Desktop: a lab with a domain' {
         (Get-PASUIInputIssues $state 'servers') -join ' ' | Should -Match 'address of the Existing domain'
     }
 }
+
+Describe 'HTML5 Gateway' {
+    BeforeAll {
+        . (Join-Path $uiRoot 'Model.ps1')
+        . (Join-Path $uiRoot 'Views.ps1')
+        $gatewayMedia = Join-Path $TestDrive 'gw-media'
+        New-TestZip (Join-Path $gatewayMedia 'HTML5 Gateway-Rls-15.0.zip') @('HTML5 Gateway-Rls-15.0/PSMGWDocker/html5_console.sh')
+        $script:gatewayInventory = @($script:inventory) + @(Get-PASMediaInventory -Path $gatewayMedia)
+        $script:gatewaySelection = Get-PASMediaSelection -Inventory $script:gatewayInventory
+        $script:gatewayLab = @(@{ Type = 'PVWA'; Name = 'PAS-PVWA'; Address = '192.0.2.33' }, @{ Type = 'PSM'; Name = 'PAS-PSM'; Address = '192.0.2.35' },
+            @{ Type = 'PSMP'; Name = 'pas-psmp'; Address = '192.0.2.36' }, @{ Type = 'HTML5GW'; Name = 'pas-psmp'; Address = '192.0.2.36' })
+    }
+    It 'is found in the media folder, with a version also without the letter v' {
+        $item = @($script:gatewayInventory | Where-Object Component -eq 'HTML5GW')
+        $item.Count | Should -Be 1
+        $item[0].Version | Should -Be '15.0'
+        $script:gatewaySelection.ContainsKey('HTML5GW') | Should -BeTrue
+    }
+    It 'shares the PSMP server, comes after PVWA and PSM, and trusts the lab PVWA' {
+        $cfg = New-PASLabConfiguration -Environment GwLab -VaultMode Primary -PrimaryAddress 192.0.2.31 -ControllerAddress 198.51.100.250 `
+            -Media $script:gatewaySelection -SecurityProfile Lab -AcceptEula -Instances $script:gatewayLab
+        (Test-PASLabConfiguration -Configuration $cfg).Issues | Should -BeNullOrEmpty
+        $gateway = @($cfg.components | Where-Object type -eq 'HTML5GW')[0]
+        $psmp = @($cfg.components | Where-Object type -eq 'PSMP')[0]
+        $gateway.host | Should -Be $psmp.host
+        $gateway.options.pvwaTrustFrom | Should -Be 'pas-pvwa'
+        [string]$cfg.options.pacliPackage | Should -Match 'PACLI-Rls'
+        $plan = Get-PASLabPlan -Configuration $cfg
+        $plan.Items[-1].Type | Should -Be 'HTML5GW'
+        $plan.Items[-1].DependsOn | Should -Contain 'pas-pvwa'
+        $plan.Items[-1].DependsOn | Should -Contain 'pas-psm'
+        @(Get-PASStageCatalog -Component HTML5GW | ForEach-Object Stage) | Should -Be @('media-upload', 'preflight', 'extract', 'prerequisites', 'install', 'verify')
+    }
+    It 'needs the license agreement and a PVWA in the same lab' {
+        $noEula = New-PASLabConfiguration -Environment GwLab -VaultMode Primary -PrimaryAddress 192.0.2.31 -ControllerAddress 198.51.100.250 `
+            -Media $script:gatewaySelection -SecurityProfile Lab -Instances @($script:gatewayLab | Where-Object { $_.Type -ne 'PSMP' })
+        ((Test-PASLabConfiguration -Configuration $noEula).Issues -join ' ') | Should -Match 'license agreement.*HTML5 Gateway'
+        $noPvwa = New-PASLabConfiguration -Environment GwLab -VaultMode Existing -ExistingVaultAddress 192.0.2.5 -Media $script:gatewaySelection -SecurityProfile Lab -AcceptEula `
+            -Instances @(@{ Type = 'HTML5GW'; Name = 'gw01'; Address = '192.0.2.36' })
+        ((Test-PASLabConfiguration -Configuration $noPvwa).Issues -join ' ') | Should -Match 'needs a PVWA in the same lab'
+    }
+    It 'is one more component in the window, on the PSMP server when there is one' {
+        $state = New-PASUIState
+        Set-PASUIPreset $state 'full'
+        $state.Counts['HTML5GW'] = 1
+        $slots = @(Get-PASUIServerSlots $state)
+        @($slots | Where-Object { $_.Types -contains 'HTML5GW' }).Count | Should -Be 1
+        ($slots | Where-Object { $_.Types -contains 'HTML5GW' }).Roles | Should -Be 'PSMP + HTML5 Gateway'
+        @(Get-PASUIInstances $state | Where-Object Type -eq 'HTML5GW').Count | Should -Be 1
+        $state.Counts.PSMP = 0
+        (@(Get-PASUIServerSlots $state) | Where-Object { $_.Types -contains 'HTML5GW' }).Roles | Should -Be 'HTML5 Gateway'
+        Get-PASUILabHtml $state | Should -Not -Match 'HTML5 Gateway are being worked on'
+        $state.Preset = 'custom'
+        Get-PASUILabHtml $state | Should -Match 'id="cnt-HTML5GW-inc"'
+    }
+}
