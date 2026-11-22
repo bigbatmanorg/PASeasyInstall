@@ -108,6 +108,16 @@ target lock `~/.paeasyinstall/locks/<server id>/owner`; `/opt/paeasyinstall/medi
 4. Add `Public/Install-PAS<Type>.ps1` (thin: build the configuration, call `Invoke-PASComponentInstall`), add it
    to `FunctionsToExport`, and add tests (`StageCatalog.Tests.ps1` picks the type up from its list).
 
+## A lab with a domain
+
+Order of a run: forest (`ad`), one join workflow per server (`join-<server>`: DNS, join, restart, local
+administrator for the PSM install account, verify), Vault, components, then the GPO phase
+(`Private/Config/DomainPolicy.ps1`, recipe `Recipes/ActiveDirectory/Gpo-Task.ps1`): `policy-prepare-<server>` adds
+the firewall rule for the management port, `policy-domain` uploads the vendor GPO backups to the domain controller,
+imports and links them and moves the servers into `OU=<role>,OU=CyberArk`, `policy-<server>` refreshes the policy
+and checks that the GPO is applied and the management rule is still in force. The vendor GPOs ignore local
+firewall exceptions that name only a port; the rule therefore names the program (System) too.
+
 ## Known debt
 
 - What was tested, what is experimental and what comes later is in [STATUS.md](STATUS.md).

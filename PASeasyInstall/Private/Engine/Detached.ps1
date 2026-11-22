@@ -380,7 +380,9 @@ function Get-PASDetachedStatus {
             }
             try {
                 if ($identity.schemaVersion -ne 1 -or -not $identity.sid) { throw 'Unsupported principal metadata' }
-                $registered = [string]$st.Principal.UserId
+                # The task definition holds the SID of its account. The task object only gives the bare name, and a
+                # name such as Administrator would be resolved to the local account instead of the domain account.
+                $registered = [string]([xml](Export-ScheduledTask -TaskName $task -TaskPath '\PAExec\' -ErrorAction Stop)).Task.Principals.Principal.UserId
                 if ($registered -notmatch '^S-1-') { $registered = ([Security.Principal.NTAccount]::new($registered)).Translate([Security.Principal.SecurityIdentifier]).Value }
                 if ($registered -ne [string]$identity.sid) {
                     return (@{

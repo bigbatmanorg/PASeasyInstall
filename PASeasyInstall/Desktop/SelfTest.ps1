@@ -9,6 +9,7 @@
 #   labName          name of the lab
 #   preset           starter | standard | full | custom
 #   existingVault    address of an existing Vault (preset custom: components are added to it)
+#   domain           { "mode": "New" or "Existing", "name": "pam.lab" }; its form line is servers.dc or servers.domain
 #   counts           preset custom: { "PVWA": 1, "CPM": 0, "PSM": 0, "PSMP": 1 }
 #   servers          { "<slot key>": { "name": "...", "address": "..." } }; slot keys as in Get-PASUIServerSlots.
 #                    Left out: made-up addresses 192.0.2.x (Mock backend only)
@@ -197,6 +198,11 @@ function Invoke-PASUITestWalk {
                 Invoke-PASUIClick "cnt-$type-dec"
             }
         }
+    }
+    if ($Scenario.PSObject.Properties['domain']) {
+        Invoke-PASUIClick ('domain-' + [string]$Scenario.domain.mode)
+        Assert-PASUIShown 'view' 'DNS name of the domain' 'domain chosen'
+        Set-PASUIField 'f-domainname' ([string]$Scenario.domain.name)
     }
     Set-PASUIField 'f-labname' $labName
     Save-PASUISnapshot '3-lab'

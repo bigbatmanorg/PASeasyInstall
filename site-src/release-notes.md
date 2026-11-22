@@ -2,6 +2,11 @@
 
 ## Not released yet (after 2.0.3)
 
+- **A lab with an Active Directory domain.** `New-PASLabConfiguration -DomainMode New -DomainName pam.lab
+  -DomainControllerAddress <ip>` creates a new forest on one more server, joins the PVWA, CPM and PSM servers
+  before they are installed, and at the end imports the CyberArk hardening GPOs of the vendor packages, links
+  them and applies them to the joined servers. `-DomainMode Existing` joins the servers to a domain you already
+  have (its GPOs are not touched). The window has the choice on the Lab step. Vault servers are never joined.
 - **The server check verifies the root password of a Linux server.** `Test-PASPreflight` (and **Next** on the
   Servers step of the window) signs in with the password the way the first installation does, so a wrong
   password is named before anything is installed. The check still changes nothing: no key is authorised.

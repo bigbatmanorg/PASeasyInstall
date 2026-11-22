@@ -42,3 +42,35 @@ Describe 'Public domain join payload generation' {
         (Test-PASConfiguration -Configuration $c).Issues -join ' ' | Should -Match 'JSON boolean'
     }
 }
+
+Describe 'CyberArk hardening GPOs of a lab domain' {
+    It 'chooses the vendor GPO by the roles on a server' {
+        InModuleScope PASeasyInstall {
+            (Get-PASHardeningGpoRole -Types @('PVWA')).Key | Should -Be 'PVWA'
+            (Get-PASHardeningGpoRole -Types @('CPM', 'PVWA')).Key | Should -Be 'PVWACPM'
+            (Get-PASHardeningGpoRole -Types @('CPM', 'PVWA')).MediaType | Should -Be 'CPM'
+            (Get-PASHardeningGpoRole -Types @('PSM')).Key | Should -Be 'PSM'
+            Get-PASHardeningGpoRole -Types @('PSM', 'CPM') | Should -BeNullOrEmpty
+            Get-PASHardeningGpoRole -Types @('PSMP') | Should -BeNullOrEmpty
+            'Hardening/CyberArk Hardening - Windows In Domain - Shared - CPM PVWA PSM-V1.zip' | Should -Match (Get-PASHardeningGpoRole -Types @('CPM', 'PVWA')).Pattern
+            'Hardening/CyberArk Hardening - Windows 2012R2 In Domain - Standalone - PVWA V1.zip' | Should -Match (Get-PASHardeningGpoRole -Types @('PVWA')).Pattern
+            'Hardening/CyberArk Hardening - In Domain - PSM V2.3.2.zip' | Should -Match (Get-PASHardeningGpoRole -Types @('PSM')).Pattern
+            'Hardening/CyberArk Hardening - In Domain - Unified - PSM V2.3.2.zip' | Should -Not -Match (Get-PASHardeningGpoRole -Types @('PSM')).Pattern
+            'Hardening/CyberArk Hardening - Windows Out of Domain - Standalone - CPM V1.zip' | Should -Not -Match (Get-PASHardeningGpoRole -Types @('CPM')).Pattern
+        }
+    }
+    It 'applies them only when the lab creates its own domain' {
+        InModuleScope PASeasyInstall {
+            $config = @{
+                activeDirectory = @{ mode = 'Create'; join = @('web1', 'psm1') }
+                hosts = @{ web1 = @{ address = '192.0.2.21' }; psm1 = @{ address = '192.0.2.22' } }
+                components = @(@{ id = 'p'; type = 'PVWA'; host = 'web1' }, @{ id = 'c'; type = 'CPM'; host = 'web1' }, @{ id = 's'; type = 'PSM'; host = 'psm1' })
+            }
+            $plan = @(Get-PASDomainPolicyPlan -Config $config)
+            $plan.Count | Should -Be 2
+            ($plan | Where-Object HostId -eq 'web1').Role.Key | Should -Be 'PVWACPM'
+            $config.activeDirectory.mode = 'Existing'
+            @(Get-PASDomainPolicyPlan -Config $config).Count | Should -Be 0
+        }
+    }
+}

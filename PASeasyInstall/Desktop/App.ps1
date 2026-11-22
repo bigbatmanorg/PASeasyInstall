@@ -250,8 +250,23 @@ function Get-PASUIFormAccounts {
     $credentials = @{}
     $secrets = @{}
     $slots = @(Get-PASUIServerSlots $S)
+    $domainSlot = Get-PASUIDomainSlot $S
     foreach ($requirement in @($S.Requirements)) {
         $key = [string]$requirement.Key
+        # The domain line of the form answers three things: the password the servers join with, the domain
+        # account that installs PSM on a domain member, and (new domain) the restore mode password.
+        if ($domainSlot -and $key -in @('DomainJoinPassword', 'ADSafeMode', 'PSMDomainInstaller')) {
+            $domainPassword = Get-PASUISlotValue $S $domainSlot 'Password'
+            if (-not $domainPassword) {
+                throw "Enter the password for: $($domainSlot.Roles)"
+            }
+            if ($key -eq 'PSMDomainInstaller') {
+                $credentials[$key] = New-Object pscredential ([string]$requirement.User, (ConvertTo-PASUISecure $domainPassword))
+            } else {
+                $secrets[$key] = ConvertTo-PASUISecure $domainPassword
+            }
+            continue
+        }
         if ([string]$requirement.Kind -eq 'Secret') {
             if (-not $S.Secrets.ContainsKey($key) -or -not [string]$S.Secrets[$key]) {
                 throw "Enter: $($requirement.Label)"
@@ -288,6 +303,13 @@ function Update-PASUIPlan {
             SecurityProfile = 'Lab'
             InstallerName = ([string]$S.InstallerName).Trim()
             InstallerCompany = ([string]$S.InstallerCompany).Trim()
+        }
+        $domainSlot = Get-PASUIDomainSlot $S
+        if ($domainSlot) {
+            $arguments.DomainMode = [string]$S.Domain
+            $arguments.DomainName = ([string]$S.DomainName).Trim()
+            $arguments.DomainControllerAddress = Get-PASUISlotValue $S $domainSlot 'Address'
+            $arguments.DomainUsername = Get-PASUISlotValue $S $domainSlot 'User'
         }
         foreach ($slot in Get-PASUIServerSlots $S) {
             if ($slot.Key -eq 'vault') {
@@ -708,6 +730,11 @@ function Invoke-PASUIClick {
             Show-PASUIScreen 'lab'
             return
         }
+        '^domain-(None|New|Existing)$' {
+            $S.Domain = $Matches[1]
+            Show-PASUIScreen 'lab'
+            return
+        }
         '^cnt-(PVWA|CPM|PSM|PSMP)-(inc|dec)$' {
             $count = [int]$S.Counts[$Matches[1]]
             if ($Matches[2] -eq 'inc' -and $count -lt (Get-PASUIMaxCount $S)) {
@@ -835,6 +862,7 @@ function Set-PASUIField {
         }
         '^f-labname$' { $S.LabName = $Value; return }
         '^f-existing$' { $S.ExistingVault = $Value; return }
+        '^f-domainname$' { $S.DomainName = $Value; return }
         '^sec-(VaultAdmin|VaultMaster|DRPassword)$' { $S.Secrets[$Matches[1]] = $Value; return }
         '^f-controller$' { $S.Controller = $Value; return }
         '^f-installer-name$' { $S.InstallerName = $Value; return }

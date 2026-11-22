@@ -190,6 +190,27 @@ function Get-PASUILabHtml {
         [void]$html.Append((Get-PASUICustomLabHtml $State))
     }
 
+    [void]$html.Append('<div class="card"><h2>Active Directory</h2><div class="choices">')
+    $domains = @(
+        @{ Id = 'None'; Title = 'No domain'; What = 'The servers stay as they are.' }
+        @{ Id = 'New'; Title = 'New domain'; What = 'One more server becomes the domain controller. PVWA, CPM and PSM servers join it and get the CyberArk hardening GPOs.' }
+        @{ Id = 'Existing'; Title = 'A domain I already have'; What = 'PVWA, CPM and PSM servers join it. Its GPOs are not touched.' }
+    )
+    foreach ($domain in $domains) {
+        $class = 'choice'
+        if ($State.Domain -eq $domain.Id) {
+            $class = 'choice selected'
+        }
+        [void]$html.Append("<button id=`"domain-$($domain.Id)`" class=`"$class`"><span class=`"title`">$($domain.Title)</span><span class=`"what`">$($domain.What)</span></button>")
+    }
+    [void]$html.Append('</div>')
+    if ($State.Domain -ne 'None') {
+        [void]$html.Append('<div class="field"><label for="f-domainname">DNS name of the domain</label>')
+        [void]$html.Append('<input type="text" id="f-domainname" value="' + (ConvertTo-PASUIText $State.DomainName) + '">')
+        [void]$html.Append('<p class="hint">For example pam.lab. The servers restart once when they join. Vault servers are never joined.</p></div>')
+    }
+    [void]$html.Append('</div>')
+
     [void]$html.Append('<div class="card"><div class="field"><label for="f-labname">Name of the lab</label>')
     [void]$html.Append('<input type="text" id="f-labname" value="' + (ConvertTo-PASUIText $State.LabName) + '">')
     [void]$html.Append('<p class="hint">Installations are listed under this name. Letters, digits, dot, dash, underscore.</p></div></div>')
@@ -267,7 +288,14 @@ function Get-PASUIServersHtml {
         [void]$html.Append("<td><input type=`"text`" id=`"srv-$key-user`" aria-label=`"Account on the $role server`" value=`"" + (ConvertTo-PASUIText (Get-PASUISlotValue $State $slot 'User')) + '"></td>')
         [void]$html.Append("<td><input type=`"password`" id=`"srv-$key-pass`" autocomplete=`"off`" aria-label=`"Password on the $role server`" value=`"" + (ConvertTo-PASUIText (Get-PASUISlotValue $State $slot 'Password')) + '"></td></tr>')
     }
-    [void]$html.Append('</tbody></table><p class="hint">Computer name: the name the server already has. PVWA is reached under this name. Account: a local administrator on Windows, root on Linux.</p></div>')
+    [void]$html.Append('</tbody></table><p class="hint">Computer name: the name the server already has. PVWA is reached under this name. Account: a local administrator on Windows, root on Linux.</p>')
+    if ($State.Domain -eq 'New') {
+        [void]$html.Append('<p class="hint">Domain controller: its administrator becomes the administrator of the new domain, with the same password. That password is also set as the restore mode password of the domain.</p>')
+    }
+    if ($State.Domain -eq 'Existing') {
+        [void]$html.Append('<p class="hint">Existing domain: the address of one of its DNS servers (usually a domain controller), and a domain account that may join computers.</p>')
+    }
+    [void]$html.Append('</div>')
 
     [void]$html.Append('<div class="card"><h2>Vault</h2>')
     if ($State.VaultMode -eq 'Existing') {

@@ -43,6 +43,15 @@ $script:PASUIStageNames = @{
     'verify' = 'Verifying'
     'ssh-bootstrap' = 'Setting up the SSH key'
     'media-select' = 'Choosing the installer package'
+    'ad-prerequisites' = 'Preparing the domain controller'
+    'ad-install' = 'Creating the domain'
+    'ad-verify' = 'Verifying the domain'
+    'dns' = 'Pointing the server at the domain'
+    'join' = 'Joining the domain'
+    'local-admin' = 'Giving the domain account administrator rights'
+    'gpo-firewall' = 'Allowing the management port in the firewall'
+    'gpo-import' = 'Importing the CyberArk hardening GPOs'
+    'gpo-apply' = 'Applying the CyberArk hardening GPO'
 }
 
 function New-PASUIState {
@@ -67,6 +76,9 @@ function New-PASUIState {
         Counts = @{ PVWA = 1; CPM = 1; PSM = 1; PSMP = 0 }
         Colocate = $true
         ExistingVault = ''
+        # Active Directory: None, New (a new forest on one more server) or Existing.
+        Domain = 'None'
+        DomainName = 'pam.lab'
 
         # Per server: Name, Address, User, Password. Vault passwords: VaultAdmin, VaultMaster, DRPassword.
         Slots = @{}
@@ -146,6 +158,10 @@ function Get-PASUIServerSlots {
     # Key (stable id), Roles (text), Types, Os, DefaultName, Named (the computer name matters).
     param([hashtable]$State)
     $slots = New-Object System.Collections.ArrayList
+    $domainSlot = Get-PASUIDomainSlot $State
+    if ($domainSlot) {
+        [void]$slots.Add($domainSlot)
+    }
     if ($State.VaultMode -ne 'Existing') {
         [void]$slots.Add(@{ Key = 'vault'; Roles = 'Vault'; Types = @('Vault'); Os = 'Windows'; DefaultName = ''; Named = $false })
         if ($State.VaultMode -eq 'PrimaryDR') {
@@ -178,6 +194,23 @@ function Get-PASUIServerSlots {
     return @($slots)
 }
 
+function Get-PASUIDomainSlot {
+    # The form line of the domain, or $null without a domain. New: the server that becomes the domain
+    # controller, with its local administrator. Existing: a DNS server of the domain, with a domain account
+    # that may join computers. The password of that line is also the password the domain is joined with.
+    param([hashtable]$State)
+    $mode = ''
+    if ($State.ContainsKey('Domain')) {
+        $mode = [string]$State.Domain
+    }
+    if ($mode -eq 'New') {
+        return @{ Key = 'dc'; Roles = 'Domain controller'; Types = @('AD'); Os = 'Windows'; DefaultName = ''; Named = $false }
+    }
+    if ($mode -eq 'Existing') {
+        return @{ Key = 'domain'; Roles = 'Existing domain (a DNS server of it)'; Types = @(); Os = 'Windows'; DefaultName = ''; Named = $false }
+    }
+    return $null
+}
 function Get-PASUISlotValue {
     # What the user typed for a server: Field is Name, Address, User or Password.
     # A name falls back to the default name, an account to Administrator (Windows) or root (Linux).
@@ -236,7 +269,7 @@ function Get-PASUIInstances {
         $address = Get-PASUISlotValue $State $slot 'Address'
         $name = Get-PASUISlotValue $State $slot 'Name'
         foreach ($type in $slot.Types) {
-            if ($type -in @('Vault', 'DRVault')) {
+            if ($type -in @('Vault', 'DRVault', 'AD')) {
                 continue
             }
             $instanceName = $name
@@ -273,6 +306,9 @@ function Get-PASUIInputIssues {
         }
         if ($State.VaultMode -eq 'Existing' -and $total -eq 0) {
             [void]$issues.Add('With an existing Vault, choose at least one component to add.')
+        }
+        if ((Get-PASUIDomainSlot $State) -and [string]$State.DomainName -notmatch '^[A-Za-z0-9][A-Za-z0-9-]*(\.[A-Za-z0-9][A-Za-z0-9-]*)+$') {
+            [void]$issues.Add('Enter the DNS name of the domain, for example pam.lab.')
         }
         foreach ($missing in Get-PASUIMissingMedia $State) {
             [void]$issues.Add("The media folder has no installer for: $missing.")
@@ -424,6 +460,10 @@ function Get-PASUIEstimateMinutes {
     if ($State.VaultMode -eq 'PrimaryDR') {
         $minutes += 8
     }
+    if ((Get-PASUIDomainSlot $State)) {
+        # A new forest, and one restart for every server that joins.
+        $minutes += 12
+    }
     $minutes += 7 * [int]$State.Counts.PVWA
     $minutes += 3 * [int]$State.Counts.CPM
     $minutes += 13 * [int]$State.Counts.PSM
@@ -453,6 +493,10 @@ function Get-PASUICommandText {
     $command += ' -ControllerAddress ' + [string]$State.Controller + ' -Media $media -SecurityProfile Lab'
     if ($State.AcceptEula) {
         $command += ' -AcceptEula'
+    }
+    $domainSlot = Get-PASUIDomainSlot $State
+    if ($domainSlot) {
+        $command += ' -DomainMode ' + [string]$State.Domain + ' -DomainName ' + [string]$State.DomainName + ' -DomainControllerAddress ' + (Get-PASUISlotValue $State $domainSlot 'Address')
     }
     if ($instances.Count) {
         $command += " ``" + "`n    -Instances @(" + ($instances -join ', ') + ')'

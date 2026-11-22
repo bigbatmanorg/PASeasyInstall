@@ -507,6 +507,25 @@ function Invoke-PASDomainJoins {
         Invoke-PASRunTarget -Run $Run -Target $id -WorkflowPath $workflow -InventoryPath $inventory
     }
 }
+function Invoke-PASDomainPolicy {
+    # Last phase of a lab that created its own domain: the vendor's hardening GPOs for the joined servers
+    # (see Private\Config\DomainPolicy.ps1). Runs after the components, as the vendor describes it.
+    param([hashtable]$Run)
+    $config = $Run.Config
+    if (-not @(Get-PASDomainPolicyPlan -Config $config).Count) {
+        return
+    }
+    $policy = New-PASDomainPolicyWorkflow -Config $config -RunDirectory $Run.Directory
+    foreach ($archive in @($policy.Archives)) {
+        Add-PASFrozenMedia -Path $archive -SHA256 (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+    }
+    Add-PASDomainCredentialAlias -Config $config -Credentials $Run.Credentials
+    foreach ($item in @($policy.Items)) {
+        Set-PASRunCurrentComponent $Run $item.Target
+        Write-PASRunEvent $Run.Directory 'DomainPolicy' 'Applying the CyberArk hardening GPO' $item.Target
+        Invoke-PASRunTarget -Run $Run -Target $item.Target -WorkflowPath $item.Workflow -InventoryPath $item.Inventory
+    }
+}
 function Invoke-PASVaultSequence {
     # Primary Vault, or Primary + DR as four phases: primary phase 1, DR phase 1, primary phase 2, DR phase 2.
     param([hashtable]$Run)
@@ -768,6 +787,7 @@ function Invoke-PASRunControllerCore {
             $component = @($config.components | Where-Object { $_.id -eq $item.Id })[0]
             Invoke-PASComponent -Run $run -Component $component
         }
+        Invoke-PASDomainPolicy -Run $run
         $record.status = 'Succeeded'
         $record.message = 'All selected component workflows completed'
         $record.currentComponent = ''
