@@ -168,16 +168,57 @@ try {
         } elseif ($type -eq 'CPM') {
             $cmd = Get-VendorScript 'CPMRegisterCommponent.ps1'
             $xml = Join-Path (Split-Path -Parent $cmd) 'CPMRegisterComponentConfig.xml'
-            $registrationMode = Get-Option 'registrationMode' 'Clean'
+            $cpmUser = Get-Option 'cpmUser' 'PasswordManager'
+            $cpmRoot = Get-Option 'installDirectory' 'C:\Program Files (x86)\CyberArk'
+            $registrationMode = Get-Option 'registrationMode' ''
+            $repeated = $false
+            if (-not $registrationMode) {
+                # The vendor tool creates the CPM user in the Vault and its credential file in one step. When the
+                # file names our user, an earlier registration on this server got that far and did not finish:
+                # a clean registration would now create a second user (PasswordManager1). The vendor's upgrade
+                # mode registers again with the existing user.
+                $registrationMode = 'Clean'
+                $credentialFile = Join-Path $cpmRoot 'Password Manager\Vault\user.ini'
+                if ((Test-Path -LiteralPath $credentialFile -PathType Leaf) -and
+                    @(Select-String -LiteralPath $credentialFile -Pattern ('^\s*Username\s*=\s*' + [regex]::Escape($cpmUser) + '\s*$')).Count) {
+                    $registrationMode = 'Upgrade'
+                    $repeated = $true
+                }
+            }
             if ($registrationMode -notin @('Clean', 'Upgrade')) { throw 'CPM registrationMode must be Clean or Upgrade' }
             Set-XmlParameter $xml 'isUpgrade' $(if ($registrationMode -eq 'Upgrade') { 'true' }else { 'false' })
-            Set-XmlParameter $xml 'installDirectory' (Get-Option 'installDirectory' 'C:\Program Files (x86)\CyberArk')
-            Set-XmlParameter $xml 'username' (Get-Option 'cpmUser' 'PasswordManager')
+            Set-XmlParameter $xml 'installDirectory' $cpmRoot
+            Set-XmlParameter $xml 'username' $cpmUser
             Set-XmlParameter $xml 'vaultip' ([string]$Settings.VaultAddress)
             Set-XmlParameter $xml 'vaultPort' (Get-Option 'vaultPort' '1858')
             Set-XmlParameter $xml 'vaultUser' ([string]$Settings.VaultUser)
             Set-XmlParameter $xml 'validatePVWASecureConnect' $(if ([bool]$Settings.ValidateTLS) { 'true' }else { 'false' })
+            $registrationStarted = Get-Date
             $result = Invoke-VendorScript -ScriptPath $cmd -Parameters @{spwdObj = $vaultSecure }
+            if ($repeated) {
+                # The upgrade mode reports success also when it could not finish the CPM environment that the
+                # earlier attempt left incomplete. Its log says so; a CPM in that state must not pass as installed.
+                $vendorLog = Join-Path (Split-Path -Parent $cmd) 'RegistrationTool\Log\RegisterComponent.log'
+                $reason = ''
+                if (Test-Path -LiteralPath $vendorLog -PathType Leaf) {
+                    # The log holds every attempt; only a line written by this one counts.
+                    $pattern = '^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d),\d+ \w+ - CPMEM041I CPMEnvMgr ended with errors\. Reason:\s*(.+)$'
+                    foreach ($line in @(Select-String -LiteralPath $vendorLog -Pattern $pattern)) {
+                        $written = [datetime]::ParseExact($line.Matches[0].Groups[1].Value, 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
+                        if ($written -ge $registrationStarted.AddSeconds(-1)) {
+                            $reason = [string]$line.Matches[0].Groups[2].Value
+                        }
+                    }
+                }
+                if ($reason) {
+                    throw "CPM was registered again with its existing Vault user '$cpmUser' (no second user was created), but the vendor tool could not finish the CPM environment: $reason To repair: delete the Vault user '$cpmUser' and the safes named after it, then retry this step; or install this CPM on a clean server."
+                }
+                Write-Marker $Stage "Registration repeated in the vendor upgrade mode with the existing Vault user $cpmUser"
+                return [pscustomobject]@{
+                    Changed = $true
+                    Message = "CPM registered again with its existing Vault user '$cpmUser' (vendor upgrade mode; no second user was created)"
+                }
+            }
         } else {
             $cmd = Get-VendorScript 'Execute-Stage.ps1'
             $xml = Get-VendorScript 'RegistrationConfig.xml'
