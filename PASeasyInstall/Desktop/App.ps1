@@ -69,7 +69,7 @@ function Get-PASUILocalAddress {
 
 $S = New-PASUIState -Backend $Backend -StartDirectory $StartDirectory -ControllerAddress (Get-PASUILocalAddress)
 $Catalog = @{}
-foreach ($type in @('Vault', 'DR', 'PVWA', 'CPM', 'PSM', 'PSMP', 'AD')) {
+foreach ($type in @('Vault', 'DR', 'PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'AD')) {
     $Catalog[$type] = @(Get-PASStageCatalog -Component $type).Count
 }
 
@@ -735,7 +735,7 @@ function Invoke-PASUIClick {
             Show-PASUIScreen 'lab'
             return
         }
-        '^cnt-(PVWA|CPM|PSM|PSMP)-(inc|dec)$' {
+        '^cnt-(PVWA|CPM|PSM|PSMP|HTML5GW)-(inc|dec)$' {
             $count = [int]$S.Counts[$Matches[1]]
             if ($Matches[2] -eq 'inc' -and $count -lt (Get-PASUIMaxCount $S)) {
                 $count++

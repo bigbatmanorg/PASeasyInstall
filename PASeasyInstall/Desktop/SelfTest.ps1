@@ -239,7 +239,7 @@ function Invoke-PASUITestWalk {
     foreach ($field in Get-PASUIVaultSecrets $S) {
         Set-PASUIField "sec-$($field.Key)" $password
     }
-    if ([int]$S.Counts.PSMP -gt 0) {
+    if ([int]$S.Counts.PSMP -gt 0 -or [int]$S.Counts['HTML5GW'] -gt 0) {
         Set-PASUIToggle 'f-eula' $true
     }
     Save-PASUISnapshot '4-servers'

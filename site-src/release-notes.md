@@ -7,6 +7,9 @@
   before they are installed, and at the end imports the CyberArk hardening GPOs of the vendor packages, links
   them and applies them to the joined servers. `-DomainMode Existing` joins the servers to a domain you already
   have (its GPOs are not touched). The window has the choice on the Lab step. Vault servers are never joined.
+- **PSM HTML5 Gateway.** A new component type `HTML5GW` (in the window: HTML5 Gateway) installs the gateway as a
+  container with the vendor's script on a Linux server, also next to a PSMP, makes PVWA trust and know it, and
+  checks its health page. It needs a PVWA in the same lab and the PACLI package in the media folder.
 - **The server check verifies the root password of a Linux server.** `Test-PASPreflight` (and **Next** on the
   Servers step of the window) signs in with the password the way the first installation does, so a wrong
   password is named before anything is installed. The check still changes nothing: no key is authorised.

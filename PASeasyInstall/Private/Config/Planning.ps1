@@ -112,7 +112,7 @@ function Get-PASDeploymentPlan {
     # Order of a run: AD, domain joins, Vault (+DR), then PVWA, CPM, PSM, PSMP.
     # PVWA registration creates the PVWA environment in the Vault (PVWAConfig safe, PVWAGWAccounts group)
     # that CPM, PSM and PSMP registration need, so they all wait for the first PVWA of the deployment.
-    $priority = @{AD = 0; Vault = 10; DRVault = 20; PVWA = 30; CPM = 40; PSM = 50; PSMP = 60 }
+    $priority = @{AD = 0; Vault = 10; DRVault = 20; PVWA = 30; CPM = 40; PSM = 50; PSMP = 60; HTML5GW = 70 }
     $ordered = @($components | Sort-Object -Property @{Expression = { [int]$priority[[string]$_.type] } }, id)
     $ids = @($ordered | ForEach-Object { [string]$_.id })
     $hasVault = (@($ordered | Where-Object { $_.type -eq 'Vault' }).Count -gt 0)
@@ -125,7 +125,9 @@ function Get-PASDeploymentPlan {
         if ($type -ne 'AD' -and
             $c.activeDirectory.mode -eq 'Create') { $deps += @($ordered | Where-Object { $_.type -eq 'AD' } | ForEach-Object { $_.id }) }
         if ($type -notin @('AD', 'Vault') -and $hasVault) { $deps += @($ordered | Where-Object { $_.type -eq 'Vault' } | ForEach-Object { $_.id }) }
-        if ($type -in @('CPM', 'PSM', 'PSMP') -and $firstPvwa.Count) { $deps += @([string]$firstPvwa[0].id) }
+        if ($type -in @('CPM', 'PSM', 'PSMP', 'HTML5GW') -and $firstPvwa.Count) { $deps += @([string]$firstPvwa[0].id) }
+        # The gateway is registered for the PSM servers, so they come first.
+        if ($type -eq 'HTML5GW') { $deps += @($ordered | Where-Object { $_.type -eq 'PSM' } | ForEach-Object { [string]$_.id }) }
         # A CPM that pins the PVWA certificates of this deployment needs every PVWA installed first.
         $trustFrom = [string](Get-PASValue (Get-PASValue $entry 'options' $null) 'pvwaTrustFrom' '')
         if ($trustFrom) { $deps += @($ordered | Where-Object { $_.type -eq 'PVWA' } | ForEach-Object { [string]$_.id }) }
@@ -211,6 +213,7 @@ function Get-PASComponentStageNames {
         'PVWA' { return @('Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Register', 'Harden', 'Verify') }
         'CPM' { return @('Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Register', 'Harden', 'Verify') }
         'PSM' { return @('Extract', 'Prerequisites', 'Install', 'Register', 'Harden', 'PostInstall', 'Verify') }
+        'HTML5GW' { return @('Extract', 'Prerequisites', 'Install', 'Verify') }
         default { return @('Extract', 'Prerequisites', 'Install', 'Register', 'Harden', 'Verify') }
     }
 }
@@ -223,6 +226,7 @@ function New-PASComponentWorkflow {
     New-Item -Path $workflowDir -ItemType Directory -Force | Out-Null
     $mode = 'WindowsComponent'
     if ($type -eq 'PSMP') { $mode = 'LinuxComponent' }
+    if ($type -eq 'HTML5GW') { $mode = 'Html5Gateway' }
     $source = Join-Path $script:PASRoot ('Recipes/' + $mode)
     foreach ($file in @(Get-ChildItem -LiteralPath $source -File)) {
         Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $basedir $file.Name) -Force
@@ -305,7 +309,7 @@ function New-PASComponentWorkflow {
     } else {
         $scriptPath = 'Task.ps1'
         $verifyPath = 'Verify.ps1'
-        if ($mode -eq 'LinuxComponent') {
+        if ($mode -in @('LinuxComponent', 'Html5Gateway')) {
             $scriptPath = 'Task.sh'
             $verifyPath = 'Verify.sh'
         }
@@ -336,6 +340,15 @@ function New-PASComponentWorkflow {
             }
             $steps += $transfer
         } else { throw "Component $id requires media ZIP" }
+        if ($type -eq 'HTML5GW' -and (Get-PASValue $Component.options 'pvwaTrustCertificateFile' '')) {
+            $steps += @{
+                Id = 'pvwa-trust-certificate'
+                Kind = 'Transfer'
+                Source = @{ConfigRef = ('Values.Components.' + $id + '.PVWATrustCertificateFile') }
+                Destination = ('/opt/paeasyinstall/media/' + $id + '/pvwa-trust.cer')
+                TimeoutSeconds = 600
+            }
+        }
         if ($type -eq 'CPM' -and (Get-PASValue $Component.options 'pvwaTrustCertificateFile' '')) {
             $steps += @{
                 Id = 'pvwa-trust-certificate'
@@ -373,7 +386,7 @@ function New-PASComponentWorkflow {
             }
             if ($stage -in @('Install', 'ConfigureTLS', 'Register', 'Harden')) { $step['Critical'] = $true }
             if ($stage -in @('Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Register', 'Harden', 'PostInstall') -and
-                $mode -in @('WindowsComponent', 'LinuxComponent')) { $step['Mode'] = 'Detached' }
+                $mode -in @('WindowsComponent', 'LinuxComponent', 'Html5Gateway')) { $step['Mode'] = 'Detached' }
             if ($stage -eq 'Register') {
                 $step.Inputs['VaultPassword'] = @{SecretRef = 'VaultAdmin' }
                 $step.RequiresVaultSession = $true
@@ -474,6 +487,19 @@ function New-PASRuntimeInventory {
         if ($entry.Contains('options') -and $entry.options) {
             # Copy: the inventory must not share (and later change) the configuration's own options.
             foreach ($optionName in @($entry.options.Keys)) { $componentSettings.Options[[string]$optionName] = $entry.options[$optionName] }
+        }
+        if ($entry.type -eq 'HTML5GW') {
+            # The gateway asks the first PVWA of the lab, under the name of its certificate.
+            $pvwa = @($Config.components | Where-Object { $_ -and $_.type -eq 'PVWA' })[0]
+            $pvwaUrl = [uri][string](Get-PASValue (Get-PASValue $pvwa 'options' @{}) 'pvwaUrl' ('https://' + [string]$Config.hosts[[string]$pvwa.host].address + '/PasswordVault'))
+            $componentSettings.PvwaUrl = $pvwaUrl.AbsoluteUri.TrimEnd('/')
+            $componentSettings.PvwaHost = $pvwaUrl.Host
+            $componentSettings.PvwaAddress = [string]$Config.hosts[[string]$pvwa.host].address
+            $componentSettings.GatewayName = [string](Get-PASValue $entry 'name' $id)
+            $componentSettings.GatewayPort = [int](Get-PASValue $componentSettings.Options 'port' 443)
+            $componentSettings.PVWATrustCertificateFile = [string](Get-PASValue $componentSettings.Options 'pvwaTrustCertificateFile' '')
+            $componentSettings.PVWATrustCertificateSHA256 = [string](Get-PASValue $componentSettings.Options 'pvwaTrustCertificateSHA256' '')
+            $componentSettings.PVWATrustCertificateTarget = if ($componentSettings.PVWATrustCertificateFile) { '/opt/paeasyinstall/media/' + $id + '/pvwa-trust.cer' }else { '' }
         }
         if ($entry.type -eq 'CPM') {
             $componentSettings.PVWATrustCertificateFile = [string](Get-PASValue $componentSettings.Options 'pvwaTrustCertificateFile' '')

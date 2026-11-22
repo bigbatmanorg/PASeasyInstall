@@ -8,7 +8,7 @@ $script:PASMediaRules = @(
     # Component, regex on the file/entry base name. First match wins; order matters.
     @{
         C = 'Ignore'
-        R = '(?i)ansible|upgrade|add-ons|docs|documentation|replicate|exportvaultdata|remote control|signed dna|self-hosted_on|html5 gateway'
+        R = '(?i)ansible|upgrade|add-ons|docs|documentation|replicate|exportvaultdata|remote control|signed dna|self-hosted_on'
     }
     @{C = 'Vault'; R = '(?i)^server-rls-v' }
     @{C = 'PACLI'; R = '(?i)^pacli-rls-v' }
@@ -18,12 +18,13 @@ $script:PASMediaRules = @(
     @{C = 'CPM'; R = '(?i)^(central policy manager|cpm)-rls-v' }
     @{C = 'PSM'; R = '(?i)^(privileged session manager|psm)-rls-v' }
     @{C = 'PSMP'; R = '(?i)^privilegedsessionmanagersshproxy-' }
+    @{C = 'HTML5GW'; R = '(?i)^html5 gateway-rls-' }
     @{C = 'License'; R = '(?i)licen[cs]e.*\.xml$' }
     @{C = 'RecoveryKey'; R = '(?i)^recpub\.key$' }
     # Needed by the Vault install, found by the backend in the media folder; not a selectable installer.
     @{C = 'Prerequisite'; R = '(?i)^(vc_redist\.(x86|x64)|vcredist_x86(_2013)?)\.exe$' }
 )
-$script:PASMediaInstallable = @('Vault', 'PACLI', 'DR', 'KeyGen', 'PVWA', 'CPM', 'PSM', 'PSMP', 'License', 'RecoveryKey')
+$script:PASMediaInstallable = @('Vault', 'PACLI', 'DR', 'KeyGen', 'PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'License', 'RecoveryKey')
 
 function Get-PASMediaClassification {
     param([string]$Name)
@@ -32,7 +33,7 @@ function Get-PASMediaClassification {
 }
 function Get-PASMediaVersion {
     param([string]$Name)
-    if ($Name -match '(?i)-rls-v([0-9][0-9.]*[0-9])') { return $Matches[1] }
+    if ($Name -match '(?i)-rls-v?([0-9][0-9.]*[0-9])') { return $Matches[1] }
     if ($Name -match '(?i)v([0-9]+(\.[0-9]+)+)') { return $Matches[1] }
     return ''
 }

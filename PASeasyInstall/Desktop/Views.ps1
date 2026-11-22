@@ -216,7 +216,7 @@ function Get-PASUILabHtml {
     [void]$html.Append('<p class="hint">Installations are listed under this name. Letters, digits, dot, dash, underscore.</p></div></div>')
 
     [void]$html.Append('<div class="card flat"><h3>Not yet installable <span class="badge exp">experimental</span></h3>')
-    [void]$html.Append('<p class="hint">PTA (threat analytics) and the HTML5 Gateway are being worked on and cannot be chosen yet.</p></div>')
+    [void]$html.Append('<p class="hint">PTA (threat analytics) is being worked on and cannot be chosen yet.</p></div>')
 
     [void]$html.Append('<div id="lab-issues">' + (Get-PASUIIssueBoxHtml (Get-PASUIInputIssues $State 'lab')) + '</div></div>')
     return $html.ToString()
@@ -312,12 +312,12 @@ function Get-PASUIServersHtml {
         [void]$html.Append("<input type=`"password`" id=`"sec-$($field.Key)`" autocomplete=`"off`" value=`"" + (ConvertTo-PASUIText $value) + '"><p class="hint">' + (ConvertTo-PASUIText $field.Hint) + '</p></div>')
     }
     [void]$html.Append('</div>')
-    if ([int]$State.Counts.PSMP -gt 0) {
+    if ([int]$State.Counts.PSMP -gt 0 -or [int]$State.Counts['HTML5GW'] -gt 0) {
         $checked = ''
         if ($State.AcceptEula) {
             $checked = ' checked'
         }
-        [void]$html.Append('<label class="check"><input type="checkbox" id="f-eula"' + $checked + '> I have read and accept the CyberArk end user license agreement of the PSMP installer</label>')
+        [void]$html.Append('<label class="check"><input type="checkbox" id="f-eula"' + $checked + '> I have read and accept the CyberArk end user license agreement of the PSMP and HTML5 Gateway installers</label>')
     }
     [void]$html.Append('<p class="hint" style="margin-top:6px">Passwords are kept in memory only, never in a file.</p></div>')
 

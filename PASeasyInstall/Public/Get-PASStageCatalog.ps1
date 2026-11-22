@@ -21,8 +21,8 @@ function Get-PASStageCatalog {
     [CmdletBinding()]
     param(
         [Parameter(Position = 0, ValueFromPipeline)]
-        [ValidateSet('Vault', 'DR', 'PVWA', 'CPM', 'PSM', 'PSMP', 'AD')]
-        [string[]]$Component = @('Vault', 'DR', 'PVWA', 'CPM', 'PSM', 'PSMP', 'AD')
+        [ValidateSet('Vault', 'DR', 'PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'AD')]
+        [string[]]$Component = @('Vault', 'DR', 'PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'AD')
     )
 
     process {
@@ -43,7 +43,7 @@ function Get-PASStageCatalog {
             } else {
                 # Steps before the recipe stages: the management endpoint (Windows only), the upload
                 # of the installer and the read-only preflight. Then one step per recipe stage.
-                if ($type -ne 'PSMP') {
+                if ($type -notin @('PSMP', 'HTML5GW')) {
                     $stages += 'management'
                 }
                 $stages += 'media-upload'

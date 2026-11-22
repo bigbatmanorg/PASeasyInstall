@@ -1,7 +1,7 @@
 # The data behind the desktop window: what the user chose and what follows from it.
 # Nothing here opens a window or calls the installer, so every function can be tested on its own.
 
-$script:PASUIComponentTypes = @('PVWA', 'CPM', 'PSM', 'PSMP')
+$script:PASUIComponentTypes = @('PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW')
 
 $script:PASUITypeNames = @{
     Vault = 'Vault'
@@ -11,6 +11,7 @@ $script:PASUITypeNames = @{
     CPM = 'CPM (password changes)'
     PSM = 'PSM (session recording)'
     PSMP = 'PSMP (SSH sessions)'
+    HTML5GW = 'HTML5 Gateway (sessions in the browser)'
     AD = 'Domain controller'
 }
 
@@ -23,6 +24,7 @@ $script:PASUIMediaNames = [ordered]@{
     CPM = 'CPM'
     PSM = 'PSM'
     PSMP = 'PSMP (Linux)'
+    HTML5GW = 'HTML5 Gateway (Linux)'
     License = 'Vault license (license.xml)'
     RecoveryKey = 'Recovery public key (recpub.key)'
     Prerequisite = 'Visual C++ runtimes'
@@ -49,6 +51,8 @@ $script:PASUIStageNames = @{
     'dns' = 'Pointing the server at the domain'
     'join' = 'Joining the domain'
     'local-admin' = 'Giving the domain account administrator rights'
+    'pacli-upload' = 'Copying PACLI to the PVWA server'
+    'gateway-register' = 'Registering the gateway in PVWA'
     'gpo-firewall' = 'Allowing the management port in the firewall'
     'gpo-import' = 'Importing the CyberArk hardening GPOs'
     'gpo-apply' = 'Applying the CyberArk hardening GPO'
@@ -73,7 +77,7 @@ function New-PASUIState {
         LabName = 'MyPAM'
         Preset = 'standard'
         VaultMode = 'Primary'
-        Counts = @{ PVWA = 1; CPM = 1; PSM = 1; PSMP = 0 }
+        Counts = @{ PVWA = 1; CPM = 1; PSM = 1; PSMP = 0; HTML5GW = 0 }
         Colocate = $true
         ExistingVault = ''
         # Active Directory: None, New (a new forest on one more server) or Existing.
@@ -188,8 +192,19 @@ function Get-PASUIServerSlots {
     for ($i = 1; $i -le [int]$State.Counts.PSM; $i++) {
         [void]$slots.Add(@{ Key = "psm$i"; Roles = 'PSM'; Types = @('PSM'); Os = 'Windows'; DefaultName = ('PSM{0:00}' -f $i); Named = $true })
     }
+    # An HTML5 Gateway shares the server of a PSMP when there is one; otherwise it gets its own Linux server.
+    $gateways = [int]$State.Counts['HTML5GW']
     for ($i = 1; $i -le [int]$State.Counts.PSMP; $i++) {
-        [void]$slots.Add(@{ Key = "psmp$i"; Roles = 'PSMP'; Types = @('PSMP'); Os = 'Linux'; DefaultName = ('psmp{0:00}' -f $i); Named = $true })
+        $types = @('PSMP')
+        $roles = 'PSMP'
+        if ($i -le $gateways) {
+            $types = @('PSMP', 'HTML5GW')
+            $roles = 'PSMP + HTML5 Gateway'
+        }
+        [void]$slots.Add(@{ Key = "psmp$i"; Roles = $roles; Types = $types; Os = 'Linux'; DefaultName = ('psmp{0:00}' -f $i); Named = $true })
+    }
+    for ($i = [int]$State.Counts.PSMP + 1; $i -le $gateways; $i++) {
+        [void]$slots.Add(@{ Key = "gw$i"; Roles = 'HTML5 Gateway'; Types = @('HTML5GW'); Os = 'Linux'; DefaultName = ('html5gw{0:00}' -f $i); Named = $true })
     }
     return @($slots)
 }
@@ -310,6 +325,14 @@ function Get-PASUIInputIssues {
         if ((Get-PASUIDomainSlot $State) -and [string]$State.DomainName -notmatch '^[A-Za-z0-9][A-Za-z0-9-]*(\.[A-Za-z0-9][A-Za-z0-9-]*)+$') {
             [void]$issues.Add('Enter the DNS name of the domain, for example pam.lab.')
         }
+        if ([int]$State.Counts['HTML5GW'] -gt 0) {
+            if ([int]$State.Counts.PVWA -eq 0 -or ([int]$State.Counts.PSM -eq 0 -and $State.VaultMode -ne 'Existing')) {
+                [void]$issues.Add('The HTML5 Gateway opens PSM sessions and is registered in PVWA: add a PVWA and a PSM to the lab.')
+            }
+            if ($State.MediaScanned -and -not $State.MediaSelection.ContainsKey('PACLI')) {
+                [void]$issues.Add('The HTML5 Gateway needs the PACLI package in the media folder.')
+            }
+        }
         foreach ($missing in Get-PASUIMissingMedia $State) {
             [void]$issues.Add("The media folder has no installer for: $missing.")
         }
@@ -352,8 +375,8 @@ function Get-PASUIInputIssues {
                 [void]$issues.Add("The $($field.Label) may hold letters, digits and the usual signs, but no space and no double quote.")
             }
         }
-        if ([int]$State.Counts.PSMP -gt 0 -and -not $State.AcceptEula) {
-            [void]$issues.Add('Accept the CyberArk license agreement of the PSMP installer.')
+        if (([int]$State.Counts.PSMP -gt 0 -or [int]$State.Counts['HTML5GW'] -gt 0) -and -not $State.AcceptEula) {
+            [void]$issues.Add('Accept the CyberArk license agreement of the PSMP and HTML5 Gateway installers.')
         }
     }
     return @($issues)
@@ -468,6 +491,7 @@ function Get-PASUIEstimateMinutes {
     $minutes += 3 * [int]$State.Counts.CPM
     $minutes += 13 * [int]$State.Counts.PSM
     $minutes += 3 * [int]$State.Counts.PSMP
+    $minutes += 3 * [int]$State.Counts['HTML5GW']
     return $minutes
 }
 

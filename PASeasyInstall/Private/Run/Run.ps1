@@ -411,7 +411,7 @@ function Initialize-PASComponentRun {
             Select-PASPsmpMediaForHost -Component $Component -HostRecord $hostRecord -Directory $Run.Directory -DataRoot $Run.DataRoot
         }
     }
-    if (-not $prepared -and $type -eq 'CPM') {
+    if (-not $prepared -and $type -in @('CPM', 'HTML5GW')) {
         $options = Get-PASValue $Component 'options' $null
         $trustFrom = [string](Get-PASValue $options 'pvwaTrustFrom' '')
         if ($trustFrom) {
@@ -505,6 +505,17 @@ function Invoke-PASDomainJoins {
         Set-PASRunCurrentComponent $Run $id
         Write-PASRunEvent $Run.Directory 'DomainJoin' "Joining $hostId to $($config.activeDirectory.domain)" $id
         Invoke-PASRunTarget -Run $Run -Target $id -WorkflowPath $workflow -InventoryPath $inventory
+    }
+}
+function Invoke-PASGatewayRegistration {
+    # After the components: every HTML5 Gateway of the lab is entered into the PVWA configuration, from the
+    # first PVWA server (see Private\Config\GatewayRegistration.ps1).
+    param([hashtable]$Run)
+    foreach ($item in @(New-PASGatewayRegistrationWorkflow -Config $Run.Config -RunDirectory $Run.Directory)) {
+        Add-PASFrozenMedia -Path $item.Archive -SHA256 (Get-FileHash -LiteralPath $item.Archive -Algorithm SHA256).Hash
+        Set-PASRunCurrentComponent $Run $item.Target
+        Write-PASRunEvent $Run.Directory 'GatewayRegistration' 'Registering the HTML5 Gateway in the PVWA configuration' $item.Target
+        Invoke-PASRunTarget -Run $Run -Target $item.Target -WorkflowPath $item.Workflow -InventoryPath $item.Inventory
     }
 }
 function Invoke-PASDomainPolicy {
@@ -787,6 +798,7 @@ function Invoke-PASRunControllerCore {
             $component = @($config.components | Where-Object { $_.id -eq $item.Id })[0]
             Invoke-PASComponent -Run $run -Component $component
         }
+        Invoke-PASGatewayRegistration -Run $run
         Invoke-PASDomainPolicy -Run $run
         $record.status = 'Succeeded'
         $record.message = 'All selected component workflows completed'
