@@ -55,7 +55,3 @@ Depending on the platform PSMP asks for a reason before it opens the session.
   updates stay your decision.
 - **Session recordings:** see [PSM](psm.md#good-to-know).
 - An [HTML5 Gateway](html5gw.md) can share this server.
-
-!!! note "State of the step order"
-    Until release 2.0.5 PSMP registered before the `harden` step. The order above is new and was being proven in
-    the test lab when this page was written; see the [release notes](../release-notes.md) for the result.

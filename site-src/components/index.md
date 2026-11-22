@@ -36,10 +36,11 @@ product allows it, so that a server only waits for the Vault when it has nothing
 |---|---|
 | PVWA | HTTPS, hardening, **registration**, final check |
 | CPM | trusting the PVWA certificate, **registration**, hardening, final check |
-| PSM | post-installation, hardening, **registration**, final check |
+| PSM | **registration**, hardening, post-installation, final check |
 | PSM for SSH | hardening, **registration**, final check |
 
-CPM is the exception: its hardening starts the CPM services under a local user, and they only start once CPM is
+CPM and PSM are the exceptions. PSM: the vendor's registration failed on a hardened PSM server in the test lab.
+CPM: its hardening starts the CPM services under a local user, and they only start once CPM is
 registered.
 
 The registrations themselves run one at a time, in the vendor's order: every PVWA, then every CPM, then the

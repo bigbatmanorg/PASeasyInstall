@@ -639,7 +639,8 @@ case "$stage" in
         # for their lock, it fails at once (seen in the lab on 2026-11-22), so wait here for up to ten minutes.
         # Nothing of the PSMP package has been started while another process holds the lock.
         for attempt in $(seq 1 120); do
-          pgrep -x 'apt|apt-get|dpkg|unattended-upgr' >/dev/null || break
+          # Not the permanent helper unattended-upgrade-shutdown: only jobs that use the package manager.
+          pgrep -x 'apt|apt-get|dpkg' >/dev/null || pgrep -f '/usr/bin/unattended-upgrade( |$)' >/dev/null || break
           sleep 5
         done
         DEBIAN_FRONTEND=noninteractive dpkg -i "${packages[0]}"

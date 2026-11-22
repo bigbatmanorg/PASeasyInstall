@@ -34,8 +34,8 @@ address of the PVWA instance shares its server. In the window: *Install CPM on t
 | `verify` | Both services run |
 
 CPM registers **before** its hardening. Its hardening starts the CPM services under a local user, and the
-scanner service of a CPM that is not registered does not start. (PVWA, PSM and PSM for SSH register after their
-hardening.)
+scanner service of a CPM that is not registered does not start. (PVWA and PSM for SSH register after their
+hardening; PSM registers before it, for a reason of its own, see [PSM](psm.md).)
 
 ## On its own server
 

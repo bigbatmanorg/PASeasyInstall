@@ -45,12 +45,13 @@ also its hardening, and registers at the end:
 | Component | Order after the installation |
 |---|---|
 | PVWA | HTTPS, hardening, registration |
-| PSM | post-installation, hardening, registration |
 | PSM for SSH | hardening, registration |
 | CPM | registration, hardening |
+| PSM | registration, hardening, post-installation |
 
-This is the order CyberArk documents for PSM, and CyberArk's documentation allows hardening before registration
-for PVWA. CPM registers first because its hardening starts services that need the registration.
+CyberArk's documentation allows hardening before registration for PVWA. CPM registers first because its
+hardening starts services that need the registration. PSM registers first because the vendor's registration
+failed on a hardened PSM server in the test lab (see [PSM](../components/psm.md)).
 
 ## When a server fails
 
