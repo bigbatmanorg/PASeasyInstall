@@ -625,6 +625,9 @@ function Invoke-PASVaultSequence {
         $inv.Values.Settings.Hardening.AllowRDP = $false
         if ($Config.security.profile -eq 'Lab' -and
             $Config.security.overrides.Contains('Vault.AllowRDP')) { $inv.Values.Settings.Hardening.AllowRDP = [bool]$Config.security.overrides['Vault.AllowRDP'] }
+        # -SkipHardening: the hardening steps of the Vault workflows stay in place and do nothing.
+        $inv.Values.Settings.Hardening.Skip = ($Config.security.profile -eq 'Lab' -and
+            $Config.security.overrides.Contains('Vault.ApplyHardening') -and -not [bool]$Config.security.overrides['Vault.ApplyHardening'])
         foreach ($target in @($inv.Targets.Keys)) {
             $inv.Targets[$target]['UseSSL'] = $secure
             if ($Config.security.profile -eq 'Lab') {

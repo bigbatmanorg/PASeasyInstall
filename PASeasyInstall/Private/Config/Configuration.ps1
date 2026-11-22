@@ -313,7 +313,7 @@ function Test-PASConfiguration {
     if ($c.security.overrides) {
         foreach ($name in $c.security.overrides.Keys) {
             if ($c.security.overrides[$name] -isnot [bool]) { $issues.Add("Security override $name must be a JSON boolean") }
-            if ($name -notin @('Vault.AllowRDP', 'PVWA.ValidateTLS', 'CPM.ValidatePVWA', 'CPM.AllowPinnedLeafTrust', 'WinRM.RequireHTTPS', 'WinRM.SkipCACheck', 'WinRM.SkipCNCheck', 'PVWA.ApplyHardening', 'CPM.ApplyHardening', 'PSM.ApplyHardening', 'PSMP.ApplyHardening')) {
+            if ($name -notin @('Vault.AllowRDP', 'PVWA.ValidateTLS', 'CPM.ValidatePVWA', 'CPM.AllowPinnedLeafTrust', 'WinRM.RequireHTTPS', 'WinRM.SkipCACheck', 'WinRM.SkipCNCheck', 'Vault.ApplyHardening', 'PVWA.ApplyHardening', 'CPM.ApplyHardening', 'PSM.ApplyHardening', 'PSMP.ApplyHardening')) {
                 $issues.Add("Unknown/unsupported lab override '$name'")
             } else { $warnings.Add("SECURITY DEVIATION: $name = $($c.security.overrides[$name])") }
         }

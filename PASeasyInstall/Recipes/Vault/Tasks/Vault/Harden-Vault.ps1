@@ -2,6 +2,10 @@
 # 'StandardVault' is the on-premises architecture documented by the 15.0 CAVaultHarden.ps1 usage text.
 param([Parameter(Mandatory = $true)][hashtable]$Settings)
 $ErrorActionPreference = 'Stop'
+if ($Settings.Hardening.Contains('Skip') -and [bool]$Settings.Hardening.Skip) {
+    # Lab configuration with -SkipHardening: the Vault server stays as Windows and the Vault installer left it.
+    return [pscustomobject]@{ Changed = $false; Message = 'Hardening skipped by the lab configuration (SkipHardening)' }
+}
 # PAEASY_INCLUDE_VAULT_RDP
 $rdpPolicy = Get-PASeasyVaultRdpPolicy $Settings
 Set-PASeasyVaultRdpDeny

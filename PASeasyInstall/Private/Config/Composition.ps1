@@ -174,7 +174,11 @@ function New-PASDeploymentConfiguration {
         [AllowEmptyString()][string]$InstallerName = '', [AllowEmptyString()][string]$InstallerCompany = '',
         [ValidateSet('None', 'New', 'Existing')][string]$DomainMode = 'None', [AllowEmptyString()][string]$DomainName = '',
         [AllowEmptyString()][string]$DomainControllerAddress = '', [AllowEmptyString()][string]$DomainUsername = '',
+        [switch]$SkipHardening,
         [string]$DataRoot = (Get-PASDataRoot))
+    if ($SkipHardening -and $SecurityProfile -ne 'Lab') {
+        throw '-SkipHardening leaves the servers without the vendor hardening and is only possible with -SecurityProfile Lab.'
+    }
     $lab = ($SecurityProfile -eq 'Lab')
     $overrides = [ordered]@{}
     $c = [ordered]@{
@@ -342,6 +346,15 @@ function New-PASDeploymentConfiguration {
     if ($lab -and $anyWindows) {
         $overrides['WinRM.SkipCACheck'] = $true
         $overrides['WinRM.SkipCNCheck'] = $true
+    }
+    if ($SkipHardening) {
+        # Installation only: no vendor hardening on any server of this lab, and no hardening GPOs.
+        foreach ($hardened in @('Vault', 'PVWA', 'CPM', 'PSM', 'PSMP')) {
+            $present = @($components | Where-Object { $_.type -eq $hardened -or ($hardened -eq 'Vault' -and $_.type -eq 'DRVault') }).Count
+            if ($present) {
+                $overrides[$hardened + '.ApplyHardening'] = $false
+            }
+        }
     }
     # Active Directory. New: the server at -DomainControllerAddress becomes the first domain controller of a new
     # forest. Existing: that address is a DNS server of the domain. Either way the Windows servers of PVWA, CPM

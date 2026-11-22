@@ -1,6 +1,10 @@
 # Read-only verification of the vendor StandardVault hardening baseline AND of the approved management
 # exception. A vendor "success" log line alone is not accepted: effective controls are measured.
 param([Parameter(Mandatory = $true)][hashtable]$Settings)
+if ($Settings.Hardening.Contains('Skip') -and [bool]$Settings.Hardening.Skip) {
+    # Lab configuration with -SkipHardening: nothing was hardened, so nothing is measured.
+    return [pscustomobject]@{ Passed = $true; Message = ''; Evidence = @('Hardening skipped by the lab configuration (SkipHardening); vendor controls NotTested') }
+}
 # PAEASY_INCLUDE_VAULT_RDP
 function Test-PASeasyVaultNativeInboundPort {
     param($Port)
