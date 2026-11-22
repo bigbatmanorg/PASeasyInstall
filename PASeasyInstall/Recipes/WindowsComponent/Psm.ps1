@@ -306,8 +306,7 @@ function Invoke-PASeasyPsmStage {
     $xmlPath = Join-Path (Split-Path -Parent $command) ($vendorStage + '\' + $vendorStage + 'Config.xml')
     if (-not(Test-Path -LiteralPath $xmlPath -PathType Leaf)) { throw "PSM vendor configuration missing for $Stage" }
     $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString('o')
-    # The vendor's order: installation, post-installation, hardening, registration.
-    $previous = @{Install = 'Prerequisites'; PostInstall = 'Install'; Harden = 'PostInstall'; Register = 'Harden' }[$Stage]
+    $previous = @{Install = 'Prerequisites'; Register = 'Install'; Harden = 'Register'; PostInstall = 'Harden' }[$Stage]
     if ($previous) {
         $priorPath = Join-Path $markers ($previous + '.json')
         if (-not(Test-Path -LiteralPath $priorPath)) { throw "PSM $Stage requires verified $previous stage" }
@@ -321,8 +320,7 @@ function Invoke-PASeasyPsmStage {
         if ($saved.schemaVersion -ne 2 -or $saved.stage -ne $Stage) { throw 'Unrecognized PSM stage checkpoint; reconcile before retry' }
         if (-not $saved.restartRequired) {
             $started = @()
-            if ($Stage -eq 'Register') {
-                # Registration is the last stage: from here on the PSM service has to stay up.
+            if ($Stage -eq 'PostInstall') {
                 $started = @(Start-PASeasyPsmStoppedService)
             }
             $note = ''
@@ -431,12 +429,11 @@ function Invoke-PASeasyPsmStage {
     if ($null -eq $result.PSObject.Properties['restartRequired']) { throw 'PSM vendor result lacks restartRequired; cannot schedule safe continuation' }
     if ($result.restartRequired -isnot [bool]) { throw 'PSM vendor restartRequired must be a JSON boolean' }
     $restart = $result.restartRequired
-    # The RDP listener gets TLS once hardening has raised its encryption level, and again after the last
-    # stage. The encryption level and the TLS protocol settings are written by the vendor hardening: without
-    # hardening (SkipHardening) neither is touched.
+    # The RDP listener gets TLS after the last native stage. That needs the encryption level and the TLS
+    # protocol settings the vendor hardening writes: without hardening (SkipHardening) neither is touched.
     $hardenedServer = [bool]$Settings.ApplyHardening
-    if ($Stage -eq 'Harden' -or ($Stage -eq 'Register' -and $hardenedServer)) { Set-PASeasyPsmRdpTls }
-    if ($Stage -eq 'Harden' -or ($Stage -eq 'Register' -and $hardenedServer)) { Assert-PASeasyPsmTlsRestored }
+    if ($Stage -eq 'PostInstall' -and $hardenedServer) { Set-PASeasyPsmRdpTls }
+    if ($Stage -eq 'Harden' -or ($Stage -eq 'PostInstall' -and $hardenedServer)) { Assert-PASeasyPsmTlsRestored }
     New-Item -Path $markers -ItemType Directory -Force | Out-Null
     $record = @{
         schemaVersion = 2
@@ -484,8 +481,7 @@ function Invoke-PASeasyPsmVerify {
             Evidence = @('Exactly one Execute-Stage.ps1 required')
         }
     }
-    # Registration is the last stage of the vendor's sequence: the final check reads its checkpoint.
-    $checkStage = if ($Stage -eq 'Verify') { 'Register' }else { $Stage }
+    $checkStage = if ($Stage -eq 'Verify') { 'PostInstall' }else { $Stage }
     $hardened = [bool]$Settings.ApplyHardening
     if (-not $stageNames.Contains($checkStage)) { throw "Unsupported PSM verification stage $Stage" }
     $marker = Join-Path (Join-Path $root 'stage') ($checkStage + '.json')
@@ -502,7 +498,7 @@ function Invoke-PASeasyPsmVerify {
             (Get-FileHash -LiteralPath $xml -Algorithm SHA256).Hash -ne $record.configSha256) { $issues += 'PSM vendor configuration changed after checkpoint' }
     }
     if ($record.restartRequired) {
-        if ($Stage -eq 'Verify') { $issues += 'PSM registration still requires reboot and continuation' }
+        if ($Stage -eq 'Verify') { $issues += 'PSM post-install still requires reboot and continuation' }
         $evidence += 'Vendor checkpoint succeeded; reboot and same-stage continuation remain required; installation not yet proven'
     } elseif ($Stage -in @('Install', 'Verify')) {
         $services = @(Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'Cyber-?Ark.*(PSM|Privileged Session Manager)' -or $_.DisplayName -match 'Cyber-?Ark.*(PSM|Privileged Session Manager)' })
@@ -513,7 +509,7 @@ function Invoke-PASeasyPsmVerify {
         }
         $evidence += @($services | ForEach-Object { $_.Name + '=' + $_.Status })
     }
-    $tlsChecked = ($Stage -eq 'Harden' -or ($Stage -in @('Register', 'Verify') -and $hardened))
+    $tlsChecked = ($Stage -eq 'Harden' -or ($Stage -in @('PostInstall', 'Verify') -and $hardened))
     $hardenMarker = Join-Path (Join-Path $root 'stage') 'Harden.json'
     if ($Stage -eq 'Harden' -and (Test-Path -LiteralPath $hardenMarker -PathType Leaf)) {
         # Hardening skipped on request (SkipHardening): the vendor never wrote the TLS settings.

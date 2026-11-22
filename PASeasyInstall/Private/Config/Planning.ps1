@@ -219,10 +219,13 @@ function Get-PASComponentStageNames {
         # scanner service of a CPM that is not registered does not start (lab, 15.2, 2026-11-22). So CPM
         # registers first, as in the vendor's default order.
         'CPM' { return @('Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Register', 'Harden', 'Verify') }
-        # PSM in the order the vendor documents: post-installation, hardening, registration. Its registration
-        # calls the PVWA API (ApiKeyManager), so the PSM server must trust the PVWA certificate first; on a
-        # hardened server the vendor's registration fails without that trust (lab, 15.2, 2026-11-22).
-        'PSM' { return @('Extract', 'Prerequisites', 'Install', 'PostInstall', 'Harden', 'Register', 'Verify') }
+        # PSM is the second exception. The vendor documents post-installation, hardening, registration. In the
+        # lab (15.2, 2026-11-22) the registration on a hardened PSM server did everything (ApiKeyManager
+        # succeeded once the server trusted the PVWA certificate, "Registration finished with success", service
+        # running, PSM connected to the Vault), and the vendor's Execute-Stage.ps1 still reported the step as
+        # failed, with the empty error "The operation completed successfully". A vendor failure is never
+        # turned into a success here, so PSM registers before its hardening, which has always passed.
+        'PSM' { return @('Extract', 'Prerequisites', 'Install', 'Register', 'Harden', 'PostInstall', 'Verify') }
         'HTML5GW' { return @('Extract', 'Prerequisites', 'Install', 'Verify') }
         'PTA' { return @('Extract', 'Prerequisites', 'Install', 'Register', 'Verify') }
         default { return @('Extract', 'Prerequisites', 'Install', 'Harden', 'Register', 'Verify') }
