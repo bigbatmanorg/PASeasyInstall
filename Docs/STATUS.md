@@ -39,7 +39,7 @@ Usable, but expect rough edges. The desktop shows PTA as not yet installable.
 | What | State |
 |---|---|
 | Desktop window (`Start-PASeasyInstall`) | Rewritten on 2026-11-21 directly on the NativeHTMLKit SDK: four steps, a page per installation, an Advanced switch. A real window installed a Full lab (15.2) on real servers, including a stop with an error, *Try again*, reopening the installation and the lab check. That run was driven by a script calling the same functions as the buttons; clicking through by hand was only done with the simulated installation. Drag and drop of media is not tested by hand. Since 2026-11-22 *(not released)* the installation is started in the background: with the real installer and a window without a display (scripted walk), the window was free at once and the installation of a PVWA and a PSMP (15.2) for an existing Vault had started 4 seconds later; it finished in 11 minutes and the lab check from the window was Healthy. Not yet seen in a visible window. |
-| PTA | Not in the module yet. Proven by hand: the 15.2 installer installs on Rocky Linux 9.9 with 8 GB RAM and 4 cores (the documented 16 GB / 8 cores are not enforced). Connecting it to the Vault and PVWA is not done: the installer's REST sign-in only works with SELinux in permissive mode, and the configuration call that worked on 15.0 returns 404 on 15.2. |
+| PTA | Not in the module yet. Proven by hand on 2026-11-22: PTA 15.2.2 installs on Rocky Linux 9.9 with 8 GB and 4 cores and can be configured without the wizard, through the installer's own REST interface (the steps are in NEXT.md 2.4). After it all PTA services run and the Vault has the PTA user; the Vault does not list PTA as connected yet and PVWA cannot reach it: certificates, PVWA settings and Vault syslog are still to do. |
 | HTML5 Gateway (component type `HTML5GW`) *(not released)* | Installs with `html5_console.sh` from the 15.0 package on Ubuntu 24.04 (Docker), on the PSMP server, 4 GB. 2026-11-22, one lab from clean servers (15.2 Vault, PVWA, CPM, PSM, PSMP; gateway 15.0): the gateway step took about two minutes, its health page answers 200, PVWA has the gateway entry for the PSM server, lab check Healthy. The controller process of that run crashed once during the Vault upload (Windows PowerShell remoting exception on the shared controller VM); `Resume-PASRun` continued it without any other step by hand. Not done: a PSM session opened in a browser through the gateway |
 
 ## 3. Next (roadmap after 2.0.0)
@@ -50,8 +50,8 @@ Deferred on purpose so that 2.0.0 could ship as a lab installer that works. In t
 
 ### 3.1 Secure profile
 
-WinRM with trusted certificates and none of the lab shortcuts. It is the default of the commands, but it has
-never been run. What it needs:
+Out of scope for the lab for now (owner's decision of 2026-11-22). WinRM with trusted certificates and none of
+the lab shortcuts is the default of the commands, but it has never been run. What it would need:
 
 - a certificate authority in the test lab, and server certificates for WinRM and PVWA issued by it;
 - CPM trusting that authority instead of a pinned PVWA certificate; no RDP to the hardened Vault;
@@ -79,18 +79,10 @@ A lab with a new domain works (see the table in section 1). What is left:
 
 ### 3.3 PTA
 
-Not in the module. Known from the 2026-11-21 tests:
-
-- The 15.2 installer installs on Rocky Linux 9.9 with 8 GB RAM and 4 cores. Its own checks look only at the
-  operating system version, 2 GB of free disk and a few packages; the documented 16 GB / 8 cores are not enforced.
-  Memory use comes from fixed Java heap sizes; the vendor tool `/opt/pta/utility/changeComponentResource.sh`
-  changes them. Ubuntu is not supported.
-- Still to solve: connecting it to the Vault and PVWA without the interactive wizard. The installer's REST
-  sign-in only works with SELinux in permissive mode, and the configuration call that worked on 15.0 returns
-  "not found" on 15.2. Candidates: the PTA Ansible role in the media, or driving the wizard.
-- Then: Vault syslog forwarding to PTA, the PVWA trusted-connection setting, and a health check.
-- The earlier PTA controller code was removed in commit `b3bffad` and can be taken from the history; the
-  Linux recipe (`Recipes/LinuxComponent/Task.sh`) still has its PTA branches.
+Not in the module. The unattended configuration, which was the open question, works by hand on 15.2 (see the
+table in section 2 and NEXT.md 2.4 for the exact calls). Left: the component itself, the trust between PTA and
+PVWA in both directions, the PVWA settings for PTA, Vault syslog forwarding to PTA, and a health check.
+Ubuntu is not supported by the vendor; the documented 16 GB / 8 cores are not enforced by the installer.
 
 ### 3.4 HTML5 Gateway
 
