@@ -3,7 +3,7 @@ function Start-PASeasyInstall {
     .SYNOPSIS
     Opens the PASeasyInstall desktop: a window that builds a CyberArk PAM lab in four steps.
     .DESCRIPTION
-    The steps are: media folder, the lab to build, servers and password, review and install. A start
+    The steps are: installer media (one or several folders and files), the lab to build, servers and password, review and install. A start
     page lists the installations of this computer; each has a page with live progress, retry and a lab
     check. Nothing is sent to any server before you press Install on the last step. "Advanced" shows
     the settings most labs never need.

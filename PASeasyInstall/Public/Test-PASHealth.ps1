@@ -8,7 +8,7 @@ function Test-PASHealth {
       -PvwaCertificateFile is given or the configuration's CPM pins one (lab self-signed PVWA);
       when the PVWA name does not resolve on this controller, the check connects to the PVWA address
       of the configuration and sends the name, so no DNS record or hosts entry is needed;
-    - which components the Vault reports as logged on (PVWA, CPM, PSM and PSMP);
+    - which components the Vault reports as logged on (PVWA, CPM, PSM, PSMP and PTA);
     - "PASWS383E Vault is currently under maintenance mode". This usually means PVWA started before the
       Vault was up; recycle the PasswordVaultWebAccessPool app pool on the PVWA server.
     With -DRCredential it also reads the DR server's last PADR replication cycle over WinRM. With DR

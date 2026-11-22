@@ -635,6 +635,14 @@ case "$stage" in
         [[ ${#packages[@]} -eq 1 ]] || { echo 'Expected exactly one CARKpsmp DEB' >&2; exit 5; }
         [[ $(dpkg-deb -f "${packages[0]}" Package) = carkpsmp ]] || exit 5
         ! dpkg-query -W -f='${Status}' carkpsmp 2>/dev/null | grep -q 'install ok installed' || { echo 'Existing PSMP installation requires reconciliation' >&2; exit 5; }
+        # A freshly started Ubuntu runs its own package jobs (apt-daily, unattended-upgrades). dpkg does not wait
+        # for their lock, it fails at once (seen in the lab on 2026-11-22), so wait here for up to ten minutes.
+        # Nothing of the PSMP package has been started while another process holds the lock.
+        for attempt in $(seq 1 120); do
+          # Not the permanent helper unattended-upgrade-shutdown: only jobs that use the package manager.
+          pgrep -x 'apt|apt-get|dpkg' >/dev/null || pgrep -f '/usr/bin/unattended-upgrade( |$)' >/dev/null || break
+          sleep 5
+        done
         DEBIAN_FRONTEND=noninteractive dpkg -i "${packages[0]}"
         [[ $(dpkg-query -W -f='${Status}' carkpsmp) = 'install ok installed' ]] || exit 5
       else

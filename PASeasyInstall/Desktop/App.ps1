@@ -434,8 +434,9 @@ function Get-PASUIRunRequirements {
 }
 
 function Select-PASUIFile {
-    # Asks for a file to open or to save, or (Kind Folder) for a folder. Returns the path, or '' when cancelled.
-    param([ValidateSet('Open', 'Save', 'Folder')][string]$Kind, [string]$Title, [string]$Filter = '', [string]$FileName = '')
+    # Asks for a file to open or to save, for several files (Kind OpenMany) or for a folder (Kind Folder).
+    # Returns the path (OpenMany: the paths), or '' when cancelled.
+    param([ValidateSet('Open', 'OpenMany', 'Save', 'Folder')][string]$Kind, [string]$Title, [string]$Filter = '', [string]$FileName = '')
     if ($Kind -eq 'Folder') {
         Add-Type -AssemblyName System.Windows.Forms
         $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
@@ -446,8 +447,9 @@ function Select-PASUIFile {
         }
         return [string]$dialog.SelectedPath
     }
-    if ($Kind -eq 'Open') {
+    if ($Kind -in @('Open', 'OpenMany')) {
         $dialog = New-Object Microsoft.Win32.OpenFileDialog
+        $dialog.Multiselect = ($Kind -eq 'OpenMany')
     } else {
         $dialog = New-Object Microsoft.Win32.SaveFileDialog
         $dialog.FileName = $FileName
@@ -459,6 +461,9 @@ function Select-PASUIFile {
     }
     if (-not $dialog.ShowDialog($window)) {
         return ''
+    }
+    if ($Kind -eq 'OpenMany') {
+        return @($dialog.FileNames | ForEach-Object { [string]$_ })
     }
     return [string]$dialog.FileName
 }
@@ -502,6 +507,10 @@ function Get-PASUIPlanArguments {
     if ($S.AcceptEula) {
         $arguments.AcceptEula = $true
     }
+    if (-not $S.Hardening) {
+        # Advanced, "Apply the vendor hardening" switched off: install and register, harden nothing.
+        $arguments.SkipHardening = $true
+    }
     return $arguments
 }
 
@@ -544,23 +553,29 @@ function Start-PASUIPlan {
 }
 
 function Invoke-PASUIMediaScan {
-    # Looks for installers in the media folder and in what was dropped, in the background. $Then runs afterwards.
+    # Looks for installers in every folder and file that was added, in the background. $Then runs afterwards.
+    # The page says at once that it is looking; the window stays usable meanwhile.
     param([scriptblock]$Then = $null)
     $paths = @(Get-PASUIMediaPaths $S)
     if (-not $paths.Count) {
-        throw 'Type, choose or drop the media folder first.'
-    }
-    foreach ($path in $paths) {
-        if (-not (Test-Path -LiteralPath $path)) {
-            throw "This does not exist: $path"
-        }
+        throw 'Add a folder or a file first: type its path, or choose it.'
     }
     if ($S.Scanning) {
+        # A scan is under way: look again when it is done, with what was added meanwhile.
+        $S.ScanAgain = $true
+        if ($Then) {
+            $S.AfterScan = $Then
+        }
         return
     }
     $S.Scanning = $true
+    $S.ScanAgain = $false
     $S.AfterScan = $Then
     Set-PASUINotice 'busy' 'Looking for installers...'
+    if ($S.Screen -eq 'media') {
+        Show-PASUIMediaSources
+        Show-PASUIMediaResult
+    }
     Start-PASUITask -ArgumentList @(, $paths) -ScriptBlock {
         param([string[]]$Paths)
         $items = @(Get-PASMediaInventory -Path $Paths)
@@ -577,11 +592,17 @@ function Invoke-PASUIMediaScan {
         $S.MediaSelection = $answer.Selection
         $S.MediaScanned = $true
         Set-PASUINotice
-        if ($S.Screen -eq 'media') {
-            Show-PASUIMediaResult
-        }
         $then = $S.AfterScan
         $S.AfterScan = $null
+        if ($S.ScanAgain -and @(Get-PASUIMediaPaths $S).Count) {
+            $S.MediaScanned = $false
+            Invoke-PASUIMediaScan -Then $then
+            return
+        }
+        if ($S.Screen -eq 'media') {
+            Show-PASUIMediaSources
+            Show-PASUIMediaResult
+        }
         if ($then) {
             & $then
         }
@@ -590,7 +611,41 @@ function Invoke-PASUIMediaScan {
         $S.Scanning = $false
         $S.AfterScan = $null
         Set-PASUINotice 'error' ('The media could not be read: ' + [string]$failure.Message)
+        if ($S.Screen -eq 'media') {
+            Show-PASUIMediaSources
+            Show-PASUIMediaResult
+        }
     }
+}
+
+function Add-PASUIMedia {
+    # Adds folders or files to the media sources and looks through everything again.
+    param([string[]]$Paths)
+    $added = Add-PASUIMediaSource -State $S -Paths $Paths
+    if (-not $added) {
+        if (@($Paths | Where-Object { ([string]$_).Trim() }).Count) {
+            Set-PASUINotice 'info' 'That folder or file is in the list already.'
+        }
+        return
+    }
+    if ($S.Screen -eq 'media') {
+        Show-PASUIMediaSources
+    }
+    Invoke-PASUIMediaScan
+}
+
+function Add-PASUITypedMedia {
+    # Takes the path that is typed into the field over into the list. Returns $true when there was one.
+    $typed = ([string]$S.MediaPath).Trim().Trim('"')
+    if (-not $typed) {
+        return $false
+    }
+    $S.MediaPath = ''
+    if ($R.ContainsKey('MediaPathBox')) {
+        $R['MediaPathBox'].Text = ''
+    }
+    Add-PASUIMedia @($typed)
+    return $true
 }
 
 function Start-PASUIServerCheck {
@@ -937,6 +992,16 @@ function Set-PASUILabFromFile {
     if ($S.VaultMode -eq 'Existing') {
         $S.ExistingVault = [string]$Configuration['vault']['address']
     }
+    # A lab that was saved without hardening (-SkipHardening) stays without it.
+    $S.Hardening = $true
+    $overrides = $Configuration['security']['overrides']
+    if ($overrides) {
+        foreach ($name in @($overrides.Keys)) {
+            if ([string]$name -like '*.ApplyHardening' -and -not [bool]$overrides[$name]) {
+                $S.Hardening = $false
+            }
+        }
+    }
 }
 
 function Show-PASUIHome {
@@ -986,25 +1051,34 @@ function Invoke-PASUIClick {
             return
         }
         '^act-browse$' {
-            $path = Select-PASUIFile -Kind Folder -Title 'Folder with the CyberArk installer media'
-            if (-not $path) {
-                return
+            $path = Select-PASUIFile -Kind Folder -Title 'A folder with CyberArk installer media, a license or keys'
+            if ($path) {
+                Add-PASUIMedia @($path)
             }
-            $S.MediaPath = $path
-            if ($R.ContainsKey('MediaPathBox')) {
-                $R['MediaPathBox'].Text = $path
-            }
-            Invoke-PASUIMediaScan
             return
         }
-        '^act-scan$' {
-            Invoke-PASUIMediaScan
+        '^act-browse-files$' {
+            $paths = @(Select-PASUIFile -Kind OpenMany -Title 'Installer ZIP files, the license, the recovery key' -Filter 'Media (*.zip;*.xml;*.key;*.exe)|*.zip;*.xml;*.key;*.exe|All files (*.*)|*.*' | Where-Object { $_ })
+            if ($paths.Count) {
+                Add-PASUIMedia $paths
+            }
             return
         }
-        '^act-media-clear$' {
-            $S.MediaSources = @()
-            $S.MediaScanned = $false
-            Show-PASUIScreen 'media'
+        '^act-media-add$' {
+            if (-not (Add-PASUITypedMedia)) {
+                Set-PASUINotice 'info' 'Type or paste the path of a folder or a file first, or choose one.'
+            }
+            return
+        }
+        '^act-media-remove-(\d+)$' {
+            Remove-PASUIMediaSource -State $S -Index ([int]$Matches[1])
+            Set-PASUINotice
+            Show-PASUIMediaSources
+            if (@(Get-PASUIMediaPaths $S).Count) {
+                Invoke-PASUIMediaScan
+            } else {
+                Show-PASUIMediaResult
+            }
             return
         }
         '^act-back$' {
@@ -1072,7 +1146,11 @@ function Invoke-PASUIClick {
         '^act-install$' {
             $null = Get-PASUIFormAccounts
             $count = @(Get-PASUIServerSlots $S).Count
-            Show-PASUIConfirm 'Install the lab?' "This installs CyberArk on $count server(s) and hardens the Vault server. It cannot be undone from here." 'Install' { Start-PASUIInstall }
+            $what = "This installs CyberArk on $count server(s) and hardens the Vault server. It cannot be undone from here."
+            if (-not $S.Hardening) {
+                $what = "This installs CyberArk on $count server(s). The servers will NOT be hardened: you switched off the vendor hardening. It cannot be undone from here."
+            }
+            Show-PASUIConfirm 'Install the lab?' $what 'Install' { Start-PASUIInstall }
             return
         }
         '^run-([0-9a-fA-F]{32})$' {
@@ -1163,7 +1241,9 @@ function Invoke-PASUINext {
     # Next on the bottom bar: the step must be complete, then the following screen is drawn.
     switch ([string]$S.Screen) {
         'media' {
-            if (-not $S.MediaScanned -and @(Get-PASUIMediaPaths $S).Count) {
+            # A path that is typed but not added yet is added first.
+            $null = Add-PASUITypedMedia
+            if (($S.Scanning -or -not $S.MediaScanned) -and @(Get-PASUIMediaPaths $S).Count) {
                 Invoke-PASUIMediaScan -Then {
                     if ($S.Screen -eq 'media' -and (Show-PASUIIssues 'media')) {
                         Show-PASUIScreen 'lab'
@@ -1196,8 +1276,8 @@ function Set-PASUIField {
     param([string]$Id, [string]$Value)
     switch -Regex ($Id) {
         '^f-mediapath$' {
+            # Only remembered: the path counts when it is added (Add, or Next).
             $S.MediaPath = $Value
-            $S.MediaScanned = $false
             return
         }
         '^f-labname$' {
@@ -1260,7 +1340,15 @@ function Set-PASUIToggle {
             Show-PASUIScreen ([string]$S.Screen)
         }
         'f-colocate' {
-            $S.Colocate = $Checked
+            if ([bool]$S.Colocate -ne $Checked) {
+                $S.Colocate = $Checked
+                $S.Preflight = $null
+                # The ready-made labs show their number of servers.
+                Show-PASUIScreen 'lab'
+            }
+        }
+        'f-hardening' {
+            $S.Hardening = $Checked
         }
         'f-eula' {
             $S.AcceptEula = $Checked
@@ -1287,37 +1375,6 @@ $advancedChanged = {
 }
 $ui.OptAdvanced.Add_Checked($advancedChanged)
 $ui.OptAdvanced.Add_Unchecked($advancedChanged)
-
-# Files and folders dropped from Explorer onto the media step.
-$window.AllowDrop = $true
-$window.Add_DragOver({
-        param($sender, $eventArgs)
-        $eventArgs.Effects = [Windows.DragDropEffects]::None
-        if ($S.Screen -eq 'media' -and $eventArgs.Data.GetDataPresent([Windows.DataFormats]::FileDrop)) {
-            $eventArgs.Effects = [Windows.DragDropEffects]::Copy
-        }
-        $eventArgs.Handled = $true
-    })
-$window.Add_Drop({
-        param($sender, $eventArgs)
-        if ($S.Screen -ne 'media' -or -not $eventArgs.Data.GetDataPresent([Windows.DataFormats]::FileDrop)) {
-            return
-        }
-        $paths = @($eventArgs.Data.GetData([Windows.DataFormats]::FileDrop) | ForEach-Object { [string]$_ })
-        Invoke-PASUISafe { Add-PASUIDroppedMedia $paths }
-    })
-
-function Add-PASUIDroppedMedia {
-    # Takes over what was dropped on the media step and looks for installers in it.
-    param([string[]]$Paths)
-    if (-not $Paths.Count) {
-        return
-    }
-    $folders = @($Paths | ForEach-Object { [bool](Test-Path -LiteralPath $_ -PathType Container) })
-    Add-PASUIMediaDrop -State $S -Paths $Paths -IsFolder $folders
-    Show-PASUIScreen 'media'
-    Invoke-PASUIMediaScan
-}
 
 # While a running installation is on screen, it is read again every two seconds.
 $PollTimer = New-Object Windows.Threading.DispatcherTimer

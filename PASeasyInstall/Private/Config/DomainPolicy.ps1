@@ -29,6 +29,12 @@ function Get-PASDomainPolicyPlan {
     }
     foreach ($hostId in @($Config.activeDirectory.join)) {
         $types = @($Config.components | Where-Object { $_ -and [string]$_.host -eq [string]$hostId } | ForEach-Object { [string]$_.type })
+        # A server whose components are installed without hardening (-SkipHardening) gets no hardening GPO either.
+        $overrides = Get-PASValue (Get-PASValue $Config 'security' $null) 'overrides' $null
+        $unhardened = @($types | Where-Object { $overrides -and $overrides.Contains($_ + '.ApplyHardening') -and -not [bool]$overrides[$_ + '.ApplyHardening'] })
+        if ($unhardened.Count) {
+            continue
+        }
         $role = Get-PASHardeningGpoRole -Types $types
         if ($role) {
             $servers += [pscustomobject]@{ HostId = [string]$hostId; Address = [string]$Config.hosts[[string]$hostId].address; Role = $role }

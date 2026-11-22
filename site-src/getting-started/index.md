@@ -1,34 +1,53 @@
 # Get started
 
-Three things to have ready, and two ways to get PASeasyInstall.
+Three things to have ready, then two ways to get PASeasyInstall.
 
-1. **A controller:** a Windows machine with Windows PowerShell 5.1. This is where you run PASeasyInstall.
-   Windows Server 2022 or Windows 10/11 both work.
-2. **Target servers:** fresh Windows Server 2022 machines for the Vault, DR, PVWA, CPM and PSM, plus Ubuntu
-   24.04 (or RHEL/Rocky 8/9) for PSMP. Each one must be reachable from the controller.
-3. **Your CyberArk media:** the PAM Self-Hosted installers (for example the 15.0 bundle ZIP), your
-   `license.xml` and the public recovery key `recpub.key`. PASeasyInstall never ships vendor media.
+1. **A controller.** A Windows computer with Windows PowerShell 5.1. PASeasyInstall runs here.
+2. **Empty servers** the controller can reach: Windows Server 2022 for the Vault, PVWA, CPM and PSM, Linux for PSM
+   for SSH. See [Requirements](requirements.md) and [Preparing servers](../servers/index.md).
+3. **Your CyberArk media**: the PAM Self-Hosted download, your `license.xml` and the recovery public key.
+   PASeasyInstall contains no CyberArk file.
+
+## Install PASeasyInstall
+
+=== "PowerShell Gallery"
+
+    ```powershell
+    Install-Module PASeasyInstall -Scope CurrentUser
+    Start-PASeasyInstall
+    ```
+
+    One module with the commands and the window. It needs no other module. Details and what a fresh Windows
+    Server needs before its first `Install-Module`: [PowerShell Gallery](gallery.md).
+
+=== "Portable ZIP"
+
+    Download `PASeasyInstall-<version>-portable.zip` from
+    [Releases](https://github.com/bigbatmanorg/PASeasyInstall/releases), unblock it, extract it and double-click
+    `Start-PASeasyInstall.cmd`. Nothing is installed and the controller needs no internet access.
+    Details: [Portable ZIP](portable.md).
+
+The module is not code-signed. With the default policy of Windows Server nothing more is needed. If PowerShell
+refuses to load it, see [Execution policy](execution-policy.md).
+
+## Then
 
 <div class="grid cards" markdown>
 
--   **[Requirements](requirements.md)**
-
-    Controller, target servers, network ports, sizing and media in detail.
-
--   **[Portable ZIP](portable.md)**
-
-    Unzip and run. No installation, no internet access needed on the controller.
-
--   **[PowerShell Gallery](gallery.md)**
-
-    `Install-Module PASeasyInstall`: the commands and the desktop (`Start-PASeasyInstall`) in one module.
-
 -   **[Your first lab](first-lab.md)**
 
-    From empty servers to a running Vault, PVWA, CPM, PSM and PSMP, step by step.
+    From empty servers to a running lab, step by step.
+
+-   **[The window](../gui/index.md)**
+
+    Every screen with a picture.
+
+-   **[Commands](../commands/index.md)**
+
+    The same from the prompt, one command per step.
 
 </div>
 
-!!! note "Execution policy"
-    PASeasyInstall is not code-signed. On most machines nothing extra is needed. On machines that enforce
-    `AllSigned`, see [Execution policy](execution-policy.md).
+!!! tip "Try it without any server"
+    `Start-PASeasyInstall -Backend Mock` opens the same window with a simulated installer. It contacts nothing
+    and installs nothing, so you can click through every step first.

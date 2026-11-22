@@ -80,6 +80,10 @@ function New-PASLabConfiguration {
     .PARAMETER InstallerCompany
     Company name the CyberArk installers record. Default: what the vendor files contain ("My Company";
     "CyberArk" for the Vault).
+    .PARAMETER SkipHardening
+    Installs and registers the components but does not run the vendor hardening on any server: not on the
+    Vault, not on PVWA, CPM, PSM or PSMP, and no hardening GPOs in a new domain. For tests that need servers
+    without the security settings. Only with -SecurityProfile Lab.
     .PARAMETER DataRoot
     Data folder of this controller (media cache, SSH keys). Default: %LOCALAPPDATA%\PASeasyInstall.
     .EXAMPLE
@@ -157,6 +161,8 @@ function New-PASLabConfiguration {
 
         [AllowEmptyString()]
         [string]$InstallerCompany = '',
+
+        [switch]$SkipHardening,
 
         [string]$DataRoot = ''
     )

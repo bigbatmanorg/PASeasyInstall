@@ -6,8 +6,10 @@
 # Install-PASLab, Get-PASRun, Get-PASRunEvent, Resume-PASRun, Stop-PASRun, Export-PASDiagnostics,
 # Test-PASPreflight and Test-PASHealth.
 #
-# A simulated run walks the plan one component after another; every stage of the real stage catalog
-# takes $env:PASUI_MOCK_STAGE_SECONDS seconds (default 1). The lab name selects the scenario:
+# A simulated run installs the servers at the same time, as the real installer does for a configuration with
+# execution.mode Parallel (New-PASMockLaneTimeline); a Sequential configuration walks the plan one component
+# after another. Every stage of the real stage catalog takes $env:PASUI_MOCK_STAGE_SECONDS seconds (default 1).
+# The lab name selects the scenario:
 #   name contains "fail"     the first install stage fails and the run ends Failed (Resume-PASRun finishes it)
 #   name contains "unreach"  the server check reports one server that does not answer
 #   name contains "warn"  reboot stages report a warning and continue
@@ -105,6 +107,182 @@ function New-PASMockTimeline {
     return @{ Events = $events; End = $time; Outcome = $outcome }
 }
 
+function New-PASMockLaneTimeline {
+    <# Timed events for a run that installs the servers at the same time, the way the real installer does with
+       execution.mode Parallel (Private\Run\Lanes.ps1 of the module):
+         - every server is a lane and works through its own steps one after another; the Vault and its DR Vault
+           are one lane;
+         - a server that is joined to a new domain starts when the domain controller is finished;
+         - a step 'register' waits until the Vault lane is finished and, except for the first PVWA, until the
+           first PVWA is registered; the registrations run one at a time. A step that has to wait says so
+           (event VaultWaiting), as the real one does.
+       Steps: @{Id; Type; Host; Address; Stage} in plan order. Done: 'id|stage' of steps finished before (resume).
+       With -Fail the first installation step fails and the run ends there. Returns @{ Events; End; Outcome }. #>
+    param([object[]]$Steps = @(), [double]$Start, [bool]$Fail, [bool]$Warn, [string[]]$Joined = @(), [hashtable]$Done = @{})
+    $seconds = Get-PASMockStageSeconds
+    $pending = @($Steps | Where-Object { -not $Done.ContainsKey([string]$_.Id + '|' + [string]$_.Stage) })
+    $failKey = ''
+    if ($Fail -and $pending.Count) {
+        $failing = @($pending | Where-Object { $_.Stage -match 'install' })[0]
+        if (-not $failing) {
+            $failing = $pending[[int][Math]::Floor($pending.Count / 2)]
+        }
+        $failKey = [string]$failing.Id + '|' + [string]$failing.Stage
+    }
+    # The lanes, in plan order.
+    $lanes = [ordered]@{}
+    foreach ($step in $pending) {
+        $name = [string]$step.Host
+        if ([string]$step.Type -in @('Vault', 'DRVault')) {
+            $name = 'vault'
+        }
+        if (-not $lanes.Contains($name)) {
+            $lanes[$name] = @{ Steps = New-Object System.Collections.ArrayList; Index = 0; Time = $Start; Joined = ($Joined -contains [string]$step.Host) }
+        }
+        [void]$lanes[$name].Steps.Add($step)
+    }
+    $forestPending = @($pending | Where-Object { [string]$_.Type -eq 'AD' }).Count
+    $vaultPending = @($pending | Where-Object { [string]$_.Type -in @('Vault', 'DRVault') }).Count
+    $firstPvwa = [string](@($Steps | Where-Object { [string]$_.Type -eq 'PVWA' } | ForEach-Object { [string]$_.Id })[0])
+    $pvwaRegistered = $null
+    if (-not $firstPvwa -or -not @($pending | Where-Object { [string]$_.Id -eq $firstPvwa -and [string]$_.Stage -eq 'register' }).Count) {
+        $pvwaRegistered = $Start
+    }
+    $forestEnd = $null
+    if (-not $forestPending) {
+        $forestEnd = $Start
+    }
+    $vaultEnd = $null
+    if (-not $vaultPending) {
+        $vaultEnd = $Start
+    }
+    $vaultFree = $Start
+    $events = New-Object System.Collections.ArrayList
+    $order = 0
+    $failedAt = $null
+    while ($null -eq $failedAt) {
+        # The lane whose next step can start first.
+        $best = $null
+        $bestAt = 0.0
+        foreach ($name in @($lanes.Keys)) {
+            $lane = $lanes[$name]
+            if ($lane.Index -ge $lane.Steps.Count) {
+                continue
+            }
+            $step = $lane.Steps[$lane.Index]
+            $at = [double]$lane.Time
+            if ($lane.Joined -and $lane.Index -eq 0) {
+                if ($null -eq $forestEnd) {
+                    continue
+                }
+                $at = [Math]::Max($at, [double]$forestEnd)
+            }
+            $signsIn = ([string]$step.Stage -eq 'register' -and [string]$step.Type -notin @('Vault', 'DRVault', 'AD'))
+            if ($signsIn) {
+                if ($null -eq $vaultEnd) {
+                    continue
+                }
+                if ([string]$step.Id -ne $firstPvwa -and $null -eq $pvwaRegistered) {
+                    continue
+                }
+                $at = [Math]::Max($at, [double]$vaultEnd)
+                if ([string]$step.Id -ne $firstPvwa) {
+                    $at = [Math]::Max($at, [double]$pvwaRegistered)
+                }
+                $at = [Math]::Max($at, $vaultFree)
+            }
+            if ($null -eq $best -or $at -lt $bestAt) {
+                $best = $name
+                $bestAt = $at
+            }
+        }
+        if ($null -eq $best) {
+            break
+        }
+        $lane = $lanes[$best]
+        $step = $lane.Steps[$lane.Index]
+        $signsIn = ([string]$step.Stage -eq 'register' -and [string]$step.Type -notin @('Vault', 'DRVault', 'AD'))
+        if ($signsIn -and $bestAt -gt [double]$lane.Time + 0.0001) {
+            [void]$events.Add(@{ At = [double]$lane.Time; Order = $order; Component = $step.Id; Stage = $step.Stage; Event = 'VaultWaiting'; Level = 'Information'
+                    Message = 'Waiting for the Vault: this step signs in to the Vault and runs when the Vault is installed and no other server is signing in'
+                })
+            $order++
+        }
+        [void]$events.Add(@{ At = $bestAt; Order = $order; Component = $step.Id; Stage = $step.Stage; Event = 'TaskStarted'; Level = 'Information'
+                Message = "Running $($step.Stage) on $($step.Host) ($($step.Address))"
+            })
+        $order++
+        $time = $bestAt + $seconds
+        if (([string]$step.Id + '|' + [string]$step.Stage) -eq $failKey) {
+            [void]$events.Add(@{ At = $time; Order = $order; Component = $step.Id; Stage = $step.Stage; Event = 'TaskFailed'; Level = 'Error'
+                    Message = 'Simulated failure: the installer exited with code 1603.'
+                })
+            $failedAt = $time
+            break
+        }
+        if ($Warn -and $step.Stage -match 'reboot') {
+            [void]$events.Add(@{ At = $time; Order = $order; Component = $step.Id; Stage = $step.Stage; Event = 'RebootWarning'; Level = 'Warning'
+                    Message = 'The server is restarting; waiting for it to come back.'
+                })
+            $order++
+            $time += $seconds
+        }
+        [void]$events.Add(@{ At = $time; Order = $order; Component = $step.Id; Stage = $step.Stage; Event = 'TaskCompleted'; Level = 'Information'
+                Message = "$($step.Stage) completed"
+            })
+        $order++
+        $lane.Time = $time
+        $lane.Index++
+        if ($signsIn) {
+            $vaultFree = $time
+            if ([string]$step.Id -eq $firstPvwa) {
+                $pvwaRegistered = $time
+            }
+        }
+        if ($lane.Index -ge $lane.Steps.Count) {
+            if ($best -eq 'vault') {
+                $vaultEnd = $time
+            }
+            if (@($lane.Steps | Where-Object { [string]$_.Type -eq 'AD' }).Count) {
+                $forestEnd = $time
+            }
+        }
+    }
+    $sorted = @($events | Sort-Object -Property @{ Expression = { [double]$_.At } }, @{ Expression = { [int]$_.Order } })
+    $outcome = 'Succeeded'
+    $end = $Start
+    if ($null -ne $failedAt) {
+        # The run stops with the failure: what the other servers would have done later does not happen.
+        $outcome = 'Failed'
+        $sorted = @($sorted | Where-Object { [double]$_.At -le $failedAt })
+        $end = $failedAt
+    } elseif ($sorted.Count) {
+        $end = [double]$sorted[-1].At
+    }
+    $result = New-Object System.Collections.ArrayList
+    foreach ($entry in $sorted) {
+        [void]$result.Add($entry)
+    }
+    return @{ Events = $result; End = $end; Outcome = $outcome }
+}
+
+function Get-PASMockJoinedHosts {
+    # The servers a configuration joins to a domain the lab creates (they wait for the domain controller).
+    param($Configuration)
+    $directory = $Configuration['activeDirectory']
+    if (-not $directory -or [string]$directory['mode'] -eq 'None') {
+        return @()
+    }
+    return @($directory['join'] | ForEach-Object { [string]$_ })
+}
+
+function Test-PASMockParallel {
+    # Does this configuration install the servers at the same time (the default of a new lab)?
+    param($Configuration)
+    $execution = $Configuration['execution']
+    return ($execution -and [string]$execution['mode'] -eq 'Parallel')
+}
+
 function Get-PASMockRun {
     param([string]$RunId)
     if (-not $script:Runs.ContainsKey($RunId)) {
@@ -196,6 +374,11 @@ function Get-PASMockComponents {
         } elseif ($RunStatus -eq 'Running') {
             $status = 'Running'
             $message = ''
+        } elseif ($Run.Parallel -and $RunStatus -eq 'Failed') {
+            # Servers installed at the same time: another server failed and this one stopped before its next
+            # step. The real installer shows such a component as not finished, without an error of its own.
+            $status = 'Pending'
+            $message = 'Not finished: the installation stopped because another server failed.'
         } else {
             $status = 'Interrupted'
             $message = 'The run was stopped while this component was being installed.'
@@ -279,13 +462,20 @@ function Install-PASLab {
         foreach ($stage in $stages) {
             $steps += @{
                 Id = [string]$item.Id
+                Type = [string]$item.Type
                 Host = [string]$item.Host
                 Address = [string]$item.Address
                 Stage = $stage
             }
         }
     }
-    $timeline = New-PASMockTimeline -Steps $steps -Start 0.3 -Fail ($name -match '(?i)fail') -Warn ($name -match '(?i)warn')
+    $parallel = Test-PASMockParallel $cfg
+    $joined = @(Get-PASMockJoinedHosts $cfg)
+    if ($parallel) {
+        $timeline = New-PASMockLaneTimeline -Steps $steps -Start 0.3 -Fail ($name -match '(?i)fail') -Warn ($name -match '(?i)warn') -Joined $joined
+    } else {
+        $timeline = New-PASMockTimeline -Steps $steps -Start 0.3 -Fail ($name -match '(?i)fail') -Warn ($name -match '(?i)warn')
+    }
     $events = New-Object System.Collections.ArrayList
     [void]$events.Add(@{ At = 0.0
             Component = 'controller'
@@ -311,6 +501,8 @@ function Install-PASLab {
         Outcome = $timeline.Outcome
         StoppedAt = $null
         RunDirectory = $runDirectory
+        Parallel = $parallel
+        Joined = $joined
     }
     return $runId
 }
@@ -391,7 +583,11 @@ function Resume-PASRun {
     [void]$kept.Add(@{ At = $now; Component = 'controller'; Stage = ''; Event = 'RunResumed'; Level = 'Information'
             Message = 'Simulated run resumed'
         })
-    $timeline = New-PASMockTimeline -Steps $remaining -Start ($now + 0.3) -Fail $false -Warn $false
+    if ($run.Parallel) {
+        $timeline = New-PASMockLaneTimeline -Steps @($run.Steps) -Start ($now + 0.3) -Fail $false -Warn $false -Joined @($run.Joined) -Done $completed
+    } else {
+        $timeline = New-PASMockTimeline -Steps $remaining -Start ($now + 0.3) -Fail $false -Warn $false
+    }
     $kept.AddRange($timeline.Events)
     $run.Timeline = $kept
     $run.End = $timeline.End

@@ -243,6 +243,43 @@ function Start-PASeasyPsmStoppedService {
     return $started
 }
 
+function Add-PASeasyPsmPvwaTrust {
+    # The vendor's PSM registration calls the PVWA API (ApiKeyManager) and needs "trusted communication to the
+    # PVWA machine". In a lab the PVWA certificate is self-signed: the public certificate the controller copied
+    # from the PVWA server (file and SHA-256 fixed in the inventory) is added to the trusted roots of this
+    # server. Public certificates only. Nothing to do when no certificate was staged.
+    param([hashtable]$Settings)
+    $path = [string]$Settings.PVWATrustCertificateTarget
+    if (-not $path) {
+        return
+    }
+    if ([string]$Settings.SecurityProfile -ne 'Lab') {
+        throw 'Trusting a copied PVWA certificate on the PSM server is only possible with the Lab profile'
+    }
+    $expected = [string]$Settings.PVWATrustCertificateSHA256
+    if ($expected -notmatch '^[A-Fa-f0-9]{64}$' -or -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw 'PSM trust certificate requires its frozen SHA256 and staged file'
+    }
+    if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ine $expected) {
+        throw 'PSM trust certificate differs from its frozen SHA256'
+    }
+    $collection = [Security.Cryptography.X509Certificates.X509Certificate2Collection]::new()
+    $collection.Import([IO.File]::ReadAllBytes($path))
+    $store = [Security.Cryptography.X509Certificates.X509Store]::new('Root', 'LocalMachine')
+    try {
+        $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+        foreach ($certificate in $collection) {
+            if ($certificate.HasPrivateKey) {
+                throw 'PSM trust input must contain public certificates only'
+            }
+            $store.Add($certificate)
+        }
+    } finally {
+        $store.Close()
+        $store.Dispose()
+    }
+}
+
 function Invoke-PASeasyPsmStage {
     [CmdletBinding()]
     param([Parameter(Mandatory)][ValidateSet('Prerequisites', 'Install', 'Register', 'Harden', 'PostInstall')][string]$Stage,
@@ -318,6 +355,7 @@ function Invoke-PASeasyPsmStage {
     }
     if ($Stage -eq 'Register') {
         if (-not $VaultPassword) { throw 'PSM registration requires the VaultAdmin secret' }
+        Add-PASeasyPsmPvwaTrust -Settings $Settings
         $parameters = @{
             vaultip = [string]$Settings.VaultAddress
             vaultusername = [string]$Settings.VaultUser
@@ -341,8 +379,29 @@ function Invoke-PASeasyPsmStage {
         $outOfDomain[0].SetAttribute('Enable', $(if ($joined) { 'No' }else { 'Yes' }))
     }
     if ($parameters.Count -or $Stage -eq 'Harden') { $xml.Save($xmlPath) }
-    if ($Stage -eq 'Harden' -and
-        -not [bool]$Settings.ApplyHardening) { throw 'PSM hardening waiver must be handled by the scoped policy, not marked as vendor success' }
+    if ($Stage -eq 'Harden' -and -not [bool]$Settings.ApplyHardening) {
+        # Lab configuration with -SkipHardening: the vendor hardening is not run. The checkpoint says so, so
+        # that the stages after it and the checks know that this server is not hardened.
+        New-Item -Path $markers -ItemType Directory -Force | Out-Null
+        $skipRecord = @{
+            schemaVersion = 2
+            restartCount = 0
+            stage = $Stage
+            vendorStage = $vendorStage
+            utc = [DateTime]::UtcNow.ToString('o')
+            bootUtc = $boot
+            restartRequired = $false
+            skipped = $true
+            configSha256 = (Get-FileHash -LiteralPath $xmlPath -Algorithm SHA256).Hash
+            message = 'Hardening skipped by the lab configuration (SkipHardening)'
+        }
+        [IO.File]::WriteAllText($marker, ($skipRecord | ConvertTo-Json -Depth 5), [Text.UTF8Encoding]::new($false))
+        return [pscustomobject]@{
+            Changed = $false
+            Data = @{RebootRequired = $false }
+            Message = 'PSM hardening skipped by the lab configuration (SkipHardening)'
+        }
+    }
     Protect-PASeasyPsmTempDirectory -AuditRoot $markers
     Assert-PASeasyPsmTlsBackupTrusted
     $arguments = @{
@@ -370,8 +429,11 @@ function Invoke-PASeasyPsmStage {
     if ($null -eq $result.PSObject.Properties['restartRequired']) { throw 'PSM vendor result lacks restartRequired; cannot schedule safe continuation' }
     if ($result.restartRequired -isnot [bool]) { throw 'PSM vendor restartRequired must be a JSON boolean' }
     $restart = $result.restartRequired
-    if ($Stage -eq 'PostInstall') { Set-PASeasyPsmRdpTls }
-    if ($Stage -in @('Harden', 'PostInstall')) { Assert-PASeasyPsmTlsRestored }
+    # The RDP listener gets TLS after the last native stage. That needs the encryption level and the TLS
+    # protocol settings the vendor hardening writes: without hardening (SkipHardening) neither is touched.
+    $hardenedServer = [bool]$Settings.ApplyHardening
+    if ($Stage -eq 'PostInstall' -and $hardenedServer) { Set-PASeasyPsmRdpTls }
+    if ($Stage -eq 'Harden' -or ($Stage -eq 'PostInstall' -and $hardenedServer)) { Assert-PASeasyPsmTlsRestored }
     New-Item -Path $markers -ItemType Directory -Force | Out-Null
     $record = @{
         schemaVersion = 2
@@ -420,6 +482,7 @@ function Invoke-PASeasyPsmVerify {
         }
     }
     $checkStage = if ($Stage -eq 'Verify') { 'PostInstall' }else { $Stage }
+    $hardened = [bool]$Settings.ApplyHardening
     if (-not $stageNames.Contains($checkStage)) { throw "Unsupported PSM verification stage $Stage" }
     $marker = Join-Path (Join-Path $root 'stage') ($checkStage + '.json')
     if (-not(Test-Path -LiteralPath $marker -PathType Leaf)) {
@@ -446,7 +509,17 @@ function Invoke-PASeasyPsmVerify {
         }
         $evidence += @($services | ForEach-Object { $_.Name + '=' + $_.Status })
     }
-    if ($Stage -in @('Harden', 'PostInstall', 'Verify')) {
+    $tlsChecked = ($Stage -eq 'Harden' -or ($Stage -in @('PostInstall', 'Verify') -and $hardened))
+    $hardenMarker = Join-Path (Join-Path $root 'stage') 'Harden.json'
+    if ($Stage -eq 'Harden' -and (Test-Path -LiteralPath $hardenMarker -PathType Leaf)) {
+        # Hardening skipped on request (SkipHardening): the vendor never wrote the TLS settings.
+        $hardenRecord = Get-Content -LiteralPath $hardenMarker -Raw | ConvertFrom-Json
+        if ($hardenRecord.PSObject.Properties['skipped'] -and [bool]$hardenRecord.skipped) {
+            $tlsChecked = $false
+            $evidence += 'Hardening skipped by the lab configuration (SkipHardening); vendor controls NotTested'
+        }
+    }
+    if ($tlsChecked) {
         try {
             Assert-PASeasyPsmTlsRestored
             $evidence += 'TLS registry: legacy protocols disabled; TLS 1.2 enabled; reboot state checked separately'
@@ -456,7 +529,10 @@ function Invoke-PASeasyPsmVerify {
         Assert-PASeasyPsmTempDirectory
         $evidence += 'Vendor temp root creation restricted; child permissions preserved'
     } catch { $issues += 'PSM vendor temp root isolation not confirmed' }
-    if ($Stage -eq 'Verify') {
+    if ($Stage -eq 'Verify' -and -not $hardened) {
+        $evidence += 'Hardening skipped by the lab configuration (SkipHardening): RDP listener TLS NotTested'
+    }
+    if ($Stage -eq 'Verify' -and $hardened) {
         try {
             Assert-PASeasyPsmRdpTransport
             $evidence += 'PSM ticket RDP listener: NLA disabled per vendor prerequisite; TLS layer 2 required'

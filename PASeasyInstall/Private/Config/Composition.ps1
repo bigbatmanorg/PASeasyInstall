@@ -174,7 +174,11 @@ function New-PASDeploymentConfiguration {
         [AllowEmptyString()][string]$InstallerName = '', [AllowEmptyString()][string]$InstallerCompany = '',
         [ValidateSet('None', 'New', 'Existing')][string]$DomainMode = 'None', [AllowEmptyString()][string]$DomainName = '',
         [AllowEmptyString()][string]$DomainControllerAddress = '', [AllowEmptyString()][string]$DomainUsername = '',
+        [switch]$SkipHardening,
         [string]$DataRoot = (Get-PASDataRoot))
+    if ($SkipHardening -and $SecurityProfile -ne 'Lab') {
+        throw '-SkipHardening leaves the servers without the vendor hardening and is only possible with -SecurityProfile Lab.'
+    }
     $lab = ($SecurityProfile -eq 'Lab')
     $overrides = [ordered]@{}
     $c = [ordered]@{
@@ -336,12 +340,22 @@ function New-PASDeploymentConfiguration {
     # CPM pins the self-signed certificate of the first PVWA installed in this deployment; the
     # installer reads it from that PVWA over the authenticated management channel at install time.
     if ($lab -and $firstPvwa) {
-        foreach ($e in @($components | Where-Object { $_.type -in @('CPM', 'HTML5GW', 'PTA') })) { $e.options.pvwaTrustFrom = $firstPvwa }
+        # PSM too: its registration calls the PVWA API (ApiKeyManager) and must trust the PVWA certificate.
+        foreach ($e in @($components | Where-Object { $_.type -in @('CPM', 'PSM', 'HTML5GW', 'PTA') })) { $e.options.pvwaTrustFrom = $firstPvwa }
         if (@($components | Where-Object { $_.type -eq 'CPM' }).Count) { $overrides['CPM.AllowPinnedLeafTrust'] = $true }
     }
     if ($lab -and $anyWindows) {
         $overrides['WinRM.SkipCACheck'] = $true
         $overrides['WinRM.SkipCNCheck'] = $true
+    }
+    if ($SkipHardening) {
+        # Installation only: no vendor hardening on any server of this lab, and no hardening GPOs.
+        foreach ($hardened in @('Vault', 'PVWA', 'CPM', 'PSM', 'PSMP')) {
+            $present = @($components | Where-Object { $_.type -eq $hardened -or ($hardened -eq 'Vault' -and $_.type -eq 'DRVault') }).Count
+            if ($present) {
+                $overrides[$hardened + '.ApplyHardening'] = $false
+            }
+        }
     }
     # Active Directory. New: the server at -DomainControllerAddress becomes the first domain controller of a new
     # forest. Existing: that address is a DNS server of the domain. Either way the Windows servers of PVWA, CPM

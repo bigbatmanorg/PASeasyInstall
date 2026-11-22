@@ -447,7 +447,7 @@ function Initialize-PASComponentRun {
             $Run.Secrets['PTARoot-' + $id] = $rootCredential.Password
         }
     }
-    if (-not $prepared -and $type -in @('CPM', 'HTML5GW', 'PTA')) {
+    if (-not $prepared -and $type -in @('CPM', 'PSM', 'HTML5GW', 'PTA')) {
         $options = Get-PASValue $Component 'options' $null
         $trustFrom = [string](Get-PASValue $options 'pvwaTrustFrom' '')
         if ($trustFrom) {
@@ -625,6 +625,9 @@ function Invoke-PASVaultSequence {
         $inv.Values.Settings.Hardening.AllowRDP = $false
         if ($Config.security.profile -eq 'Lab' -and
             $Config.security.overrides.Contains('Vault.AllowRDP')) { $inv.Values.Settings.Hardening.AllowRDP = [bool]$Config.security.overrides['Vault.AllowRDP'] }
+        # -SkipHardening: the hardening steps of the Vault workflows stay in place and do nothing.
+        $inv.Values.Settings.Hardening.Skip = ($Config.security.profile -eq 'Lab' -and
+            $Config.security.overrides.Contains('Vault.ApplyHardening') -and -not [bool]$Config.security.overrides['Vault.ApplyHardening'])
         foreach ($target in @($inv.Targets.Keys)) {
             $inv.Targets[$target]['UseSSL'] = $secure
             if ($Config.security.profile -eq 'Lab') {

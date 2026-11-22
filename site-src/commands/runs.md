@@ -1,10 +1,14 @@
 # Run commands
 
-An installation is a run. It executes in its own controller process and has a 32-character run id. These commands list, follow, continue and give up runs.
+An installation is a **run**. It executes in its own process on the controller and has a run id of 32
+characters. These commands list, follow, continue and give up runs. They read the files of the run; only
+`Resume-PASRun` and `Stop-PASRun -CredentialMap` contact servers.
 
-Generated from the command help. See also [Durable runs and resume](../concepts/durable-runs.md) and [Coordination and locks](../concepts/coordination.md).
+See also [Runs and resume](../concepts/durable-runs.md) and [Locks](../concepts/coordination.md).
 
-| Command | Purpose |
+The text of every command below is its own help (`Get-Help <command> -Full`).
+
+| Command | What it does |
 |---|---|
 | [`Get-PASRun`](#get-pasrun) | Lists the installation runs of this controller, or shows one run with its components and events. |
 | [`Get-PASRunEvent`](#get-pasrunevent) | Returns the progress events of a run, oldest first. |
@@ -16,19 +20,11 @@ Generated from the command help. See also [Durable runs and resume](../concepts/
 
 Lists the installation runs of this controller, or shows one run with its components and events.
 
-Without -RunId: one line per run, newest first, with RunId, Name (the environment), Status,
-StartedUtc, FinishedUtc and Message.
+Without -RunId: one line per run, newest first, with RunId, Name (the environment), Status, StartedUtc, FinishedUtc and Message.
 
-With -RunId: the run in detail, with RunId, Name, Status, CurrentComponent, Message, LastStep,
-StartedUtc, FinishedUtc, CompletedEvents, ErrorEvents, Components (Id, Type, Status, Message),
-Events (the last -Tail events, see Get-PASRunEvent), OperationallyVerified and RunDirectory (the
-folder that holds the run's files).
+With -RunId: the run in detail, with RunId, Name, Status, CurrentComponent, Message, LastStep, StartedUtc, FinishedUtc, CompletedEvents, ErrorEvents, Components (Id, Type, Status, Message), Events (the last -Tail events, see Get-PASRunEvent), OperationallyVerified and RunDirectory (the folder that holds the run's files).
 
-Status of a run: Launching or Running while the controller works; Succeeded; or stopped as Failed,
-Unknown (an outcome on a server could not be determined), Blocked, Interrupted (the controller
-process ended), LaunchFailed or Abandoned (see Stop-PASRun). A stopped run is continued with
-Resume-PASRun. Succeeded means every installer step finished and was verified; Test-PASHealth
-checks that the lab works end to end.
+Status of a run: Launching or Running while the controller works; Succeeded; or stopped as Failed, Unknown (an outcome on a server could not be determined), Blocked, Interrupted (the controller process ended), LaunchFailed or Abandoned (see Stop-PASRun). A stopped run is continued with Resume-PASRun. Succeeded means every installer step finished and was verified; Test-PASHealth checks that the lab works end to end.
 
 Reads local files only. No server is contacted.
 
@@ -58,10 +54,7 @@ Shows the components of the newest run.
 
 Returns the progress events of a run, oldest first.
 
-Each event has TimestampUtc, RunId, Component (the component id of the configuration), Stage (the
-step), Event (its type, e.g. TaskStarted, TaskCompleted), Level (Information, Warning or Error),
-Status (Running, Complete, Failed, Warning or Info), Source (Controller or Engine), Message and
-Sequence.
+Each event has TimestampUtc, RunId, Component (the component id of the configuration), Stage (the step), Event (its type, e.g. TaskStarted, TaskCompleted), Level (Information, Warning or Error), Status (Running, Complete, Failed, Warning or Info), Source (Controller or Engine), Message and Sequence.
 
 The events of the controller and of every component are merged. Reads local files only.
 
@@ -85,13 +78,9 @@ Shows what failed in the newest run.
 
 Follows a run until it ends: prints its progress events as they arrive and returns the final run.
 
-Every new event is written to the console as one line: local time, component, step, status, message.
-When the run reaches a final status the same object Get-PASRun -RunId returns is returned. Final
-statuses: Succeeded, Failed, LaunchFailed, Unknown, Interrupted, Blocked, Abandoned.
+Every new event is written to the console as one line: local time, component, step, status, message. When the run reaches a final status the same object Get-PASRun -RunId returns is returned. Final statuses: Succeeded, Failed, LaunchFailed, Unknown, Interrupted, Blocked, Abandoned.
 
-Waiting does not influence the run. You can stop waiting with Ctrl+C at any time: the installation
-continues in its own process, and Wait-PASRun can be started again later. When started again it
-first prints the latest (up to 1000) events of the run.
+Waiting does not influence the run. You can stop waiting with Ctrl+C at any time: the installation continues in its own process, and Wait-PASRun can be started again later. When started again it first prints the latest (up to 1000) events of the run.
 
 | Parameter | Meaning |
 |---|---|
@@ -114,19 +103,15 @@ Waits silently and shows the components that did not succeed.
 
 Continues a run that stopped: finished components are checked again, the remaining ones are installed.
 
-Works on a run whose status is Failed, Unknown, Interrupted, LaunchFailed or Blocked. The run keeps
-its own copy of the configuration and its plan; they are used again unchanged, and so must the
-installer media be.
+Works on a run whose status is Failed, Unknown, Interrupted, LaunchFailed or Blocked. The run keeps its own copy of the configuration and its plan; they are used again unchanged, and so must the installer media be.
 
 What happens on resume:
+
 - steps that finished are verified again, not repeated;
 - a step that was still running on a server is picked up where it is, never started a second time;
-- a step that ended Failed or Unknown is NOT repeated on its own. Look at the server and at
-Get-PASRunEvent -Failed, correct the cause, then name the step with -RetryStep.
+- a step that ended Failed or Unknown is NOT repeated on its own. Look at the server and at Get-PASRunEvent -Failed, correct the cause, then name the step with -RetryStep.
 
-The command checks the run and asks for confirmation. Only then it asks for the server accounts and
-passwords of the run's configuration that -CredentialMap, -SecretMap or -LabPassword do not supply
-(passwords are never stored, so they are needed again). With -WhatIf nothing is asked.
+The command checks the run and asks for confirmation. Only then it asks for the server accounts and passwords of the run's configuration that -CredentialMap, -SecretMap or -LabPassword do not supply (passwords are never stored, so they are needed again). With -WhatIf nothing is asked.
 
 | Parameter | Meaning |
 |---|---|
@@ -159,22 +144,16 @@ Get-PASRun -Last 1 | Resume-PASRun -RetryFailedPreflight -Wait
 
 Stops or gives up a run: marks it Abandoned and releases the locks it holds on the servers.
 
-A run that stopped (Failed, Unknown, Blocked, Interrupted, LaunchFailed) keeps a lock folder on
-every server it did not finish, so that no other run touches a half-installed server. Stop-PASRun
-gives those servers back. Use it when you will not resume the run, typically after you reset or
-rebuilt the servers.
+A run that stopped (Failed, Unknown, Blocked, Interrupted, LaunchFailed) keeps a lock folder on every server it did not finish, so that no other run touches a half-installed server. Stop-PASRun gives those servers back. Use it when you will not resume the run, typically after you reset or rebuilt the servers.
 
-- A run that is still running is refused, unless you add -Force: then the controller process of
-this run is stopped first.
+- A run that is still running is refused, unless you add -Force: then the controller process of this run is stopped first.
 - The run is marked Abandoned. An abandoned run cannot be resumed.
-- With -CredentialMap the lock on every unfinished server is released, if it still belongs to
-this run. A server that cannot be reached becomes a warning.
+- With -CredentialMap the lock on every unfinished server is released, if it still belongs to this run. A server that cannot be reached becomes a warning.
 - Without -CredentialMap no server is contacted; the lock folders to delete by hand are listed.
 
 No installed software is changed or removed: a server may be left with a partial installation.
 
-Returns RunId, Status, PreviousStatus, ControllerStopped and Locks (Target, Computer, LockFolder,
-Released, Message).
+Returns RunId, Status, PreviousStatus, ControllerStopped and Locks (Target, Computer, LockFolder, Released, Message).
 
 | Parameter | Meaning |
 |---|---|

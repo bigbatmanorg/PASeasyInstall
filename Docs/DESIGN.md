@@ -90,12 +90,17 @@ side by side. `Sequential`, or a configuration without the key, installs one com
   own copy of the module, so remoting sessions are not shared. The Vault with its DR Vault is one lane, the new
   forest is one lane. Components on the same server stay one after the other.
 - **Signals** (wait handles inside the controller, set once): `Domain` (forest installed), `Vault` (Vault
-  sequence finished), `PvwaRegistered` (first PVWA finished `register`), `Cert:<pvwa>` (PVWA has its
-  certificate), `Done:<pvwa>`, `Cancel` (a lane failed).
+  sequence finished), `Cert:<pvwa>` (PVWA created its certificate, its first step), `Registered:<id>` (a PVWA
+  or a CPM finished `register`), `PvwaRegistered` (the first PVWA did), `Done:<pvwa>`, `Cancel` (a lane failed).
 - **Who waits:** a joined server waits for `Domain` before its join. A component that trusts the PVWA
-  certificate (CPM, gateway, PTA) starts when every PVWA has one. A step that signs in to the Vault waits for
-  `Vault`; every component except the first PVWA also for `PvwaRegistered`; PTA for every PVWA to be finished.
+  certificate (CPM, PSM, gateway, PTA) starts when every PVWA has created one, about a minute into the run.
+  A step that signs in to the Vault waits for `Vault`, and the registrations follow the vendor's order: the
+  first PVWA, the other PVWAs, every CPM, then PSM, PSMP and the rest (PTA when every PVWA is finished).
   Then the step takes the Vault lock, so the registrations run one at a time.
+- **Stage order** (`Get-PASComponentStageNames` in `Private/Config/Planning.ps1`): PVWA and PSMP harden first and
+  register last, so they only wait for the Vault when nothing else is left. CPM and PSM register before their
+  hardening: CPM's hardening starts services that need the registration; for PSM the vendor's stage script
+  reported the registration on a hardened server as failed. The reasons are written next to the stage lists.
 - **A lane fails:** `Cancel` is set. A lane that waits gives up (its target is journalled as `Stopped`, shown as
   Pending); a lane that works finishes the component it is installing. The run ends Failed with the step that
   failed. `Resume-PASRun` starts every lane again; finished steps are only revalidated.

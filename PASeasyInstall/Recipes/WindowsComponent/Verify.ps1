@@ -14,6 +14,9 @@ if ($type -eq 'PVWA') {
             Evidence = @($tls)
         }
     }
+    if ($Stage -eq 'Certificate') {
+        return Test-PASeasyPvwaCertificatePresent -Settings $Settings
+    }
     if ($Stage -eq 'Preflight') { $null = Test-PASeasyPvwaTlsPreparation -Settings $Settings }
 }
 if ($type -eq 'CPM' -and $Stage -eq 'ConfigureTLS') {

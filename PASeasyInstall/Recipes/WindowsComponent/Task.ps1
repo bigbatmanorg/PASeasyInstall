@@ -1,7 +1,7 @@
 # Runs on the TARGET under WinRM or a recoverable SYSTEM scheduled task.
 # Commands below are adapted from the supplied CyberArk v15 vendor Ansible role workflows.
 [CmdletBinding()]
-param([Parameter(Mandatory)][ValidateSet('Preflight', 'Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Register', 'Harden', 'PostInstall', 'Verify')][string]$Stage,
+param([Parameter(Mandatory)][ValidateSet('Preflight', 'Certificate', 'Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Register', 'Harden', 'PostInstall', 'Verify')][string]$Stage,
     [Parameter(Mandatory)][hashtable]$Settings,
     [string]$VaultPassword = '')
 $ErrorActionPreference = 'Stop'
@@ -54,6 +54,7 @@ try {
     if ($type -eq 'PVWA') {
         . (Join-Path $PSScriptRoot 'PvwaTls.ps1')
         if ($Stage -eq 'Preflight') { $null = Test-PASeasyPvwaTlsPreparation -Settings $Settings }
+        if ($Stage -eq 'Certificate') { return Invoke-PASeasyPvwaCertificate -Settings $Settings }
         if ($Stage -eq 'ConfigureTLS') { return Invoke-PASeasyPvwaTls -Settings $Settings }
     }
     if ($type -eq 'CPM' -and $Stage -eq 'ConfigureTLS') {

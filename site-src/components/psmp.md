@@ -1,36 +1,57 @@
-# PSMP
+# PSM for SSH (PSMP)
 
-Installs **PSM for SSH** on Linux: Ubuntu 22.04/24.04 or RHEL/Rocky 8/9. The lab reference is Ubuntu 24.04.
+Installs PSM for SSH on a Linux server and registers it with the Vault.
 
-| Stage | What it does |
+```powershell
+Install-PASPSMP -ComputerName 192.0.2.41 -VaultAddress 192.0.2.11 -MediaPath D:\CyberArk -SecurityProfile Lab -AcceptEula -Wait
+```
+
+In a lab configuration: `@{ Type = 'PSMP'; Name = 'psmp01'; Address = '192.0.2.41' }`, with `-AcceptEula`.
+
+## What it needs
+
+- **A Linux server:** Ubuntu 22.04 or 24.04, or RHEL or Rocky 8 or 9. Tested on Ubuntu 24.04 and once on Rocky
+  Linux 9.9.
+- **root.** The installation writes system packages and services, so it signs in as root; another account is
+  refused. root must be able to sign in over SSH with its password once. The installer then creates its own SSH
+  key on the controller, authorises it on the server and uses only the key. See
+  [Server prerequisites](../servers/prerequisites.md#linux-servers).
+- **The PSMP package for the distribution of the server.** The big ZIP holds one per distribution. The media
+  step picks one; when the run can sign in it reads the distribution of the server and takes the matching
+  package from the same folder or ZIP.
+- The password of the Vault user Administrator, to register.
+- **`-AcceptEula`** (window: the box on the Servers step). It confirms that you read and accept the CyberArk
+  end user license agreement of the installer. Without it the configuration is not valid.
+
+## Steps
+
+| Step | What it does |
 |---|---|
-| `management` | Authorises the controller's SSH key, from the password you type once |
-| `media-upload` | Copies the PSMP package for the target's distribution, SHA-256 verified |
-| `preflight` | OS identity and version, `unzip`, and the package manager |
-| `extract`, `prerequisites` | Extracts the installer and checks the prerequisites |
-| `install` | Installs `CARKpsmp`. Requires **`acceptEula`**, which is set by the checkbox on [step 2](../gui/what-to-install.md). |
-| `register` | Registers PSMP in the Vault |
-| `harden` | Baseline verification. On Ubuntu, the vendor's RHEL hardening does not apply. |
-| `verify` | `psmpsrv` is active |
+| `media-upload` | Copies the PSMP package, verified by its SHA-256 |
+| `preflight` | Distribution and version, the package manager, `unzip` (installed when missing) |
+| `extract`, `prerequisites` | Unpacks the installer and checks the prerequisites |
+| `install` | Installs the package. On the RHEL family the package must be signed with CyberArk's key |
+| `harden` | RHEL family: checks that the vendor's hardening, which runs inside the package installation, was applied. Ubuntu 24.04: the vendor's hardening does not apply there; a baseline of this installer is applied and checked instead |
+| `register` | Creates the Vault environment of this PSMP. Waits for the Vault, the first PVWA and every CPM |
+| `verify` | The PSMP service is active |
 
-The media step selects one PSMP package. Once it can sign in, the run reads the server's `/etc/os-release` and uses
-the package for that distribution (Ubuntu 22/24, RHEL-family 8/9 including Rocky and AlmaLinux, SLES 15) from the same
-bundle or folder. On RHEL-family servers the RPM must be signed by CyberArk's published key.
+Before the first step the controller creates its SSH key and authorises it on the server with the root password.
 
-Connect through PSMP with the standard syntax: `ssh <vault-user>@<target-account>@<target-address>@<psmp-address>`.
+## After the installation
 
-Depending on the platform's policy, PSMP asks for a reason for the connection before it opens the session.
+Connect through PSMP with the usual syntax:
 
-!!! note "Session recordings"
-    The Vault creates the `PSMRecordings` safe when the first session is recorded, not during installation.
-    Only members of the Vault **Auditors** group can see it, so the built-in `Administrator` gets "not found" from
-    the recordings pages and API. Review recordings as the built-in `Auditor` user, or add your reviewer to Auditors.
+```text
+ssh <vault user>@<target account>@<target address>@<psmp address>
+```
 
-!!! note "Ubuntu cloud images"
-    Preflight installs `unzip` from the OS repositories when it is missing. Package installs never upgrade
-    packages that are already installed, and Ubuntu's `needrestart` is told not to restart PASeasyInstall's
-    stages; OS updates stay your decision.
+Depending on the platform PSMP asks for a reason before it opens the session.
 
-!!! note "Rebuilt PSMP server"
-    Installing PSMP again on a rebuilt server with the same name re-registers it: the vendor setup recreates the
-    credential files of that server's existing Vault users.
+## Good to know
+
+- **A rebuilt server with the same name** registers again: the vendor setup recreates the credential files of
+  the existing Vault users of that server. Two PSMP servers must not have the same host name.
+- **Ubuntu cloud images:** packages that are installed already are never upgraded by the installation; system
+  updates stay your decision.
+- **Session recordings:** see [PSM](psm.md#good-to-know).
+- An [HTML5 Gateway](html5gw.md) can share this server.

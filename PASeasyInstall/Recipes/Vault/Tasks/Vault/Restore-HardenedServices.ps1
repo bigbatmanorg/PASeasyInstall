@@ -5,6 +5,10 @@
 # every other service of the vendor's list is only measured by Verify-Hardening.ps1.
 param([Parameter(Mandatory = $true)][hashtable]$Settings)
 $ErrorActionPreference = 'Stop'
+if ($Settings.Hardening.Contains('Skip') -and [bool]$Settings.Hardening.Skip) {
+    # Lab configuration with -SkipHardening: the Vault server stays as Windows and the Vault installer left it.
+    return [pscustomobject]@{ Changed = $false; Message = 'Hardening skipped by the lab configuration (SkipHardening)' }
+}
 $restored = @()
 foreach ($name in @('wuauserv', 'BITS')) {
     $service = Get-Service -Name $name -ErrorAction SilentlyContinue

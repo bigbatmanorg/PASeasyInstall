@@ -1,23 +1,63 @@
 # PSM
 
-Installs PSM on a **workgroup** (out-of-domain) Windows Server. That is the vendor's supported non-domain path.
+Installs the Privileged Session Manager on a Windows Server 2022 and registers it with the Vault. The server can
+stay in its workgroup or be member of the lab domain.
 
-| Stage | What it does |
+```powershell
+Install-PASPSM -ComputerName 192.0.2.31 -VaultAddress 192.0.2.11 -MediaPath D:\CyberArk -SecurityProfile Lab -Wait
+```
+
+In a lab configuration: `@{ Type = 'PSM'; Name = 'PSM01'; Address = '192.0.2.31' }`.
+
+## What it needs
+
+- The PSM package (`Privileged Session Manager-Rls-...zip`, or the big ZIP).
+- The password of the Vault user Administrator, to register.
+- A PVWA that is registered with the Vault: PSM writes into the PVWA configuration. In a lab that is taken care
+  of by the order of the registrations.
+
+## Steps
+
+PSM is installed with the vendor's own stage script (`Execute-Stage.ps1`):
+
+| Step | What it does |
 |---|---|
-| `management`, `media-upload`, `preflight`, `extract` | As for PVWA; locates the vendor's `Execute-Stage.ps1` automation |
-| `prerequisites` | Remote Desktop Session Host and other prerequisites. **Reboots** and continues the same stage. |
-| `install` | Vendor installation, followed by a **reboot** and continuation |
-| `register` | Registers PSM in the Vault |
-| `harden` | CyberArk PSM hardening (legacy TLS off, TLS 1.2 on), followed by a **reboot** |
-| `postinstall` | Vendor post-installation tasks |
-| `verify` | The *CyberArk Privileged Session Manager* service runs |
+| `management`, `media-upload`, `preflight`, `extract` | As for [PVWA](pvwa.md) |
+| `prerequisites` | The vendor's prerequisites stage: Remote Desktop Session Host and others |
+| `install` | The vendor's installation stage |
+| `register` | The vendor's registration stage. Waits for the Vault, the first PVWA and every CPM |
+| `harden` | The vendor's hardening stage. On a server that is member of a domain, its out-of-domain part is left out |
+| `postinstall` | The vendor's post-installation stage; then the RDP listener is set to TLS |
+| `verify` | The PSM service runs and the users `PSMConnect` and `PSMAdminConnect` exist |
 
-Each vendor stage is run in passes until it reports that no further reboot is needed. Reboots happen **without**
-writing a plaintext autologon password.
+**Restarts.** The vendor stages ask for restarts. After each stage the server is restarted when the stage asked
+for it, and the same stage is run again until it reports that no restart is needed. In the window the restart
+and the continuation count as part of the step. No autologon password is stored for these restarts.
 
-PSM restricts untrusted creation at the Windows Temp root to protect its TLS backup, and existing child
-permissions are preserved. The [Review plan](../gui/review.md) step shows this as a warning.
+After the last stage the PSM service is started if it stopped: after a restart it ends itself when it cannot
+reach the Vault at once.
 
-!!! note "Session recordings"
-    The Vault creates the `PSMRecordings` safe at the first recorded session. Only Vault **Auditors** members see it:
-    review recordings as the built-in `Auditor` user, or add your reviewer to Auditors.
+**Trust to PVWA.** The vendor's registration calls the PVWA API (`ApiKeyManager`) and needs trusted
+communication to the PVWA server. In a lab the PVWA certificate is self-signed, so the installer copies the
+public certificate from the PVWA server and adds it to the trusted roots of the PSM server before PSM registers.
+
+**Why PSM registers before its hardening.** CyberArk documents the order post-installation, hardening,
+registration. In the test lab (15.2) the registration on a PSM server that was hardened already did all its
+work (PSM was connected to the Vault afterwards), and the vendor's stage script still reported the step as
+failed, with an empty error. The installer never turns a vendor failure into a success, so PSM registers before
+its hardening, which has passed in every run. PVWA and PSM for SSH register after their hardening.
+
+## In a domain
+
+On a server that was joined to the lab domain, PSM is installed with the domain account of the lab, which the
+join makes a local administrator. PSM itself is registered with its local users `PSMConnect` and
+`PSMAdminConnect`, as in a workgroup; domain users for PSM are not set up.
+
+## Good to know
+
+- PSM limits who may create files in the root of the Windows Temp folder, to protect a backup the vendor script
+  keeps there. The plan lists this as a note.
+- **Session recordings:** the Vault creates the safe `PSMRecordings` at the first recorded session. Only members
+  of the Vault group **Auditors** see it: look at recordings as the built-in user `Auditor`, or add your user to
+  Auditors.
+- Options for `Install-PASPSM -Options`: `installDirectory`, `vaultPort`.

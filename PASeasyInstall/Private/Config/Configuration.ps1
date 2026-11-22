@@ -152,7 +152,7 @@ function Test-PASConfiguration {
         # controller reads that certificate from the PVWA server right before the CPM is installed.
         $trustFrom = [string](Get-PASValue $entryOptions 'pvwaTrustFrom' '')
         if ($trustFrom) {
-            if ($type -notin @('CPM', 'HTML5GW', 'PTA')) { $issues.Add("${label}: options.pvwaTrustFrom is only valid for a CPM, an HTML5 Gateway or PTA") }
+            if ($type -notin @('CPM', 'PSM', 'HTML5GW', 'PTA')) { $issues.Add("${label}: options.pvwaTrustFrom is only valid for a CPM, a PSM, an HTML5 Gateway or PTA") }
             if (@($c.components | Where-Object { $_ -and [string]$_.id -eq $trustFrom -and $_.type -eq 'PVWA' }).Count -ne 1) {
                 $issues.Add("$label trusts PVWA '$trustFrom', which is not part of this deployment")
             }
@@ -313,7 +313,7 @@ function Test-PASConfiguration {
     if ($c.security.overrides) {
         foreach ($name in $c.security.overrides.Keys) {
             if ($c.security.overrides[$name] -isnot [bool]) { $issues.Add("Security override $name must be a JSON boolean") }
-            if ($name -notin @('Vault.AllowRDP', 'PVWA.ValidateTLS', 'CPM.ValidatePVWA', 'CPM.AllowPinnedLeafTrust', 'WinRM.RequireHTTPS', 'WinRM.SkipCACheck', 'WinRM.SkipCNCheck', 'PVWA.ApplyHardening', 'CPM.ApplyHardening', 'PSM.ApplyHardening', 'PSMP.ApplyHardening')) {
+            if ($name -notin @('Vault.AllowRDP', 'PVWA.ValidateTLS', 'CPM.ValidatePVWA', 'CPM.AllowPinnedLeafTrust', 'WinRM.RequireHTTPS', 'WinRM.SkipCACheck', 'WinRM.SkipCNCheck', 'Vault.ApplyHardening', 'PVWA.ApplyHardening', 'CPM.ApplyHardening', 'PSM.ApplyHardening', 'PSMP.ApplyHardening')) {
                 $issues.Add("Unknown/unsupported lab override '$name'")
             } else { $warnings.Add("SECURITY DEVIATION: $name = $($c.security.overrides[$name])") }
         }

@@ -210,12 +210,25 @@ function Get-PASComponentStageNames {
     param([Parameter(Mandatory)][string]$Type)
     switch ($Type) {
         'AD' { return @('ad-prerequisites', 'ad-install', 'ad-reboot', 'ad-verify') }
-        'PVWA' { return @('Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Register', 'Harden', 'Verify') }
+        # Certificate comes first: what has to trust this PVWA copies its certificate then (Lanes.ps1).
+        # PVWA and PSMP register with the Vault as the last stage before the final check, after hardening: the
+        # vendor allows that order ("it's possible to perform hardening before registration") and uses it in
+        # its own automation. So these servers do everything that needs no Vault first and only wait to register.
+        'PVWA' { return @('Certificate', 'Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Harden', 'Register', 'Verify') }
+        # CPM is the exception: its hardening switches the CPM services to a local user and starts them, and the
+        # scanner service of a CPM that is not registered does not start (lab, 15.2, 2026-11-22). So CPM
+        # registers first, as in the vendor's default order.
         'CPM' { return @('Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Register', 'Harden', 'Verify') }
+        # PSM is the second exception. The vendor documents post-installation, hardening, registration. In the
+        # lab (15.2, 2026-11-22) the registration on a hardened PSM server did everything (ApiKeyManager
+        # succeeded once the server trusted the PVWA certificate, "Registration finished with success", service
+        # running, PSM connected to the Vault), and the vendor's Execute-Stage.ps1 still reported the step as
+        # failed, with the empty error "The operation completed successfully". A vendor failure is never
+        # turned into a success here, so PSM registers before its hardening, which has always passed.
         'PSM' { return @('Extract', 'Prerequisites', 'Install', 'Register', 'Harden', 'PostInstall', 'Verify') }
         'HTML5GW' { return @('Extract', 'Prerequisites', 'Install', 'Verify') }
         'PTA' { return @('Extract', 'Prerequisites', 'Install', 'Register', 'Verify') }
-        default { return @('Extract', 'Prerequisites', 'Install', 'Register', 'Harden', 'Verify') }
+        default { return @('Extract', 'Prerequisites', 'Install', 'Harden', 'Register', 'Verify') }
     }
 }
 function New-PASComponentWorkflow {
@@ -360,7 +373,7 @@ function New-PASComponentWorkflow {
                 TimeoutSeconds = 600
             }
         }
-        if ($type -eq 'CPM' -and (Get-PASValue $Component.options 'pvwaTrustCertificateFile' '')) {
+        if ($type -in @('CPM', 'PSM') -and (Get-PASValue $Component.options 'pvwaTrustCertificateFile' '')) {
             $steps += @{
                 Id = 'pvwa-trust-certificate'
                 Kind = 'Transfer'
@@ -395,8 +408,8 @@ function New-PASComponentWorkflow {
                 $step.Remove('Script')
                 $step.Kind = 'Verify'
             }
-            if ($stage -in @('Install', 'ConfigureTLS', 'Register', 'Harden')) { $step['Critical'] = $true }
-            if ($stage -in @('Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Register', 'Harden', 'PostInstall') -and
+            if ($stage -in @('Certificate', 'Install', 'ConfigureTLS', 'Register', 'Harden')) { $step['Critical'] = $true }
+            if ($stage -in @('Certificate', 'Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Register', 'Harden', 'PostInstall') -and
                 $mode -in @('WindowsComponent', 'LinuxComponent', 'Html5Gateway', 'Pta')) { $step['Mode'] = 'Detached' }
             if ($stage -eq 'Register') {
                 $step.Inputs['VaultPassword'] = @{SecretRef = 'VaultAdmin' }
@@ -543,6 +556,12 @@ function New-PASRuntimeInventory {
             $componentSettings.AllowPinnedLeafTrust = $false
             if ($Config.security.profile -eq 'Lab' -and
                 $Config.security.overrides.Contains('CPM.AllowPinnedLeafTrust')) { $componentSettings.AllowPinnedLeafTrust = [bool]$Config.security.overrides['CPM.AllowPinnedLeafTrust'] }
+        }
+        if ($entry.type -eq 'PSM') {
+            # The PSM registration calls the PVWA API: in a lab the PSM server trusts the PVWA certificate.
+            $componentSettings.PVWATrustCertificateFile = [string](Get-PASValue $componentSettings.Options 'pvwaTrustCertificateFile' '')
+            $componentSettings.PVWATrustCertificateSHA256 = [string](Get-PASValue $componentSettings.Options 'pvwaTrustCertificateSHA256' '')
+            $componentSettings.PVWATrustCertificateTarget = if ($componentSettings.PVWATrustCertificateFile) { 'C:\ProgramData\PASeasyInstall\media\' + $id + '\pvwa-trust.cer' }else { '' }
         }
         if ($Config.security.profile -eq 'Lab' -and $Config.security.overrides) {
             $ck = ([string]$entry.type + '.ApplyHardening')

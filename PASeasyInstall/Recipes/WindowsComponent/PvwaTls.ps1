@@ -114,13 +114,51 @@ function Assert-PASeasyPvwaHttpsBinding {
     if ($flags -isnot [string]) { throw 'PVWA IIS SSL policy returned an unexpected value type' }
     if ($flags -notmatch '(^|,\s*)Ssl($|,)') { throw 'PVWA application does not require HTTPS' }
 }
+function New-PASeasyPvwaLabCertificate {
+    # The self-signed certificate of a lab PVWA, in the machine store. The private key never leaves the server.
+    param($Policy)
+    return (New-SelfSignedCertificate -DnsName $Policy.Uri.DnsSafeHost -CertStoreLocation Cert:\LocalMachine\My -FriendlyName $Policy.FriendlyName -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 -KeyExportPolicy NonExportable -NotAfter ([DateTime]::UtcNow.AddYears(1)) -ErrorAction Stop)
+}
+function Invoke-PASeasyPvwaCertificate {
+    # Stage Certificate, the first stage of a PVWA: the certificate PVWA will serve exists from here on, long
+    # before IIS is installed. Everything that has to trust this PVWA (CPM, HTML5 Gateway, PTA on other servers)
+    # can copy the public certificate now and start its own installation at the same time.
+    # Lab: creates the self-signed certificate. Otherwise: the certificate named by tlsCertificateThumbprint must exist.
+    param([hashtable]$Settings)
+    $policy = Get-PASeasyPvwaTlsPolicy $Settings
+    $cert = Get-PASeasyPvwaCertificate $policy -AllowPending:$policy.Lab
+    $created = $false
+    if (-not $cert) {
+        $cert = New-PASeasyPvwaLabCertificate $policy
+        $created = $true
+    }
+    if (-not $cert.HasPrivateKey) {
+        throw 'The PVWA certificate has no private key on this server'
+    }
+    [pscustomobject]@{
+        Changed = $created
+        Message = $(if ($created) { 'SECURITY DEVIATION: explicit Lab PVWA self-signed certificate created' } else { 'PVWA certificate is present' })
+        Data = @{ Metadata = ('PVWA HTTPS certificate ' + $cert.Thumbprint + '; LabSelfSigned=' + $policy.Lab) }
+    }
+}
+function Test-PASeasyPvwaCertificatePresent {
+    # Read-only check of stage Certificate.
+    param([hashtable]$Settings)
+    $policy = Get-PASeasyPvwaTlsPolicy $Settings
+    $cert = Get-PASeasyPvwaCertificate $policy
+    [pscustomobject]@{
+        Passed = [bool]$cert.HasPrivateKey
+        Detail = ('PVWA certificate ' + $cert.Thumbprint + ' is in the machine store with its private key')
+        Evidence = @('thumbprint ' + $cert.Thumbprint)
+    }
+}
 function Invoke-PASeasyPvwaTls {
     param([hashtable]$Settings)
     $policy = Get-PASeasyPvwaTlsPolicy $Settings
     Import-Module WebAdministration -ErrorAction Stop
     $cert = Get-PASeasyPvwaCertificate $policy -AllowPending:$policy.Lab
     if (-not $cert) {
-        $cert = New-SelfSignedCertificate -DnsName $policy.Uri.DnsSafeHost -CertStoreLocation Cert:\LocalMachine\My -FriendlyName $policy.FriendlyName -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 -KeyExportPolicy NonExportable -NotAfter ([DateTime]::UtcNow.AddYears(1)) -ErrorAction Stop
+        $cert = New-PASeasyPvwaLabCertificate $policy
     }
     if ($policy.Lab) {
         # Explicit, target-local Lab trust only; never imports a private key into Root.
