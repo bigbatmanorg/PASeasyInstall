@@ -5,9 +5,9 @@
 | | |
 |---|---|
 | Operating system | Windows Server 2019/2022/2025 or Windows 10/11, 64-bit |
-| PowerShell | **Windows PowerShell 5.1** (built in). PowerShell 7 can run the desktop in Mock mode, but real installations need 5.1. |
+| PowerShell | **Windows PowerShell 5.1** (built in). The desktop and real installations need 5.1. |
 | .NET | .NET Framework 4.7.2 or later (4.8 recommended) |
-| UI runtime | [NativeHTMLKit](https://nativehtmlkit.github.io/). It is bundled in the portable ZIP, and installed automatically as a dependency from the Gallery. |
+| UI runtime | None to install: the desktop window is drawn with WPF, which is part of the .NET Framework on Windows. |
 | OpenSSH client | Built into Windows. Needed only for PSMP (Linux) targets. |
 | Disk | About 10 GB free for the media cache and run journals |
 

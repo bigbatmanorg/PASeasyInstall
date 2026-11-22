@@ -68,19 +68,19 @@ Describe 'The core module stands alone' {
         if ($script:manifest.ContainsKey('RequiredModules')) { $required = @($script:manifest.RequiredModules) }
         $required.Count | Should -Be 0
     }
-    It 'loads the window engine only from the Desktop folder, which nothing loads at import' {
+    It 'loads the window code (WPF) only from the Desktop folder, which nothing loads at import' {
         $hits = @(Get-ChildItem -LiteralPath $PASModuleRoot -Recurse -File -Include '*.ps1', '*.psm1' |
                 Where-Object { $_.FullName -notmatch '[\\/]Desktop[\\/]' } |
-                Select-String -Pattern 'Import-Module\s+\S*(NativeHTMLKit|PASeasyInstall\.UI)')
+                Select-String -Pattern 'PresentationFramework|Import-Module\s+\S*PASeasyInstall\.UI')
         $hits | Should -BeNullOrEmpty
     }
-    It 'imports in a fresh process without loading NativeHTMLKit' -Skip:($env:OS -ne 'Windows_NT') {
+    It 'imports in a fresh process without loading the window code (WPF)' -Skip:($env:OS -ne 'Windows_NT') {
         $exe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
         $command = "Import-Module '" + $PASModuleManifest.Replace("'", "''") + "' -ErrorAction Stop; " +
-        "'COMMANDS=' + @(Get-Command -Module PASeasyInstall).Count; 'KIT=' + @(Get-Module NativeHTMLKit*).Count"
+        "'COMMANDS=' + @(Get-Command -Module PASeasyInstall).Count; 'WPF=' + @([AppDomain]::CurrentDomain.GetAssemblies() | Where-Object { `$_.GetName().Name -eq 'PresentationFramework' }).Count"
         $output = @(& $exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command $command 2>&1 | ForEach-Object { [string]$_ })
         $LASTEXITCODE | Should -Be 0
         $output | Should -Contain ('COMMANDS=' + $script:publicNames.Count)
-        $output | Should -Contain 'KIT=0'
+        $output | Should -Contain 'WPF=0'
     }
 }

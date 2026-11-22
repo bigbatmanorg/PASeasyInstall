@@ -1,7 +1,7 @@
 # Start-PASeasyInstall
 
-Opens the [desktop](../gui/index.md). The command is part of the PASeasyInstall module. The first time, it offers to install NativeHTMLKit,
-the module that draws the window:
+Opens the [desktop](../gui/index.md). The command is part of the PASeasyInstall module. The window is drawn with WPF,
+which is part of Windows, so nothing else has to be installed:
 
 ```powershell
 Install-Module PASeasyInstall -Scope CurrentUser

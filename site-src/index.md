@@ -30,7 +30,7 @@ installed, registered, hardened and verified on its own server.
 -   **[Portable ZIP](getting-started/portable.md)**
 
     Download one ZIP from GitHub Releases, unzip it on the controller and double-click
-    `Start-PASeasyInstall.cmd`. Everything it needs, including the NativeHTMLKit UI runtime, is inside.
+    `Start-PASeasyInstall.cmd`. Everything it needs is inside.
 
 -   **[PowerShell Gallery](getting-started/gallery.md)**
 
@@ -73,7 +73,7 @@ configuration. Components are installed one after the other.
   [How it works](concepts/durable-runs.md)
 - **No secrets on disk.** Passwords live only in memory. They never go into project files, logs or journals.
   [Security model](concepts/security.md)
-- **Native desktop, no browser.** The UI is a native window built with
-  [NativeHTMLKit](https://nativehtmlkit.github.io/). There is no web server, browser engine or JavaScript.
+- **Native desktop, no browser.** The UI is a native Windows window (WPF). There is no web server, browser
+  engine or JavaScript, and no module besides PASeasyInstall.
 
 **Next:** [Requirements](getting-started/requirements.md) · [Your first lab](getting-started/first-lab.md) · [Desktop UI tour](gui/index.md)

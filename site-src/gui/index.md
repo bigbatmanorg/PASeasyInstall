@@ -1,7 +1,7 @@
 # The desktop
 
-`Start-PASeasyInstall` opens one window. It is part of the PASeasyInstall module; the first time it offers to
-install NativeHTMLKit, the module that draws the window. It builds a lab in four steps and then
+`Start-PASeasyInstall` opens one window. It is part of the PASeasyInstall module and is drawn with WPF, which is
+part of Windows, so nothing else has to be installed. It builds a lab in four steps and then
 shows the installation while it runs. The window only calls the [commands](../commands/index.md) of the
 PASeasyInstall module, so everything it does can also be done from PowerShell.
 

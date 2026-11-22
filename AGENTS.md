@@ -6,8 +6,8 @@ use is at your own risk. Read `Docs/DESIGN.md` first: it explains the layout and
 
 ## Layout
 
-- `PASeasyInstall/` is the **one core module**. It has **no dependency**, in particular no GUI dependency: it
-  must import and work without NativeHTMLKit.
+- `PASeasyInstall/` is the **one core module**. It has **no dependency**. Importing it loads no window code:
+  WPF is loaded only by the window process that `Start-PASeasyInstall` starts.
 - `PASeasyInstall/Desktop/` is the desktop window, opened by the public command `Start-PASeasyInstall`. There is one module.
 - `Start-PASeasyInstall.ps1` at the repository root opens the desktop from a source checkout.
 
@@ -19,8 +19,11 @@ use is at your own risk. Read `Docs/DESIGN.md` first: it explains the layout and
   process memory. A lab-mode password prefill may come only from `$env:PASEASY_LAB_PASSWORD`.
 - **The UI calls only the public commands** listed in `PASeasyInstall/Desktop/Backend/Backend.Contract.ps1`. It never
   calls a private function and implements no installer logic. Keep the Mock backend and the contract in sync.
-  It is written directly on the NativeHTMLKit SDK (HTML and CSS in `PASeasyInstall/Desktop/Web`, no UI library, no web view,
-  JavaScript or HTTP server): `Model.ps1` is the data, `Views.ps1` the screens as HTML text, `App.ps1` the window and events.
+  It is written on WPF, which is part of Windows (no other module, no UI framework, no C# project): `Window.xaml` is the
+  shell and every style, `Model.ps1` the data, `Controls.ps1` one function per kind of control and the background
+  task helper, `Views.ps1` the screens, `App.ps1` the window and events. Every installer call that can take time goes
+  through `Start-PASUITask`, so the window's thread never waits. Passwords stay in their password boxes as SecureString;
+  the model only knows that one was typed.
 - **One function prefix: `PAS`.** No `PASeasy`, `PAExec` or `PAE` prefixes in new function names.
 - **One public command per file** in `PASeasyInstall/Public/`, named after the command, with comment-based help
   (synopsis, description, parameters, at least one example). `FunctionsToExport` in `PASeasyInstall.psd1` must
@@ -53,4 +56,7 @@ Tests share `Tests/TestHelpers.ps1` (repository paths, `Import-PASTestModule`). 
 `InModuleScope PASeasyInstall { ... }` or `Mock -ModuleName PASeasyInstall`. `Tests/OnTarget/` holds manual checks
 that run on a disposable server; CI does not run them.
 
-UI development without servers: `.\Start-PASeasyInstall.ps1 -Backend Mock`.
+UI development without servers: `.\Start-PASeasyInstall.ps1 -Backend Mock`. The window can walk itself:
+`powershell -STA -File PASeasyInstall\Desktop\App.ps1 -Backend Mock -SelfTest <scenario.json>` presses its own buttons
+through UI Automation, checks what it shows and saves every screen as a PNG (see `Desktop/SelfTest.ps1`); it needs no
+desktop session.

@@ -12,9 +12,7 @@ function Start-PASeasyInstall {
     Test-PASLabConfiguration, Get-PASLabPlan, Install-PASLab, Get-PASRun, ...), so everything it does
     can also be done from the prompt.
 
-    The window is drawn by the NativeHTMLKit module. The commands do not need it; only this one does.
-    When it is not installed you are asked whether to install it from the PowerShell Gallery (for the
-    current user). The portable ZIP carries its own copy.
+    The window is drawn with WPF, which is part of Windows: nothing else has to be installed.
 
     The window opens in its own process and the command returns at once: the prompt stays usable, and
     closing the prompt does not close the window. When the window cannot start, the command says why.
@@ -45,20 +43,8 @@ function Start-PASeasyInstall {
     }
     $desktop = Join-Path $script:PASRoot 'Desktop'
 
-    # The window engine: installed, or in the folder next to this module (portable ZIP).
-    $bundled = Join-Path (Split-Path -Parent $script:PASRoot) 'NativeHTMLKit'
-    $available = [bool](Get-Module -ListAvailable -Name NativeHTMLKit)
-    if (-not $available -and -not (Test-Path -LiteralPath $bundled -PathType Container)) {
-        $question = 'The desktop window needs the NativeHTMLKit module (the window engine). Install it now from the PowerShell Gallery for the current user?'
-        if (-not $PSCmdlet.ShouldContinue($question, 'NativeHTMLKit is not installed')) {
-            throw 'The desktop needs the NativeHTMLKit module. Install it with: Install-Module NativeHTMLKit -Scope CurrentUser. The other PASeasyInstall commands work without it.'
-        }
-        Install-Module -Name NativeHTMLKit -Scope CurrentUser -Force -ErrorAction Stop
-    }
-
-    # The window runs in its own Windows PowerShell process. This prompt stays free, and the window does not
-    # depend on what this session has loaded. (An interactive console loads PSReadLine, whose own copy of a
-    # .NET type makes NativeHTMLKit 0.1.2 fail when it looks for its window host.)
+    # The window runs in its own Windows PowerShell process, started with a single-threaded apartment as WPF
+    # needs it. This prompt stays free, and the window does not depend on what this session has loaded.
     $logFolder = Get-PASDataRoot
     if (-not (Test-Path -LiteralPath $logFolder)) {
         New-Item -ItemType Directory -Path $logFolder -Force | Out-Null
@@ -66,7 +52,7 @@ function Start-PASeasyInstall {
     $outLog = Join-Path $logFolder 'desktop.out.log'
     $errorLog = Join-Path $logFolder 'desktop.err.log'
     $exe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $arguments = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy Bypass', '-File', ('"' + (Join-Path $desktop 'App.ps1') + '"'),
+    $arguments = @('-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy Bypass', '-File', ('"' + (Join-Path $desktop 'App.ps1') + '"'),
         '-Backend', $Backend, '-StartDirectory', ('"' + (Get-Location).ProviderPath.TrimEnd('\') + '"'))
     if ($Config) {
         $arguments += @('-Config', ('"' + $Config + '"'))

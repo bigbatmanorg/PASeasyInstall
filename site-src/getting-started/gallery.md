@@ -17,8 +17,7 @@ Install-Module PASeasyInstall -Scope CurrentUser
 Start-PASeasyInstall
 ```
 
-The window is drawn by the **NativeHTMLKit** module. When it is not installed, `Start-PASeasyInstall` asks whether
-to install it from the PowerShell Gallery for the current user.
+The window is drawn with WPF, which is part of Windows. PASeasyInstall needs no other module.
 
 ## A fresh Windows Server
 

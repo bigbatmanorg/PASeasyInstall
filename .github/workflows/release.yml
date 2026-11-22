@@ -34,13 +34,12 @@ jobs:
         with:
           ref: ${{ inputs.publish_tag || github.ref }}
 
-      - name: Install Pester and NativeHTMLKit
+      - name: Install Pester
         run: |
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
           Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck
-          Install-Module NativeHTMLKit -RequiredVersion 0.1.2 -Scope CurrentUser -Force
 
       - name: Version
         id: version
@@ -94,7 +93,7 @@ jobs:
           cat > notes.md <<NOTES
           PASeasyInstall $VERSION builds CyberArk PAM self-hosted **labs**. Production use is at your own risk.
 
-          - **Portable:** download \`PASeasyInstall-$VERSION-portable.zip\`, unblock it, extract it and run \`Start-PASeasyInstall.cmd\`. NativeHTMLKit is included, and nothing is installed.
+          - **Portable:** download \`PASeasyInstall-$VERSION-portable.zip\`, unblock it, extract it and run \`Start-PASeasyInstall.cmd\`. Nothing is installed and nothing else is needed.
           - **PowerShell Gallery:** \`Install-Module PASeasyInstall$( [ "$PRERELEASE" = "true" ] && echo ' -AllowPrerelease')\`. Then \`Start-PASeasyInstall\` opens the desktop window, or use the commands, for example \`Install-PASVault\` or \`Install-PASLab\`.
 
           SHA256: see \`SHA256SUMS\`.
