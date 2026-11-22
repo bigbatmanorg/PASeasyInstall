@@ -8,7 +8,11 @@
 #
 # Scenario file (JSON):
 #   media            folder with the installer media
-#   dropMedia        true: the media folder is dropped on the window instead of typed
+#   mediaSources     more folders or files that are added after 'media', one after the other
+#   removedMedia     a folder or file that is added and then removed again (its items must go with it)
+#   separateCpm      true: CPM gets a server of its own (the check box of the Lab step is switched off)
+#   hardening        false: 'Apply the vendor hardening' is switched off (needs advanced); the review
+#                    step and the confirmation must say that the servers will not be hardened
 #   labFile          a saved lab file: it is opened first, as "Open a saved lab file" does, and the walk goes on
 #                    from the Media step with the choices of that file (preset, counts and domain are then left out)
 #   labName          name of the lab (Mock backend: a name with "fail" makes the first install step fail)
@@ -32,6 +36,10 @@
 #                    opened again, so the accounts dialog is walked too
 #   log              file that receives the PASS / FAIL lines as well
 #   snapshots        folder that receives every screen as a PNG file
+#   width, height    size of the window for the walk (default: the size of Window.xaml)
+#   controller       the address of this computer shown in the Advanced view (default: the real one)
+#   hideBadge        true: the Simulation badge is not drawn (screenshots for the documentation)
+#   midShotSeconds   wait this long on the installation page, then keep the screen as 6-run-midway
 # One password is used for every account and Vault password of the walk. It comes from
 # $env:PASEASY_LAB_PASSWORD and is never written anywhere.
 
@@ -140,7 +148,8 @@ function Set-PASUITestPassword {
 
 function Save-PASUISnapshot {
     # Keeps what the window shows now as a PNG file. -Bottom: scrolled to the end of the page first.
-    param([string]$Name, [switch]$Bottom)
+    # -Region: that part of the page (see $R) is scrolled to the top of the window first.
+    param([string]$Name, [switch]$Bottom, [string]$Region = '')
     $test = $script:PASUITest
     if (-not $test.Snapshots) {
         return
@@ -148,7 +157,16 @@ function Save-PASUISnapshot {
     if ($Bottom) {
         $ui.Page.ScrollToEnd()
     }
+    if ($Region -and $R.ContainsKey($Region)) {
+        $window.UpdateLayout()
+        $offset = $R[$Region].TransformToAncestor($ui.PageHost).Transform((New-Object Windows.Point(0, 0))).Y
+        $ui.Page.ScrollToVerticalOffset([Math]::Max(0, $offset - 6))
+    }
     Wait-PASUIPump 80
+    $badge = $ui.SimBadge.Visibility
+    if ($test.HideBadge) {
+        $ui.SimBadge.Visibility = 'Collapsed'
+    }
     $window.UpdateLayout()
     $root = $ui.Shell
     $bitmap = New-Object Windows.Media.Imaging.RenderTargetBitmap([int]$root.ActualWidth, [int]$root.ActualHeight, 96, 96, [Windows.Media.PixelFormats]::Pbgra32)
@@ -159,6 +177,7 @@ function Save-PASUISnapshot {
     try {
         $encoder.Save($stream)
     } finally {
+        $ui.SimBadge.Visibility = $badge
         $stream.Dispose()
     }
 }
@@ -201,7 +220,7 @@ function Submit-PASUITestAccounts {
 function Invoke-PASUISelfTest {
     # Walks the scenario and returns the number of failed checks.
     param([string]$ScenarioPath)
-    $script:PASUITest = @{ Failures = 0; Log = ''; Snapshots = ''; Ticks = 0 }
+    $script:PASUITest = @{ Failures = 0; Log = ''; Snapshots = ''; Ticks = 0; HideBadge = $false }
     # A tick of the window's thread every 100 ms: it stops when the window does not react.
     $heartbeat = New-Object Windows.Threading.DispatcherTimer
     $heartbeat.Interval = [TimeSpan]::FromMilliseconds(100)
@@ -218,6 +237,16 @@ function Invoke-PASUISelfTest {
         if ($script:PASUITest.Snapshots -and -not (Test-Path -LiteralPath $script:PASUITest.Snapshots)) {
             $null = New-Item -ItemType Directory -Path $script:PASUITest.Snapshots -Force
         }
+        if ($scenario.PSObject.Properties['width']) {
+            $window.Width = [double]$scenario.width
+        }
+        if ($scenario.PSObject.Properties['height']) {
+            $window.Height = [double]$scenario.height
+        }
+        if ($scenario.PSObject.Properties['controller']) {
+            $S.Controller = [string]$scenario.controller
+        }
+        $script:PASUITest.HideBadge = ($scenario.PSObject.Properties['hideBadge'] -and [bool]$scenario.hideBadge)
         Wait-PASUITestIdle
         Invoke-PASUITestWalk $scenario
     } catch {
@@ -275,17 +304,39 @@ function Invoke-PASUITestWalk {
         Invoke-PASUITestClick 'act-new'
     }
     Assert-PASUIShown 'view' 'Where is the installer media' 'media step'
-    if ($Scenario.PSObject.Properties['dropMedia'] -and [bool]$Scenario.dropMedia) {
-        # What a drop from Explorer does.
-        Add-PASUIDroppedMedia @([string]$Scenario.media)
-        Wait-PASUITestIdle
-        Assert-PASUITest ([string]$S.MediaPath -eq [string]$Scenario.media) 'a dropped folder becomes the media folder'
-    } else {
-        Set-PASUITestField 'f-mediapath' ([string]$Scenario.media)
-        Invoke-PASUITestClick 'act-scan'
+    Assert-PASUIShown 'view' 'add as many folders and single files as you need' 'the media step says that the media may lie in several places'
+    Save-PASUISnapshot '2-media-empty'
+    # A path is typed (or pasted) and added. The click must end at once, with the page saying that it looks.
+    Set-PASUITestField 'f-mediapath' ([string]$Scenario.media)
+    $mediaWatch = [Diagnostics.Stopwatch]::StartNew()
+    Invoke-PASUITestClick 'act-media-add' -NoWait
+    Write-PASUITestLine ("INFO the click on Add returned after {0:N0} ms" -f $mediaWatch.Elapsed.TotalMilliseconds)
+    Assert-PASUITest ([bool]$S.Scanning -or [bool]$S.MediaScanned) 'the window says at once that it looks for installers'
+    Wait-PASUITestIdle
+    Assert-PASUITest (@($S.MediaSources).Count -eq 1 -and -not [string]$S.MediaPath) 'the typed path is in the list and the field is empty again'
+    Assert-PASUIShown 'MediaSources' 'Found here' 'the list says what was found in the folder'
+    if ($Scenario.PSObject.Properties['mediaSources']) {
+        foreach ($more in @($Scenario.mediaSources)) {
+            Set-PASUITestField 'f-mediapath' ([string]$more)
+            Invoke-PASUITestClick 'act-media-add'
+        }
+        Assert-PASUITest (@($S.MediaSources).Count -eq 1 + @($Scenario.mediaSources).Count) 'more folders and files are added one after the other'
+    }
+    if ($Scenario.PSObject.Properties['removedMedia']) {
+        $before = @($S.MediaItems).Count
+        Set-PASUITestField 'f-mediapath' ([string]$Scenario.removedMedia)
+        Invoke-PASUITestClick 'act-media-add'
+        $position = @($S.MediaSources).Count - 1
+        Assert-PASUITest (@($S.MediaItems).Count -gt $before) 'the added source brought more items'
+        Save-PASUISnapshot '2-media-more'
+        Invoke-PASUITestClick ('act-media-remove-' + [string]$position)
+        Assert-PASUITest (@($S.MediaSources).Count -eq $position -and @($S.MediaItems).Count -eq $before) 'a removed source takes its items with it'
     }
     Assert-PASUIShown 'MediaResult' 'PVWA' 'media found'
+    Assert-PASUIShown 'MediaResult' 'Found in' 'the result names the place every item was found in'
+    Assert-PASUITest (-not [bool]$window.AllowDrop) 'nothing can be dropped on the window'
     Save-PASUISnapshot '2-media'
+    Save-PASUISnapshot '2-media-found' -Region 'MediaResult'
 
     Invoke-PASUITestClick 'act-next'
     Assert-PASUIShown 'view' 'What do you want to build' 'lab step'
@@ -322,6 +373,11 @@ function Invoke-PASUITestWalk {
         Assert-PASUIShown 'view' 'DNS name of the domain' 'domain chosen'
         Set-PASUITestField 'f-domainname' ([string]$Scenario.domain.name)
     }
+    if ($Scenario.PSObject.Properties['separateCpm'] -and [bool]$Scenario.separateCpm) {
+        Assert-PASUIShown 'view' 'Install CPM on the PVWA server' 'every lab with PVWA and CPM offers a server of its own for CPM'
+        Invoke-PASUITestClick 'f-colocate'
+        Assert-PASUITest (@(Get-PASUIServerSlots $S | Where-Object { $_.Key -eq 'cpm1' }).Count -eq 1) 'CPM has a server of its own'
+    }
     if (-not $fromFile) {
         Set-PASUITestField 'f-labname' $labName
     }
@@ -335,6 +391,12 @@ function Invoke-PASUITestWalk {
     if ($advanced) {
         Invoke-PASUITestClick 'opt-advanced'
         Assert-PASUIShown 'view' 'Address of this computer' 'the advanced view shows the network card'
+        Assert-PASUIShown 'view' 'Apply the vendor hardening' 'the advanced view offers to install without hardening'
+    }
+    $unhardened = ($Scenario.PSObject.Properties['hardening'] -and -not [bool]$Scenario.hardening)
+    if ($unhardened) {
+        Invoke-PASUITestClick 'f-hardening'
+        Assert-PASUITest (-not [bool]$S.Hardening) 'the vendor hardening is switched off'
     }
     if ($existing) {
         Set-PASUITestField 'f-existing' $existing
@@ -373,8 +435,10 @@ function Invoke-PASUITestWalk {
         Invoke-PASUITestClick 'f-eula'
         Assert-PASUITest ([bool]$S.AcceptEula) 'the license agreement of the Linux installers is accepted'
     }
+    $ui.Page.ScrollToTop()
     Save-PASUISnapshot '4-servers'
     Save-PASUISnapshot '4-servers-bottom' -Bottom
+    $ui.Page.ScrollToTop()
     $typed = (@($S.Slots.Values | ForEach-Object { [string]$_['Password'] }) + @($S.Secrets.Values | ForEach-Object { [string]$_ })) | Where-Object { $_ -and $_ -ne 'set' }
     Assert-PASUITest (-not @($typed).Count) 'the window keeps no typed password as text'
 
@@ -410,13 +474,27 @@ function Invoke-PASUITestWalk {
         return
     }
     Assert-PASUIShown 'view' 'Install the lab' 'the plan is valid and can be installed'
+    if ($unhardened) {
+        Assert-PASUIShown 'view' 'will NOT be hardened' 'the review step says that the servers will not be hardened'
+        $skipped = @($S.Configuration.security.overrides.Keys | Where-Object { [string]$_ -like '*.ApplyHardening' -and -not [bool]$S.Configuration.security.overrides[$_] })
+        Assert-PASUITest ([bool]$skipped.Count) 'the configuration applies no vendor hardening'
+    } else {
+        Assert-PASUITest (-not ((Get-PASUIShownText $ui.PageHost) -match 'will NOT be hardened')) 'a hardened lab shows no warning about hardening'
+    }
     if ($advanced) {
         Assert-PASUIShown 'view' 'New-PASLabConfiguration' 'the advanced view shows the same from PowerShell'
     }
     Save-PASUISnapshot '5-review'
+    if ($unhardened) {
+        Save-PASUISnapshot '5-review-not-hardened' -Region 'ReviewHardening'
+    }
+    Save-PASUISnapshot '5-review-bottom' -Bottom
 
     Invoke-PASUITestClick 'act-install'
     Assert-PASUIShown 'dialog' 'Install the lab\?' 'Install asks before it starts'
+    if ($unhardened) {
+        Assert-PASUIShown 'dialog' 'NOT be hardened' 'the confirmation says that the servers will not be hardened'
+    }
     Save-PASUISnapshot '5-review-confirm'
     $watch = [Diagnostics.Stopwatch]::StartNew()
     Invoke-PASUITestClick 'dlg-yes' -NoWait
@@ -435,6 +513,21 @@ function Invoke-PASUITestWalk {
     }
     Assert-PASUITest ($R['RunLog'].Children.Count -gt 0) 'the activity log opens'
     Save-PASUISnapshot '6-run-installing'
+    if ($advanced) {
+        # The PowerShell commands of this installation stand above the activity log, where they are noticed.
+        $pageParts = $R['RunAdvanced'].Parent.Children
+        $logCard = $R['RunLog'].Parent.Parent
+        Assert-PASUITest ($pageParts.IndexOf($R['RunAdvanced']) -ge 0 -and $pageParts.IndexOf($R['RunAdvanced']) -lt $pageParts.IndexOf($logCard)) 'the commands of this installation stand above the activity log'
+        Assert-PASUIShown 'RunAdvanced' 'Resume-PASRun' 'the advanced view shows how to continue the installation from PowerShell'
+        Save-PASUISnapshot '6-run-commands' -Region 'RunAdvanced'
+        $ui.Page.ScrollToTop()
+    }
+    if ($Scenario.PSObject.Properties['midShotSeconds']) {
+        Wait-PASUIPump ([int](1000 * [double]$Scenario.midShotSeconds))
+        Update-PASUIRun
+        Wait-PASUITestIdle
+        Save-PASUISnapshot '6-run-midway'
+    }
     if ($Scenario.PSObject.Properties['stopAfter'] -and [string]$Scenario.stopAfter -eq 'stopped') {
         Invoke-PASUITestClick 'act-stop'
         Assert-PASUIShown 'dialog' 'Stop the installation\?' 'Stop asks before it stops'

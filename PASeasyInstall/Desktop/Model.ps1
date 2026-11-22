@@ -86,7 +86,10 @@ function New-PASUIState {
         Preset = 'standard'
         VaultMode = 'Primary'
         Counts = @{ PVWA = 1; CPM = 1; PSM = 1; PSMP = 0; HTML5GW = 0; PTA = 0 }
+        # CPM on the PVWA server (one server less), in every lab that has both. Off: CPM gets its own server.
         Colocate = $true
+        # Advanced: apply the vendor hardening. Off: the lab is installed without it (New-PASLabConfiguration -SkipHardening).
+        Hardening = $true
         ExistingVault = ''
         # Active Directory: None, New (a new forest on one more server) or Existing.
         Domain = 'None'
@@ -159,7 +162,6 @@ function Set-PASUIPreset {
             continue
         }
         $State.VaultMode = $preset.VaultMode
-        $State.Colocate = $true
         foreach ($type in $script:PASUIComponentTypes) {
             $State.Counts[$type] = [int]$preset.Counts[$type]
         }
@@ -341,10 +343,12 @@ function Get-PASUIInputIssues {
     param([hashtable]$State, [string]$Screen)
     $issues = New-Object System.Collections.ArrayList
     if ($Screen -eq 'media') {
-        if (-not $State.MediaScanned) {
-            [void]$issues.Add('Choose the folder that holds the CyberArk installer media.')
-        } elseif (-not @($State.MediaItems).Count) {
-            [void]$issues.Add('No CyberArk installer was recognised in that folder.')
+        if (-not @(Get-PASUIMediaPaths $State).Count) {
+            [void]$issues.Add('Add the folder or the files that hold the CyberArk installer media.')
+        } elseif (-not $State.MediaScanned) {
+            [void]$issues.Add('The media is still being looked through.')
+        } elseif (-not @($State.MediaItems | Where-Object { $script:PASUIMediaNames.Contains([string]$_.Component) }).Count) {
+            [void]$issues.Add('No CyberArk installer was recognised in what you added.')
         }
     }
     if ($Screen -eq 'lab') {
@@ -451,44 +455,91 @@ function Get-PASUIMissingMedia {
 }
 
 function Get-PASUIMediaPaths {
-    # Everything the media is read from: the folder in the text field and what was dropped on the window.
+    # Everything the media is read from: the folders and files that were added, and a path that is typed
+    # into the field but not added yet.
     param([hashtable]$State)
     $paths = @()
-    $typed = ([string]$State.MediaPath).Trim().Trim('"')
-    if ($typed) {
-        $paths += $typed
-    }
     foreach ($source in @($State.MediaSources)) {
         if ($source -and $paths -notcontains [string]$source) {
             $paths += [string]$source
         }
     }
+    $typed = ([string]$State.MediaPath).Trim().Trim('"')
+    if ($typed -and $paths -notcontains $typed) {
+        $paths += $typed
+    }
     return @($paths)
 }
 
-function Add-PASUIMediaDrop {
-    # Files or folders dropped on the window. One folder alone becomes the media folder;
-    # anything else is added to the list of sources.
-    param([hashtable]$State, [string[]]$Paths, [bool[]]$IsFolder)
-    $list = @($Paths | Where-Object { $_ })
-    if ($list.Count -eq 1 -and $IsFolder.Count -eq 1 -and $IsFolder[0] -and -not @($State.MediaSources).Count) {
-        $State.MediaPath = [string]$list[0]
+function Add-PASUIMediaSource {
+    # Adds folders or files to the places the media is read from. Returns how many were new.
+    param([hashtable]$State, [string[]]$Paths)
+    $added = 0
+    foreach ($path in @($Paths)) {
+        $clean = ([string]$path).Trim().Trim('"')
+        if ($clean.Length -gt 3) {
+            $clean = $clean.TrimEnd([char]92)
+        }
+        if (-not $clean -or @($State.MediaSources) -contains $clean) {
+            continue
+        }
+        $State.MediaSources = @($State.MediaSources) + $clean
+        $added++
+    }
+    if ($added) {
+        $State.MediaScanned = $false
+    }
+    return $added
+}
+
+function Remove-PASUIMediaSource {
+    # Forgets one of the places the media is read from (by its position in the list).
+    param([hashtable]$State, [int]$Index)
+    $sources = @($State.MediaSources)
+    if ($Index -lt 0 -or $Index -ge $sources.Count) {
         return
     }
-    foreach ($path in $list) {
-        if (@($State.MediaSources) -notcontains $path) {
-            $State.MediaSources = @($State.MediaSources) + $path
+    $kept = @()
+    for ($i = 0; $i -lt $sources.Count; $i++) {
+        if ($i -ne $Index) {
+            $kept += $sources[$i]
         }
+    }
+    $State.MediaSources = $kept
+    $State.MediaScanned = $false
+    if (-not $kept.Count -and -not ([string]$State.MediaPath).Trim()) {
+        $State.MediaItems = @()
+        $State.MediaSelection = @{}
     }
 }
 
+function Get-PASUIMediaSourceOf {
+    # The added folder or file a media item came from: the source that is the file itself or the folder
+    # it lies in (the longest match). '' when none matches.
+    param([hashtable]$State, $Item)
+    $path = [string]$Item.Path
+    $best = ''
+    foreach ($source in @(Get-PASUIMediaPaths $State)) {
+        $candidate = [string]$source
+        $inside = ($path -ieq $candidate) -or $path.StartsWith($candidate.TrimEnd([char]92) + [char]92, [StringComparison]::OrdinalIgnoreCase)
+        if ($inside -and $candidate.Length -gt $best.Length) {
+            $best = $candidate
+        }
+    }
+    return $best
+}
+
 function Get-PASUIMediaRows {
-    # One row per kind of media: Kind, Label, Found, Detail (file name and version).
+    # One row per kind of media: Kind, Label, Found, Detail (version and file name), Source (the added folder
+    # or file it was found in) and Inside (the ZIP bundle that holds it, when it lies inside one).
     param([hashtable]$State)
     $rows = New-Object System.Collections.ArrayList
     foreach ($kind in $script:PASUIMediaNames.Keys) {
         $found = @($State.MediaItems | Where-Object { [string]$_.Component -eq $kind })
         $detail = ''
+        $source = ''
+        $inside = ''
+        $item = $null
         if ($State.MediaSelection.ContainsKey($kind)) {
             $item = $State.MediaSelection[$kind]
             $detail = [string]$item.Name
@@ -496,7 +547,14 @@ function Get-PASUIMediaRows {
                 $detail = 'version ' + [string]$item.Version + ' (' + [string]$item.Name + ')'
             }
         } elseif ($found.Count) {
+            $item = $found[0]
             $detail = (@($found | ForEach-Object { [string]$_.Name } | Select-Object -Unique) -join ', ')
+        }
+        if ($item -and $item.PSObject.Properties['Path']) {
+            $source = Get-PASUIMediaSourceOf $State $item
+            if ($item.PSObject.Properties['Entry'] -and [string]$item.Entry) {
+                $inside = [IO.Path]::GetFileName([string]$item.Path)
+            }
         }
         $isFound = [bool]$found.Count
         if ($kind -eq 'Prerequisite' -and -not $isFound) {
@@ -512,32 +570,106 @@ function Get-PASUIMediaRows {
                 Label = [string]$script:PASUIMediaNames[$kind]
                 Found = $isFound
                 Detail = $detail
+                Source = $source
+                Inside = $inside
             })
     }
     return @($rows)
 }
 
-function Get-PASUIEstimateMinutes {
-    # A rough duration from the lab runs of November 2026: good enough to plan a coffee.
+function Get-PASUIMediaSourceRows {
+    # One row per added folder or file: Index, Path, Count (recognised items in it), Labels (what they are)
+    # and Missing (the path does not exist).
     param([hashtable]$State)
-    $minutes = 0
+    $rows = New-Object System.Collections.ArrayList
+    $sources = @($State.MediaSources)
+    for ($i = 0; $i -lt $sources.Count; $i++) {
+        $path = [string]$sources[$i]
+        $labels = @()
+        $count = 0
+        $missing = $false
+        foreach ($item in @($State.MediaItems)) {
+            $kind = [string]$item.Component
+            if ($kind -eq 'Missing' -and [string]$item.Path -ieq $path) {
+                # The installer reports a path that does not exist as an item of its own.
+                $missing = $true
+            }
+            if (-not $script:PASUIMediaNames.Contains($kind)) {
+                continue
+            }
+            if ((Get-PASUIMediaSourceOf $State $item) -ne $path) {
+                continue
+            }
+            $count++
+            $label = [string]$script:PASUIMediaNames[$kind]
+            if ($labels -notcontains $label) {
+                $labels += $label
+            }
+        }
+        # In the order of the result table below.
+        $labels = @($script:PASUIMediaNames.Values | Where-Object { $labels -contains [string]$_ })
+        [void]$rows.Add([pscustomobject]@{ Index = $i; Path = $path; Count = $count; Labels = @($labels); Missing = $missing })
+    }
+    return @($rows)
+}
+
+function Get-PASUIEstimateMinutes {
+    # A rough duration, good enough to plan a coffee. The servers are installed at the same time, so the lab
+    # takes as long as its longest part: the Vault, then the registrations one after the other, or one server
+    # that takes longer than all of that. From the lab runs of 22 November 2026 (Full lab with DR: 23 minutes;
+    # new domain with PVWA, CPM, PSM and PSMP: 20 minutes).
+    param([hashtable]$State)
+    $vault = 0
     if ($State.VaultMode -ne 'Existing') {
-        $minutes += 12
+        $vault = 9
     }
     if ($State.VaultMode -eq 'PrimaryDR') {
-        $minutes += 8
+        $vault = 16
     }
+    $pvwa = [int]$State.Counts.PVWA
+    $cpm = [int]$State.Counts.CPM
+    $psm = [int]$State.Counts.PSM
+    # What one server needs on its own, from the first upload to the last check.
+    $alone = @(0)
+    if ($pvwa) {
+        $web = 8
+        if ($cpm -and $State.Colocate) {
+            $web += 3
+        }
+        $alone += $web
+    }
+    if ($cpm -and -not $State.Colocate) {
+        $alone += 5
+    }
+    if ($psm) {
+        $alone += 13
+    }
+    if ([int]$State.Counts.PSMP -or [int]$State.Counts['HTML5GW']) {
+        $alone += 3 + 3 * [Math]::Sign([int]$State.Counts['HTML5GW'])
+    }
+    if ([int]$State.Counts['PTA']) {
+        $alone += 15
+    }
+    $longest = [int]($alone | Measure-Object -Maximum).Maximum
+    # What is left once the Vault is there: the registrations in turn, then hardening and the last checks.
+    $after = 0
+    if ($pvwa) {
+        $after = 3
+    }
+    if ($cpm) {
+        $after += 4
+    }
+    if ($psm) {
+        $after = [Math]::Max($after, 8)
+    }
+    $instances = $pvwa + $cpm + $psm + [int]$State.Counts.PSMP + [int]$State.Counts['HTML5GW'] + [int]$State.Counts['PTA']
+    $after += 2 * [Math]::Max(0, $instances - 4)
+    $minutes = [Math]::Max($vault + $after, $longest)
     if ((Get-PASUIDomainSlot $State)) {
-        # A new forest, and one restart for every server that joins.
-        $minutes += 12
+        # A new forest first, and one restart for every server that joins.
+        $minutes += 4
     }
-    $minutes += 7 * [int]$State.Counts.PVWA
-    $minutes += 3 * [int]$State.Counts.CPM
-    $minutes += 13 * [int]$State.Counts.PSM
-    $minutes += 3 * [int]$State.Counts.PSMP
-    $minutes += 3 * [int]$State.Counts['HTML5GW']
-    $minutes += 30 * [int]$State.Counts['PTA']
-    return $minutes
+    return [int][Math]::Max(3, $minutes)
 }
 
 function Get-PASUICommandText {
@@ -560,6 +692,9 @@ function Get-PASUICommandText {
         $command += ' -ExistingVaultAddress ' + [string]$State.ExistingVault
     }
     $command += ' -ControllerAddress ' + [string]$State.Controller + ' -Media $media -SecurityProfile Lab'
+    if (-not $State.Hardening) {
+        $command += ' -SkipHardening'
+    }
     if ($State.AcceptEula) {
         $command += ' -AcceptEula'
     }

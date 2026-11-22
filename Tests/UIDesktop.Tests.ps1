@@ -350,12 +350,72 @@ Describe 'Desktop model' {
         $progress.Percent | Should -Be 70
         (Get-PASUIFailure $snapshot).RetryStep | Should -Be 'pvwa01:register'
     }
-    It 'takes one dropped folder as the media folder and adds dropped files to it' {
+    It 'reads the media from every folder and file that was added, and from the path that is typed' {
         $state = New-PASUIState
-        Add-PASUIMediaDrop -State $state -Paths @('D:\Media') -IsFolder @($true)
-        $state.MediaPath | Should -Be 'D:\Media'
-        Add-PASUIMediaDrop -State $state -Paths @('D:\x\license.xml', 'D:\x\keys.zip') -IsFolder @($false, $false)
+        Add-PASUIMediaSource -State $state -Paths @('D:\Media\', ' "D:\x\license.xml" ') | Should -Be 2
+        Add-PASUIMediaSource -State $state -Paths @('D:\Media') | Should -Be 0
+        $state.MediaPath = 'D:\x\keys.zip'
         @(Get-PASUIMediaPaths $state) -join '|' | Should -Be 'D:\Media|D:\x\license.xml|D:\x\keys.zip'
+        $state.MediaScanned = $true
+        Remove-PASUIMediaSource -State $state -Index 0
+        @($state.MediaSources) -join '|' | Should -Be 'D:\x\license.xml'
+        $state.MediaScanned | Should -BeFalse
+    }
+    It 'says for every found item in which added folder or file it lies' {
+        $state = New-PASUIState
+        $license = Join-Path $TestDrive 'elsewhere\license.xml'
+        New-Item -ItemType Directory -Path (Split-Path $license -Parent) -Force | Out-Null
+        [IO.File]::WriteAllText($license, '<license/>')
+        $null = Add-PASUIMediaSource -State $state -Paths @($media, $license)
+        $state.MediaItems = @(Get-PASMediaInventory -Path @($media, $license))
+        $state.MediaSelection = Get-PASMediaSelection -Inventory $state.MediaItems
+        $state.MediaScanned = $true
+        $rows = @(Get-PASUIMediaRows $state)
+        ($rows | Where-Object { $_.Kind -eq 'PVWA' }).Source | Should -Be $media
+        # CPM lies inside the bundle ZIP of the media folder.
+        ($rows | Where-Object { $_.Kind -eq 'CPM' }).Inside | Should -Match '\.zip$'
+        ($rows | Where-Object { $_.Kind -eq 'CPM' }).Source | Should -Be $media
+        $sources = @(Get-PASUIMediaSourceRows $state)
+        $sources.Count | Should -Be 2
+        $sources[0].Labels | Should -Contain 'PVWA'
+        $sources[1].Count | Should -BeGreaterThan 0
+        $sources[1].Labels -join ',' | Should -Match 'license'
+        @($sources | Where-Object { $_.Missing }).Count | Should -Be 0
+    }
+    It 'marks an added path that does not exist' {
+        $state = New-PASUIState
+        $gone = Join-Path $TestDrive 'not-there'
+        $null = Add-PASUIMediaSource -State $state -Paths @($gone)
+        $state.MediaItems = @(Get-PASMediaInventory -Path @($gone))
+        $state.MediaScanned = $true
+        @(Get-PASUIMediaSourceRows $state)[0].Missing | Should -BeTrue
+        @(Get-PASUIInputIssues $state 'media').Count | Should -Be 1
+    }
+    It 'keeps the choice of a server for CPM when another lab is picked' {
+        $state = New-PASUIState
+        $state.Colocate = $false
+        Set-PASUIPreset $state 'full'
+        $state.Colocate | Should -BeFalse
+        @(Get-PASUIServerSlots $state | Where-Object { $_.Key -eq 'cpm1' }).Count | Should -Be 1
+        Set-PASUIPreset $state 'starter'
+        @(Get-PASUIServerSlots $state | ForEach-Object { $_.Key }) -join ',' | Should -Be 'vault,pvwa1,cpm1'
+    }
+    It 'estimates a lab whose servers are installed at the same time' {
+        $state = New-PASUIState
+        Set-PASUIPreset $state 'full'
+        # Measured on 22 November 2026: 23 minutes.
+        Get-PASUIEstimateMinutes $state | Should -BeIn (20..26)
+        $state.Domain = 'New'
+        Set-PASUIPreset $state 'standard'
+        Get-PASUIEstimateMinutes $state | Should -BeIn (18..24)
+    }
+    It 'adds -SkipHardening to the PowerShell equivalent only when hardening is switched off' {
+        $state = New-PASUIState
+        Set-PASUIPreset $state 'starter'
+        $state.MediaPath = 'D:\Media'
+        Get-PASUICommandText $state | Should -Not -Match 'SkipHardening'
+        $state.Hardening = $false
+        Get-PASUICommandText $state | Should -Match '-SecurityProfile Lab -SkipHardening'
     }
     It 'writes the PowerShell equivalent without any password' {
         $state = New-PASUIState
@@ -453,7 +513,11 @@ Describe 'Desktop window (simulated installation)' -Skip:($env:OS -ne 'Windows_N
             $scenario = Join-Path $TestDrive 'scenario.json'
             # It walks every screen: the Advanced view, the confirmation, the installation page and, because the
             # window is told to forget the accounts, the accounts dialog before the lab check.
-            @{ media = $media; labName = 'SelfTest'; preset = 'custom'; existingVault = '192.0.2.5'; advanced = $true; forgetAccounts = $true } |
+            # The media is added by its path; a second folder is added and removed again; the lab is installed
+            # without the vendor hardening, which the review step and the confirmation must say.
+            $extra = Join-Path $TestDrive 'extra-media'
+            New-TestZip (Join-Path $extra 'PTA-Installer-Rls-v15.2.2.zip') @('pta_installer.sh')
+            @{ media = $media; removedMedia = $extra; labName = 'SelfTest'; preset = 'custom'; existingVault = '192.0.2.5'; advanced = $true; hardening = $false; forgetAccounts = $true } |
                 ConvertTo-Json | Set-Content -LiteralPath $scenario -Encoding UTF8
             $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + (Join-Path $uiRoot 'App.ps1') + '"'), '-Backend', 'Mock',
                 '-StartDirectory', ('"' + $TestDrive + '"'), '-SelfTest', ('"' + $scenario + '"'))
