@@ -1,5 +1,35 @@
 # Release notes
 
+## 2.0.5
+
+- **The window is a native Windows window (WPF). NativeHTMLKit is gone.** `Start-PASeasyInstall` needs nothing
+  but Windows PowerShell 5.1: no second module to install, nothing bundled in the portable ZIP (0.4 MB). The
+  screens and what they do are the same, in a new dark design. Every call to the installer runs in the
+  background, so the window never stops reacting. It was tested by script on real servers, but not yet seen on
+  a real desktop; please report what looks wrong.
+
+- **The servers are installed at the same time.** Every server of a lab starts at once: upload, checks,
+  prerequisites and the installation itself run side by side. A step that signs in to the Vault waits until the
+  Vault is installed and the first PVWA is registered, and then the registrations run one at a time, so the
+  Vault administrator is never used twice at once. A Full lab with DR (CyberArk 15.2) took 23 minutes instead of
+  41. This is the default of new lab configurations; `New-PASLabConfiguration -ExecutionMode Sequential` keeps
+  the old order. When one server fails, the others finish the component they are installing and the run stops;
+  `Resume-PASRun` continues all of them.
+- **The Vault installation no longer stops when Windows re-enables its update services.** Windows can switch
+  "Windows Update" and "Background Intelligent Transfer Service" back on while the hardened Vault server
+  restarts. A new step (`hardening-services`) disables them again before the hardening is verified.
+
+- **The window says at once that it is checking the servers.** After **Next** on the Servers step the button
+  is disabled immediately and a message shows which of the two parts is running: looking whether the servers
+  answer, then signing in to each. Before, nothing changed for some seconds.
+- **The Advanced switch is shown only where it does something**: on the Custom lab, the Servers step, the
+  review and the installation page.
+- **The step count of a component no longer changes during an installation.** A step, the restart it asked
+  for and its continuation count as one step, and only the steps of the step list are counted (PSM showed up to
+  17 of 10; a lab showed 65 steps at the start and 82 at the end). `Get-PASStageCatalog` also lists the steps of
+  a domain join.
+- **The window has its own icon.**
+
 ## 2.0.4
 
 - **A lab with an Active Directory domain.** `New-PASLabConfiguration -DomainMode New -DomainName pam.lab

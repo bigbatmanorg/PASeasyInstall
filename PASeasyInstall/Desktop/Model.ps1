@@ -72,6 +72,10 @@ function New-PASUIState {
         Advanced = $false
         Notice = $null
 
+        # Work that is under way in the background: the list of installations, the media scan.
+        RunsLoading = $false
+        Scanning = $false
+
         MediaPath = ''
         MediaSources = @()
         MediaItems = @()
@@ -89,6 +93,8 @@ function New-PASUIState {
         DomainName = 'pam.lab'
 
         # Per server: Name, Address, User, Password. Vault passwords: VaultAdmin, VaultMaster, DRPassword.
+        # The window writes only a mark ('set') for a password that is typed; the password itself stays in
+        # its password box as a SecureString. The checks below need no more than "typed or not".
         Slots = @{}
         Secrets = @{}
         Controller = $ControllerAddress
@@ -101,8 +107,12 @@ function New-PASUIState {
 
         # Server check of the Servers step: running, and the configuration it passed for.
         Checking = $false
+        # Which part of the server check runs: 'reach' (does each server answer) or 'signin'.
+        CheckPhase = ''
         # An installation is being started in the background: the accounts it was started with, else $null.
         Starting = $null
+        # The accounts of the Servers form while the server check runs.
+        CheckAccounts = $null
         # Accounts and Vault passwords of the installation started from this window (protected in memory),
         # so that "Try again" and "Check the lab" do not ask for them again while the window stays open.
         Kept = $null
@@ -122,6 +132,8 @@ function New-PASUIState {
         DialogRequirements = @()
         Polling = $false
         ResumeUntil = $null
+        # The activity log of the installation page is unfolded.
+        LogOpen = $false
     }
 }
 
@@ -152,6 +164,16 @@ function Set-PASUIPreset {
             $State.Counts[$type] = [int]$preset.Counts[$type]
         }
     }
+}
+
+function Test-PASUIAdvancedApplies {
+    # Does the current page have anything that only the Advanced switch shows? The switch is hidden elsewhere.
+    param([hashtable]$State)
+    if ([string]$State.Screen -in @('servers', 'review', 'run')) {
+        return $true
+    }
+    # The Custom lab allows more instances of a component in the advanced view.
+    return ([string]$State.Screen -eq 'lab' -and [string]$State.Preset -eq 'custom')
 }
 
 function Get-PASUIMaxCount {
@@ -606,13 +628,30 @@ function Get-PASUIStageText {
     if ($Stage -match 'reboot') {
         return 'Restarting the server'
     }
+    if ($Stage -match '^(.+)-pass\d+$') {
+        # The same step again after a restart the vendor installer asked for.
+        return ((Get-PASUIStageText $Matches[1]) + ' (continued after the restart)')
+    }
     $text = $Stage -replace '-', ' '
     return ($text.Substring(0, 1).ToUpperInvariant() + $text.Substring(1))
 }
 
+function Get-PASUIStepOfStage {
+    # The step of the list a stage belongs to. A component can run a step in several parts: the step itself, a
+    # restart of the server (<step>-reboot) and the step again (<step>-pass2). They count as the one step,
+    # so that the number of steps does not grow while a component is installed. Seen: the stages that occurred.
+    param([string]$Stage, [string[]]$Seen)
+    if ($Stage -match '^(.+?)(-pass\d+)?(-reboot)?$' -and $Matches[1] -ne $Stage -and $Seen -contains $Matches[1]) {
+        return [string]$Matches[1]
+    }
+    return $Stage
+}
+
 function Get-PASUIRunProgress {
     # What the run page shows: per component Done/Total steps and the current step; plus the totals.
-    # Catalog: @{ <type> = <number of steps> }. PlanItems: @{ <component id> = @{ Address } }.
+    # Catalog: @{ <type> = <names of its steps> } (or the number of steps). With names, only these steps are
+    # counted: what a run does besides them (the controller's own checks, an extra upload) changes no number.
+    # PlanItems: @{ <component id> = @{ Address } }.
     param($Snapshot, [hashtable]$Catalog = @{}, [hashtable]$PlanItems = @{})
     $events = @($Snapshot.Events)
     $rows = New-Object System.Collections.ArrayList
@@ -622,14 +661,27 @@ function Get-PASUIRunProgress {
         $id = [string]$component.Id
         $type = [string]$component.Type
         $mine = @($events | Where-Object { [string]$_.Component -eq $id -and [string]$_.Stage })
-        $finished = @($mine | Where-Object { [string]$_.Event -in @('TaskCompleted', 'TaskRevalidated') } | ForEach-Object { [string]$_.Stage } | Select-Object -Unique)
+        $seen = @($mine | ForEach-Object { [string]$_.Stage } | Select-Object -Unique)
+        $finished = @($mine | Where-Object { [string]$_.Event -in @('TaskCompleted', 'TaskRevalidated') } | ForEach-Object { Get-PASUIStepOfStage ([string]$_.Stage) $seen } | Select-Object -Unique)
+        if ($mine.Count -and [string]$mine[-1].Event -notin @('TaskCompleted', 'TaskRevalidated', 'TaskSkipped')) {
+            # A later part of a step is running (its restart, or the step again): the step is not finished yet.
+            $running = Get-PASUIStepOfStage ([string]$mine[-1].Stage) $seen
+            $finished = @($finished | Where-Object { $_ -ne $running })
+        }
         $total = 0
         $catalogKey = $type
         if ($type -eq 'DRVault') {
             $catalogKey = 'DR'
         }
         if ($Catalog.ContainsKey($catalogKey)) {
-            $total = [int]$Catalog[$catalogKey]
+            $entry = $Catalog[$catalogKey]
+            if ($entry -is [int]) {
+                $total = $entry
+            } else {
+                $known = @($entry | ForEach-Object { [string]$_ })
+                $total = $known.Count
+                $finished = @($finished | Where-Object { $known -contains $_ })
+            }
         }
         $done = $finished.Count
         if ($done -gt $total) {
@@ -645,6 +697,16 @@ function Get-PASUIRunProgress {
         $current = ''
         if ($mine.Count -and $status -ne 'Succeeded') {
             $current = [string]$mine[-1].Stage
+        }
+        # A parallel installation: the component waits for the Vault or for the PVWA certificate.
+        $waiting = ''
+        $latest = @($events | Where-Object { [string]$_.Component -eq $id }) | Select-Object -Last 1
+        if ($latest -and $status -notin @('Succeeded', 'Failed', 'Unknown', 'Blocked')) {
+            if ([string]$latest.Event -eq 'VaultWaiting') {
+                $waiting = 'Waiting for its turn at the Vault'
+            } elseif ([string]$latest.Event -eq 'ComponentWaiting') {
+                $waiting = 'Waiting for PVWA'
+            }
         }
         $address = ''
         if ($PlanItems.ContainsKey($id)) {
@@ -665,6 +727,7 @@ function Get-PASUIRunProgress {
                 Total = $total
                 Percent = $percent
                 Current = $current
+                Waiting = $waiting
             })
         $doneAll += $done
         $totalAll += $total

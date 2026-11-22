@@ -8,11 +8,12 @@ function Get-PASStageCatalog {
 
     The list is read from what the installer really runs: the Vault and DR workflow files of the
     module, and the step list the workflow generator uses for PVWA, CPM, PSM, PSMP and AD.
+    DomainJoin lists the steps that join one server to the domain.
     Not listed, because they depend on the run: the extra passes and restarts of a PSM stage
     (<stage>-pass2, <stage>-reboot), the upload of a certificate pinned by CPM (pvwa-trust-certificate)
     and the steps the controller performs itself (ssh-bootstrap, media-select).
     .PARAMETER Component
-    Vault, DR, PVWA, CPM, PSM, PSMP or AD. Default: all of them.
+    Vault, DR, PVWA, CPM, PSM, PSMP, HTML5GW, PTA, AD or DomainJoin. Default: all of them.
     .EXAMPLE
     Get-PASStageCatalog -Component Vault | Format-Table Order, Stage
     .EXAMPLE
@@ -21,8 +22,8 @@ function Get-PASStageCatalog {
     [CmdletBinding()]
     param(
         [Parameter(Position = 0, ValueFromPipeline)]
-        [ValidateSet('Vault', 'DR', 'PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'PTA', 'AD')]
-        [string[]]$Component = @('Vault', 'DR', 'PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'PTA', 'AD')
+        [ValidateSet('Vault', 'DR', 'PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'PTA', 'AD', 'DomainJoin')]
+        [string[]]$Component = @('Vault', 'DR', 'PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'PTA', 'AD', 'DomainJoin')
     )
 
     process {
@@ -40,6 +41,8 @@ function Get-PASStageCatalog {
                 }
             } elseif ($type -eq 'AD') {
                 $stages = @(Get-PASComponentStageNames 'AD')
+            } elseif ($type -eq 'DomainJoin') {
+                $stages = @(Get-PASDomainJoinStageNames)
             } else {
                 # Steps before the recipe stages: the management endpoint (Windows only), the upload
                 # of the installer and the read-only preflight. Then one step per recipe stage.

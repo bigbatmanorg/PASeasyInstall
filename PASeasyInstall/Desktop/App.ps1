@@ -1,14 +1,14 @@
-﻿# PASeasyInstall desktop window, written directly on the NativeHTMLKit SDK (no UI library in between).
-#
-# This file runs twice: once as the launcher and once as the supervised backend of the native window.
-# Nothing with side effects may run above Start-NativeHTMLKitScript.
+﻿# PASeasyInstall desktop window (WPF, part of Windows; no other module is needed).
 #
 # How it is built:
-#   Model.ps1   what the user chose and what follows from it (plain data, testable)
-#   Views.ps1   the screens as HTML text (testable)
-#   App.ps1     this file: the window, the events and the calls to the installer
-# The window talks to the installer ONLY through the public commands listed in Backend/Backend.Contract.ps1.
-# It is started by Start-PASeasyInstall and is part of the PASeasyInstall module (folder Desktop).
+#   Window.xaml    the shell of the window and every style
+#   Model.ps1      what the user chose and what follows from it (plain data, testable)
+#   Controls.ps1   one function per kind of control, and the helper that runs work away from the window's thread
+#   Views.ps1      the screens, built from those controls
+#   App.ps1        this file: the window, the events and the calls to the installer
+# The window talks to the installer ONLY through the public commands listed in Backend/Backend.Contract.ps1,
+# and every such call that can take time runs away from the window's thread (Start-PASUITask), so the window
+# never stops reacting. It is started by Start-PASeasyInstall and is part of the PASeasyInstall module.
 [CmdletBinding()]
 param(
     [string]$Config = '',
@@ -19,33 +19,28 @@ param(
     [string]$SelfTest = ''
 )
 $ErrorActionPreference = 'Stop'
-# The window engine: the installed module, or the copy next to the PASeasyInstall folder (portable ZIP).
-if (Get-Module -ListAvailable -Name NativeHTMLKit) {
-    Import-Module NativeHTMLKit -ErrorAction Stop
-} else {
-    $bundledKit = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'NativeHTMLKit'
-    $kitManifest = Get-ChildItem -LiteralPath $bundledKit -Recurse -Filter 'NativeHTMLKit.psd1' -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $kitManifest) {
-        throw 'The NativeHTMLKit module is not installed. Install-Module NativeHTMLKit -Scope CurrentUser'
-    }
-    Import-Module $kitManifest.FullName -ErrorAction Stop
-}
 if (-not $StartDirectory) {
     $StartDirectory = (Get-Location).ProviderPath
 }
-$launchArgs = @('-Backend', $Backend, '-StartDirectory', $StartDirectory)
-if ($Config) {
-    $launchArgs += @('-Config', $Config)
+
+# WPF needs a single-threaded apartment. Windows PowerShell 5.1 starts that way; anything else starts again.
+if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {
+    $exe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $relaunch = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-File', $PSCommandPath, '-Backend', $Backend, '-StartDirectory', $StartDirectory)
+    if ($Config) {
+        $relaunch += @('-Config', $Config)
+    }
+    if ($SelfTest) {
+        $relaunch += @('-SelfTest', $SelfTest)
+    }
+    & $exe @relaunch
+    exit $LASTEXITCODE
 }
-if ($SelfTest) {
-    $launchArgs += @('-SelfTest', $SelfTest)
-}
-$app = Start-NativeHTMLKitScript -Name 'PASeasyInstall' -ScriptPath $PSCommandPath -ArgumentList $launchArgs
-# ---- side effects are allowed below this line ----
+
+Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Xaml, UIAutomationProvider, UIAutomationTypes
 
 . (Join-Path $PSScriptRoot 'Backend/Backend.Contract.ps1')
 . (Join-Path $PSScriptRoot 'Model.ps1')
-. (Join-Path $PSScriptRoot 'Views.ps1')
 $null = Import-PASUIBackend -Kind $Backend
 
 function Get-PASUILocalAddress {
@@ -68,17 +63,83 @@ function Get-PASUILocalAddress {
 }
 
 $S = New-PASUIState -Backend $Backend -StartDirectory $StartDirectory -ControllerAddress (Get-PASUILocalAddress)
+# The steps of every component type, by name: the run page counts only these, so that the number of steps
+# of a component is known from the start and does not change while it is installed.
 $Catalog = @{}
-foreach ($type in @('Vault', 'DR', 'PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'PTA', 'AD')) {
-    $Catalog[$type] = @(Get-PASStageCatalog -Component $type).Count
+foreach ($type in @('Vault', 'DR', 'PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'PTA', 'AD', 'DomainJoin')) {
+    $Catalog[$type] = @(Get-PASStageCatalog -Component $type | Sort-Object -Property Order | ForEach-Object { [string]$_.Stage })
 }
+
+# ------------------------------------------------------------------ window
+
+$window = [Windows.Markup.XamlReader]::Parse([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Window.xaml')))
+$ui = @{}
+foreach ($name in @('Shell', 'Main', 'NavHome', 'BrandIcon', 'Steps', 'OptAdvanced', 'SimBadge', 'Notice', 'NoticeIcon', 'NoticeText',
+        'Bar', 'BtnBack', 'BtnNext', 'NextBusy', 'NextText', 'NextArrow', 'BarText', 'Page', 'PageHost',
+        'Overlay', 'DialogTitle', 'DialogText', 'DialogFields', 'DialogHint', 'DialogNo', 'DialogYes')) {
+    $ui[$name] = $window.FindName($name)
+}
+# The parts of the current page that are filled again on their own (Views.ps1).
+$R = @{}
+# The password boxes by id (srv-<server>-pass, sec-<Vault password>). They outlive a page: what was typed
+# stays in the box, as a SecureString, and is read from there when it is needed. Nothing else holds it.
+$PasswordBoxes = @{}
+# The password boxes of the accounts dialog, in the order of $S.DialogRequirements.
+$DialogBoxes = New-Object System.Collections.ArrayList
+
+$iconPath = Join-Path $PSScriptRoot 'PASeasyInstall.ico'
+if (Test-Path -LiteralPath $iconPath) {
+    $window.Icon = [Windows.Media.Imaging.BitmapFrame]::Create([Uri]$iconPath)
+    $ui.BrandIcon.Source = $window.Icon
+}
+if ($Backend -eq 'Mock') {
+    $ui.SimBadge.Visibility = 'Visible'
+}
+# The dialog buttons answer Enter and Esc only while the dialog is shown.
+$ui.DialogYes.IsDefault = $false
+$ui.DialogNo.IsCancel = $false
+
+# Two things Windows is asked directly, because WPF has no setting for them. Both are cosmetic or a safety
+# net, so a failure is ignored.
+#   - A dark title bar to match the window (Windows 10 20H1 / Server 2022 and later; older ones keep theirs).
+#   - Start-PASeasyInstall starts this process with a hidden console. Should Windows apply "hidden" to the
+#     first window of the process as well, the window is shown once more, which Windows then does.
+$native = @'
+[DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+[DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
+[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hwnd, int command);
+'@
+$window.Add_SourceInitialized({
+        try {
+            if (-not ('PASeasyInstall.NativeWindow' -as [type])) {
+                Add-Type -Namespace PASeasyInstall -Name NativeWindow -MemberDefinition $native
+            }
+            $handle = (New-Object Windows.Interop.WindowInteropHelper($window)).Handle
+            $on = 1
+            if ([PASeasyInstall.NativeWindow]::DwmSetWindowAttribute($handle, 20, [ref]$on, 4) -ne 0) {
+                [void][PASeasyInstall.NativeWindow]::DwmSetWindowAttribute($handle, 19, [ref]$on, 4)
+            }
+        } catch {
+            $null = $_
+        }
+    })
+$window.Add_Loaded({
+        $null = $window.Dispatcher.BeginInvoke([Windows.Threading.DispatcherPriority]::ContextIdle, [Action]{
+                try {
+                    $handle = (New-Object Windows.Interop.WindowInteropHelper($window)).Handle
+                    if (-not [PASeasyInstall.NativeWindow]::IsWindowVisible($handle)) {
+                        [void][PASeasyInstall.NativeWindow]::ShowWindow($handle, 5)
+                    }
+                } catch {
+                    $null = $_
+                }
+            })
+    })
+
+. (Join-Path $PSScriptRoot 'Controls.ps1')
+. (Join-Path $PSScriptRoot 'Views.ps1')
 
 # ------------------------------------------------------------------ drawing
-
-function Set-PASUIHtml {
-    param([string]$Element, [string]$Html)
-    $null = Set-NativeHTMLKitDocumentHtml -Document $doc -Element $Element -Html $Html
-}
 
 function Set-PASUINotice {
     # The one message line under the top bar. Kind: info, ok, error, busy. Empty text removes it.
@@ -88,25 +149,36 @@ function Set-PASUINotice {
     } else {
         $S.Notice = $null
     }
-    Set-PASUIHtml 'notice' (Get-PASUINoticeHtml $S)
+    Show-PASUINotice
 }
 
 function Show-PASUIScreen {
     # Draws one screen completely: the step line, the page and the bottom bar.
     param([string]$Screen)
+    $changed = ([string]$S.Screen -ne $Screen)
     $S.Screen = $Screen
-    $html = ''
+    $R.Clear()
+    $ui.PageHost.Children.Clear()
     switch ($Screen) {
-        'home' { $html = Get-PASUIHomeHtml $S }
-        'media' { $html = Get-PASUIMediaHtml $S }
-        'lab' { $html = Get-PASUILabHtml $S }
-        'servers' { $html = Get-PASUIServersHtml $S }
-        'review' { $html = Get-PASUIReviewHtml $S }
-        'run' { $html = Get-PASUIRunHtml $S $Catalog }
+        'home' { Add-PASUIHomePage $ui.PageHost }
+        'media' { Add-PASUIMediaPage $ui.PageHost }
+        'lab' { Add-PASUILabPage $ui.PageHost }
+        'servers' { Add-PASUIServersPage $ui.PageHost }
+        'review' { Add-PASUIReviewPage $ui.PageHost }
+        'run' { Add-PASUIRunPage $ui.PageHost }
     }
-    Set-PASUIHtml 'steps' (Get-PASUIStepsHtml $S)
-    Set-PASUIHtml 'view' $html
-    Set-PASUIHtml 'bar' (Get-PASUIBarHtml $S)
+    Show-PASUISteps
+    Show-PASUIBar
+    # The Advanced switch is shown only on a page that has something more to show.
+    $ui.OptAdvanced.IsChecked = [bool]$S.Advanced
+    if (Test-PASUIAdvancedApplies $S) {
+        $ui.OptAdvanced.Visibility = 'Visible'
+    } else {
+        $ui.OptAdvanced.Visibility = 'Collapsed'
+    }
+    if ($changed) {
+        $ui.Page.ScrollToHome()
+    }
 }
 
 function Invoke-PASUISafe {
@@ -122,30 +194,161 @@ function Invoke-PASUISafe {
 function Show-PASUIIssues {
     # Shows what is missing on the current step. Returns $true when nothing is.
     param([string]$Screen)
+    if ($Screen -eq 'servers') {
+        $issues = @(Get-PASUIFormIssues)
+        Set-PASUIRegion 'ServersIssues' @((New-PASUIIssueBox $issues))
+        if ($issues.Count) {
+            Set-PASUIRegion 'PreflightResult'
+            $ui.Page.ScrollToEnd()
+        }
+        return (-not $issues.Count)
+    }
     $issues = @(Get-PASUIInputIssues $S $Screen)
-    $target = $Screen + '-issues'
     if ($Screen -eq 'media') {
         if ($issues.Count) {
             Set-PASUINotice 'error' ($issues -join ' ')
         }
         return (-not $issues.Count)
     }
-    Set-PASUIHtml $target (Get-PASUIIssueBoxHtml $issues)
+    Set-PASUIRegion 'LabIssues' @((New-PASUIIssueBox $issues))
+    if ($issues.Count) {
+        $ui.Page.ScrollToEnd()
+    }
     return (-not $issues.Count)
 }
 
+# ------------------------------------------------------------------ passwords: SecureString only
+
+function Get-PASUITypedSecret {
+    # A protected copy of what was typed into a password box, or $null when it is empty.
+    param([string]$Id)
+    if (-not $PasswordBoxes.ContainsKey($Id) -or -not $PasswordBoxes[$Id].SecurePassword.Length) {
+        return $null
+    }
+    $copy = $PasswordBoxes[$Id].SecurePassword.Copy()
+    $copy.MakeReadOnly()
+    return $copy
+}
+
+function Test-PASUISecureText {
+    # Does a SecureString match a pattern? The text is unprotected only inside this function, as a BSTR
+    # that is zeroed at once. Used for the character rule of the Vault passwords.
+    param([Security.SecureString]$Secure, [string]$Pattern)
+    $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secure)
+    try {
+        return ([Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer) -match $Pattern)
+    } finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
+    }
+}
+
+function Get-PASUIFormIssues {
+    # What is missing on the Servers step: the list of the model, and the character rule of the Vault
+    # passwords, which the model cannot check because it never sees them.
+    $issues = @(Get-PASUIInputIssues $S 'servers')
+    foreach ($field in Get-PASUIVaultSecrets $S) {
+        $secure = Get-PASUITypedSecret ('sec-' + [string]$field.Key)
+        if ($secure -and -not (Test-PASUISecureText $secure '^[\x21\x23-\x7E]+$')) {
+            $issues += "The $($field.Label) may hold letters, digits and the usual signs, but no space and no double quote."
+        }
+    }
+    return @($issues)
+}
+
+function Clear-PASUIPasswords {
+    # Forgets every password that was typed into the Servers form.
+    foreach ($box in @($PasswordBoxes.Values)) {
+        $box.Clear()
+    }
+    foreach ($key in @($S.Slots.Keys)) {
+        $S.Slots[$key].Remove('Password')
+    }
+    $S.Secrets = @{}
+}
+
+function Get-PASUIFormAccounts {
+    # The accounts and Vault passwords typed on the Servers step, as Install-PASLab and Test-PASPreflight want them:
+    # @{ Credentials = @{ key = PSCredential }; Secrets = @{ key = SecureString } }. Needs the plan ($S.Requirements).
+    $credentials = @{}
+    $secrets = @{}
+    $slots = @(Get-PASUIServerSlots $S)
+    $domainSlot = Get-PASUIDomainSlot $S
+    foreach ($requirement in @($S.Requirements)) {
+        $key = [string]$requirement.Key
+        # The domain line of the form answers three things: the password the servers join with, the domain
+        # account that installs PSM on a domain member, and (new domain) the restore mode password.
+        if ($domainSlot -and $key -in @('DomainJoinPassword', 'ADSafeMode', 'PSMDomainInstaller')) {
+            $domainPassword = Get-PASUITypedSecret ('srv-' + [string]$domainSlot.Key + '-pass')
+            if (-not $domainPassword) {
+                throw "Enter the password for: $($domainSlot.Roles)"
+            }
+            if ($key -eq 'PSMDomainInstaller') {
+                $credentials[$key] = New-Object pscredential ([string]$requirement.User, $domainPassword)
+            } else {
+                $secrets[$key] = $domainPassword
+            }
+            continue
+        }
+        if ([string]$requirement.Kind -eq 'Secret') {
+            $secret = Get-PASUITypedSecret ('sec-' + $key)
+            if (-not $secret) {
+                throw "Enter: $($requirement.Label)"
+            }
+            $secrets[$key] = $secret
+            continue
+        }
+        # A server account: the form line with the address of that server.
+        $address = [string]$S.Configuration.hosts[[string]$requirement.HostId].address
+        $slot = @($slots | Where-Object { (Get-PASUISlotValue $S $_ 'Address') -eq $address }) | Select-Object -First 1
+        $password = $null
+        if ($slot) {
+            $password = Get-PASUITypedSecret ('srv-' + [string]$slot.Key + '-pass')
+        }
+        if (-not $password) {
+            throw "Enter the password for: $($requirement.Label)"
+        }
+        $credentials[$key] = New-Object pscredential ((Get-PASUISlotValue $S $slot 'User'), $password)
+    }
+    return @{ Credentials = $credentials; Secrets = $secrets }
+}
+
 # ------------------------------------------------------------------ dialogs
+
+function Show-PASUIDialog {
+    param([string]$Title, [string]$Text, [string]$Yes)
+    $ui.DialogTitle.Text = $Title
+    $ui.DialogText.Text = $Text
+    $ui.DialogYes.Content = $Yes
+    $ui.Main.IsEnabled = $false
+    $ui.DialogYes.IsDefault = $true
+    $ui.DialogNo.IsCancel = $true
+    $ui.Overlay.Visibility = 'Visible'
+    if ($DialogBoxes.Count) {
+        [void]$DialogBoxes[0].Focus()
+    } else {
+        [void]$ui.DialogYes.Focus()
+    }
+}
+
+function Close-PASUIDialog {
+    $ui.Overlay.Visibility = 'Collapsed'
+    $ui.DialogYes.IsDefault = $false
+    $ui.DialogNo.IsCancel = $false
+    foreach ($box in @($DialogBoxes)) {
+        $box.Clear()
+    }
+    $DialogBoxes.Clear()
+    $ui.DialogFields.Children.Clear()
+    $ui.DialogHint.Visibility = 'Collapsed'
+    $ui.Main.IsEnabled = $true
+}
 
 function Show-PASUIConfirm {
     # Asks a yes/no question. $Action runs when the user confirms.
     param([string]$Title, [string]$Text, [string]$Yes, [scriptblock]$Action)
     $S.Pending = $Action
-    $null = Invoke-NativeHTMLKitBatch -Document $doc -Operations @(
-        @{ op = 'set_text'; element = 'dlg-confirm-title'; text = $Title }
-        @{ op = 'set_text'; element = 'dlg-confirm-text'; text = $Text }
-        @{ op = 'set_text'; element = 'dlg-confirm-yes'; text = $Yes }
-    )
-    Show-NativeHTMLKitHtmlDialog -Document $doc -Element 'dlg-confirm'
+    $S.DialogRequirements = @()
+    Show-PASUIDialog $Title $Text $Yes
 }
 
 function Request-PASUIAccounts {
@@ -163,46 +366,49 @@ function Request-PASUIAccounts {
     }
     $S.Pending = $Action
     $S.DialogRequirements = @($Requirements)
-    $fields = New-Object System.Text.StringBuilder
-    $index = 0
+    $DialogBoxes.Clear()
+    $ui.DialogFields.Children.Clear()
     foreach ($requirement in @($Requirements)) {
-        [void]$fields.Append("<div class=`"field`"><label for=`"cred-$index`">" + (ConvertTo-PASUIText $requirement.Label) + "</label><input type=`"password`" id=`"cred-$index`" autocomplete=`"off`"></div>")
-        $index++
+        $box = New-Object Windows.Controls.PasswordBox
+        [Windows.Automation.AutomationProperties]::SetName($box, [string]$requirement.Label)
+        [void]$DialogBoxes.Add($box)
+        [void]$ui.DialogFields.Children.Add((New-PASUIField ([string]$requirement.Label) $box -Margin '0,0,0,8'))
     }
-    $null = Invoke-NativeHTMLKitBatch -Document $doc -Operations @(
-        @{ op = 'set_text'; element = 'dlg-creds-title'; text = $Title }
-        @{ op = 'set_text'; element = 'dlg-creds-text'; text = $Text }
-    )
-    Set-PASUIHtml 'dlg-creds-fields' $fields.ToString()
-    Show-NativeHTMLKitHtmlDialog -Document $doc -Element 'dlg-creds'
+    $ui.DialogHint.Visibility = 'Visible'
+    Show-PASUIDialog $Title $Text 'Continue'
 }
 
-function Submit-PASUIAccounts {
-    # The accounts dialog was confirmed: read the passwords, close it and run what was waiting.
+function Submit-PASUIDialog {
+    # The dialog was confirmed: close it and run what was waiting, for the accounts dialog with what was typed.
     $action = $S.Pending
     $requirements = @($S.DialogRequirements)
     $S.Pending = $null
     $S.DialogRequirements = @()
+    if (-not $requirements.Count) {
+        Close-PASUIDialog
+        if ($action) {
+            & $action
+        }
+        return
+    }
     $credentials = @{}
     $secrets = @{}
-    $index = 0
     $missing = $false
-    foreach ($requirement in $requirements) {
-        $value = [string](Get-NativeHTMLKitValue -Document $doc -Element "cred-$index")
-        $index++
-        if (-not $value) {
+    for ($index = 0; $index -lt $requirements.Count; $index++) {
+        $requirement = $requirements[$index]
+        if (-not $DialogBoxes[$index].SecurePassword.Length) {
             $missing = $true
             continue
         }
-        $secure = ConvertTo-PASUISecure $value
+        $secure = $DialogBoxes[$index].SecurePassword.Copy()
+        $secure.MakeReadOnly()
         if ([string]$requirement.Kind -eq 'Secret') {
             $secrets[[string]$requirement.Key] = $secure
         } else {
             $credentials[[string]$requirement.Key] = New-Object pscredential ([string]$requirement.User, $secure)
         }
     }
-    Set-PASUIHtml 'dlg-creds-fields' ''
-    Close-PASUIDialog 'dlg-creds'
+    Close-PASUIDialog
     if ($missing) {
         throw 'Every password is needed. Nothing was done.'
     }
@@ -227,120 +433,119 @@ function Get-PASUIRunRequirements {
     return @($requirements)
 }
 
-function Close-PASUIDialog {
-    param([string]$Element)
-    Show-NativeHTMLKitHtmlDialog -Document $doc -Element $Element -Close -ReturnValue ''
+function Select-PASUIFile {
+    # Asks for a file to open or to save, or (Kind Folder) for a folder. Returns the path, or '' when cancelled.
+    param([ValidateSet('Open', 'Save', 'Folder')][string]$Kind, [string]$Title, [string]$Filter = '', [string]$FileName = '')
+    if ($Kind -eq 'Folder') {
+        Add-Type -AssemblyName System.Windows.Forms
+        $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dialog.Description = $Title
+        $dialog.ShowNewFolderButton = $false
+        if ($dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
+            return ''
+        }
+        return [string]$dialog.SelectedPath
+    }
+    if ($Kind -eq 'Open') {
+        $dialog = New-Object Microsoft.Win32.OpenFileDialog
+    } else {
+        $dialog = New-Object Microsoft.Win32.SaveFileDialog
+        $dialog.FileName = $FileName
+    }
+    $dialog.Title = $Title
+    $dialog.Filter = $Filter
+    if ($S.StartDirectory -and (Test-Path -LiteralPath $S.StartDirectory -PathType Container)) {
+        $dialog.InitialDirectory = [string]$S.StartDirectory
+    }
+    if (-not $dialog.ShowDialog($window)) {
+        return ''
+    }
+    return [string]$dialog.FileName
 }
 
 # ------------------------------------------------------------------ installer calls
 
-function ConvertTo-PASUISecure {
-    param([string]$Text)
-    $secure = New-Object Security.SecureString
-    foreach ($character in $Text.ToCharArray()) {
-        $secure.AppendChar($character)
+function Get-PASUIPlanArguments {
+    # The entries of the window as the parameters of New-PASLabConfiguration.
+    $arguments = @{
+        Environment = ([string]$S.LabName).Trim()
+        VaultMode = [string]$S.VaultMode
+        Instances = @(Get-PASUIInstances $S)
+        ControllerAddress = ([string]$S.Controller).Trim()
+        Username = 'Administrator'
+        LinuxUsername = 'root'
+        Media = $S.MediaSelection
+        SecurityProfile = 'Lab'
+        InstallerName = ([string]$S.InstallerName).Trim()
+        InstallerCompany = ([string]$S.InstallerCompany).Trim()
     }
-    $secure.MakeReadOnly()
-    return $secure
-}
-
-function Get-PASUIFormAccounts {
-    # The accounts and Vault passwords typed on the Servers step, as Install-PASLab and Test-PASPreflight want them:
-    # @{ Credentials = @{ key = PSCredential }; Secrets = @{ key = SecureString } }. Needs the plan ($S.Requirements).
-    $credentials = @{}
-    $secrets = @{}
-    $slots = @(Get-PASUIServerSlots $S)
     $domainSlot = Get-PASUIDomainSlot $S
-    foreach ($requirement in @($S.Requirements)) {
-        $key = [string]$requirement.Key
-        # The domain line of the form answers three things: the password the servers join with, the domain
-        # account that installs PSM on a domain member, and (new domain) the restore mode password.
-        if ($domainSlot -and $key -in @('DomainJoinPassword', 'ADSafeMode', 'PSMDomainInstaller')) {
-            $domainPassword = Get-PASUISlotValue $S $domainSlot 'Password'
-            if (-not $domainPassword) {
-                throw "Enter the password for: $($domainSlot.Roles)"
-            }
-            if ($key -eq 'PSMDomainInstaller') {
-                $credentials[$key] = New-Object pscredential ([string]$requirement.User, (ConvertTo-PASUISecure $domainPassword))
-            } else {
-                $secrets[$key] = ConvertTo-PASUISecure $domainPassword
-            }
-            continue
-        }
-        if ([string]$requirement.Kind -eq 'Secret') {
-            if (-not $S.Secrets.ContainsKey($key) -or -not [string]$S.Secrets[$key]) {
-                throw "Enter: $($requirement.Label)"
-            }
-            $secrets[$key] = ConvertTo-PASUISecure ([string]$S.Secrets[$key])
-            continue
-        }
-        # A server account: the form line with the address of that server.
-        $address = [string]$S.Configuration.hosts[[string]$requirement.HostId].address
-        $slot = @($slots | Where-Object { (Get-PASUISlotValue $S $_ 'Address') -eq $address }) | Select-Object -First 1
-        if (-not $slot -or -not (Get-PASUISlotValue $S $slot 'Password')) {
-            throw "Enter the password for: $($requirement.Label)"
-        }
-        $credentials[$key] = New-Object pscredential ((Get-PASUISlotValue $S $slot 'User'), (ConvertTo-PASUISecure (Get-PASUISlotValue $S $slot 'Password')))
+    if ($domainSlot) {
+        $arguments.DomainMode = [string]$S.Domain
+        $arguments.DomainName = ([string]$S.DomainName).Trim()
+        $arguments.DomainControllerAddress = Get-PASUISlotValue $S $domainSlot 'Address'
+        $arguments.DomainUsername = Get-PASUISlotValue $S $domainSlot 'User'
     }
-    return @{ Credentials = $credentials; Secrets = $secrets }
+    foreach ($slot in Get-PASUIServerSlots $S) {
+        if ($slot.Key -eq 'vault') {
+            $arguments.PrimaryAddress = Get-PASUISlotValue $S $slot 'Address'
+            $arguments.PrimaryUsername = Get-PASUISlotValue $S $slot 'User'
+        }
+        if ($slot.Key -eq 'dr') {
+            $arguments.DRAddress = Get-PASUISlotValue $S $slot 'Address'
+            $arguments.DRUsername = Get-PASUISlotValue $S $slot 'User'
+        }
+    }
+    if ($S.VaultMode -eq 'Existing') {
+        $arguments.ExistingVaultAddress = ([string]$S.ExistingVault).Trim()
+    }
+    if ($S.AcceptEula) {
+        $arguments.AcceptEula = $true
+    }
+    return $arguments
 }
 
-function Update-PASUIPlan {
-    # Builds the configuration from the entries and has the installer validate it and lay out the plan.
-    # Fills $S.Configuration, $S.Check, $S.Plan and $S.Requirements. Contacts no server.
+function Start-PASUIPlan {
+    # Has the installer build the configuration from the entries, validate it and lay out the plan, in the
+    # background. Fills $S.Configuration, $S.Check, $S.Plan and $S.Requirements, then runs $Then. Contacts no server.
+    param([scriptblock]$Then)
     $S.Configuration = $null
     $S.Plan = $null
     $S.Requirements = @()
-    try {
-        $arguments = @{
-            Environment = ([string]$S.LabName).Trim()
-            VaultMode = [string]$S.VaultMode
-            Instances = @(Get-PASUIInstances $S)
-            ControllerAddress = ([string]$S.Controller).Trim()
-            Username = 'Administrator'
-            LinuxUsername = 'root'
-            Media = $S.MediaSelection
-            SecurityProfile = 'Lab'
-            InstallerName = ([string]$S.InstallerName).Trim()
-            InstallerCompany = ([string]$S.InstallerCompany).Trim()
-        }
-        $domainSlot = Get-PASUIDomainSlot $S
-        if ($domainSlot) {
-            $arguments.DomainMode = [string]$S.Domain
-            $arguments.DomainName = ([string]$S.DomainName).Trim()
-            $arguments.DomainControllerAddress = Get-PASUISlotValue $S $domainSlot 'Address'
-            $arguments.DomainUsername = Get-PASUISlotValue $S $domainSlot 'User'
-        }
-        foreach ($slot in Get-PASUIServerSlots $S) {
-            if ($slot.Key -eq 'vault') {
-                $arguments.PrimaryAddress = Get-PASUISlotValue $S $slot 'Address'
-                $arguments.PrimaryUsername = Get-PASUISlotValue $S $slot 'User'
-            }
-            if ($slot.Key -eq 'dr') {
-                $arguments.DRAddress = Get-PASUISlotValue $S $slot 'Address'
-                $arguments.DRUsername = Get-PASUISlotValue $S $slot 'User'
-            }
-        }
-        if ($S.VaultMode -eq 'Existing') {
-            $arguments.ExistingVaultAddress = ([string]$S.ExistingVault).Trim()
-        }
-        if ($S.AcceptEula) {
-            $arguments.AcceptEula = $true
-        }
-        $configuration = New-PASLabConfiguration @arguments
+    $S.AfterPlan = $Then
+    Start-PASUITask -ArgumentList @(, (Get-PASUIPlanArguments)) -ScriptBlock {
+        param([hashtable]$Arguments)
+        $configuration = New-PASLabConfiguration @Arguments
         $check = Test-PASLabConfiguration -Configuration $configuration -CheckMedia
-        $S.Check = @{ Valid = [bool]$check.Valid; Issues = @($check.Issues); Warnings = @($check.Warnings) }
-        $S.Configuration = $configuration
+        $plan = $null
+        $requirements = @()
         if ($check.Valid) {
-            $S.Plan = Get-PASLabPlan -Configuration $configuration
-            $S.Requirements = @(Get-PASCredentialRequirement -Configuration $configuration)
+            $plan = Get-PASLabPlan -Configuration $configuration
+            $requirements = @(Get-PASCredentialRequirement -Configuration $configuration)
         }
-    } catch {
-        $S.Check = @{ Valid = $false; Issues = @([string]$_.Exception.Message); Warnings = @() }
+        @{ Configuration = $configuration; Valid = [bool]$check.Valid; Issues = @($check.Issues); Warnings = @($check.Warnings); Plan = $plan; Requirements = $requirements }
+    } -OnCompleted {
+        param($result)
+        $answer = @($result)[-1]
+        $S.Check = @{ Valid = [bool]$answer.Valid; Issues = @($answer.Issues); Warnings = @($answer.Warnings) }
+        $S.Configuration = $answer.Configuration
+        $S.Plan = $answer.Plan
+        $S.Requirements = @($answer.Requirements)
+        $then = $S.AfterPlan
+        $S.AfterPlan = $null
+        & $then
+    } -OnFailed {
+        param($failure)
+        $S.Check = @{ Valid = $false; Issues = @([string]$failure.Message); Warnings = @() }
+        $then = $S.AfterPlan
+        $S.AfterPlan = $null
+        & $then
     }
 }
 
 function Invoke-PASUIMediaScan {
+    # Looks for installers in the media folder and in what was dropped, in the background. $Then runs afterwards.
+    param([scriptblock]$Then = $null)
     $paths = @(Get-PASUIMediaPaths $S)
     if (-not $paths.Count) {
         throw 'Type, choose or drop the media folder first.'
@@ -350,147 +555,176 @@ function Invoke-PASUIMediaScan {
             throw "This does not exist: $path"
         }
     }
-    Set-PASUINotice 'busy' 'Looking for installers...'
-    $S.MediaItems = @(Get-PASMediaInventory -Path $paths)
-    $selection = @{}
-    if ($S.MediaItems.Count) {
-        $selection = Get-PASMediaSelection -Inventory $S.MediaItems
+    if ($S.Scanning) {
+        return
     }
-    $S.MediaSelection = $selection
-    $S.MediaScanned = $true
-    Set-PASUINotice
-    if ($S.Screen -eq 'media') {
-        Set-PASUIHtml 'media-result' (Get-PASUIMediaResultHtml $S)
+    $S.Scanning = $true
+    $S.AfterScan = $Then
+    Set-PASUINotice 'busy' 'Looking for installers...'
+    Start-PASUITask -ArgumentList @(, $paths) -ScriptBlock {
+        param([string[]]$Paths)
+        $items = @(Get-PASMediaInventory -Path $Paths)
+        $selection = @{}
+        if ($items.Count) {
+            $selection = Get-PASMediaSelection -Inventory $items
+        }
+        @{ Items = $items; Selection = $selection }
+    } -OnCompleted {
+        param($result)
+        $answer = @($result)[-1]
+        $S.Scanning = $false
+        $S.MediaItems = @($answer.Items)
+        $S.MediaSelection = $answer.Selection
+        $S.MediaScanned = $true
+        Set-PASUINotice
+        if ($S.Screen -eq 'media') {
+            Show-PASUIMediaResult
+        }
+        $then = $S.AfterScan
+        $S.AfterScan = $null
+        if ($then) {
+            & $then
+        }
+    } -OnFailed {
+        param($failure)
+        $S.Scanning = $false
+        $S.AfterScan = $null
+        Set-PASUINotice 'error' ('The media could not be read: ' + [string]$failure.Message)
     }
 }
 
 function Start-PASUIServerCheck {
-    # "Next" on the Servers step. First, within seconds: does every server answer at all? Then, in the
-    # background so that the window stays usable: sign in to each one and check that it is ready.
-    # Only when everything passed the review step is shown.
-    Update-PASUIPlan
-    if (-not $S.Check.Valid) {
-        Set-PASUIHtml 'servers-issues' (Get-PASUIIssueBoxHtml @($S.Check.Issues) 'The plan has problems')
-        return
-    }
-    $accounts = Get-PASUIFormAccounts
-    Set-PASUINotice 'busy' 'Looking for the servers...'
-    $S.Preflight = @(Test-PASPreflight -Configuration $S.Configuration -ConnectivityOnly)
-    Set-PASUINotice
-    if (@($S.Preflight | Where-Object { $_.Passed -is [bool] -and -not $_.Passed }).Count) {
-        Set-PASUIHtml 'preflight-result' (Get-PASUIPreflightHtml $S)
-        return
-    }
-    $S.Checking = $true
-    Set-PASUIHtml 'preflight-result' (Get-PASUIPreflightHtml $S)
-    Set-PASUIHtml 'bar' (Get-PASUIBarHtml $S)
-    $contract = Join-Path (Join-Path $PSScriptRoot 'Backend') 'Backend.Contract.ps1'
-    try {
-        $null = Start-NativeHTMLKitTask -Application $app -ArgumentList @($contract, [string]$S.Backend, $S.Configuration, $accounts.Credentials) -ScriptBlock {
-            param([string]$ContractPath, [string]$Kind, $Configuration, [hashtable]$CredentialMap)
-            . $ContractPath
-            $null = Import-PASUIBackend -Kind $Kind
-            Test-PASPreflight -Configuration $Configuration -CredentialMap $CredentialMap
-        } -OnCompleted {
-            param($result)
-            Invoke-PASUISafe { Complete-PASUIServerCheck @($result) }
-        } -OnFailed {
-            param($failure)
-            $S.Checking = $false
-            Set-PASUINotice 'error' ('The servers could not be checked: ' + [string]$failure.Message)
-            if ($S.Screen -eq 'servers') {
-                Set-PASUIHtml 'preflight-result' (Get-PASUIPreflightHtml $S)
-                Set-PASUIHtml 'bar' (Get-PASUIBarHtml $S)
-            }
+    # "Next" on the Servers step. The window says at once that it is checking and stays usable: everything
+    # runs in the background. First the plan is laid out from the entries. Part 1, within seconds: does every
+    # server answer at all? Part 2: sign in to each one and check that it is ready. Only when everything
+    # passed the review step is shown.
+    $S.Preflight = $null
+    Show-PASUIServerCheckPhase 'plan'
+    Start-PASUIPlan {
+        if (-not $S.Check.Valid) {
+            Show-PASUIServerCheckPhase ''
+            Set-PASUIRegion 'ServersIssues' @((New-PASUIIssueBox @($S.Check.Issues) 'The plan has problems'))
+            return
         }
-    } catch {
-        # No background task could be started: check here. The window does not react until it is done.
-        Complete-PASUIServerCheck @(Test-PASPreflight -Configuration $S.Configuration -CredentialMap $accounts.Credentials)
+        try {
+            $S.CheckAccounts = Get-PASUIFormAccounts
+        } catch {
+            Show-PASUIServerCheckPhase ''
+            throw
+        }
+        Start-PASUIServerCheckPart 'reach'
     }
 }
 
-function Complete-PASUIServerCheck {
-    param([object[]]$Rows)
-    $S.Checking = $false
-    $S.Preflight = @($Rows)
-    if ($S.Screen -ne 'servers') {
-        return
+function Start-PASUIServerCheckPart {
+    # Runs one part of the server check in the background: 'reach' or 'signin'.
+    param([string]$Phase)
+    Show-PASUIServerCheckPhase $Phase
+    $credentials = $null
+    if ($Phase -eq 'signin') {
+        $credentials = $S.CheckAccounts.Credentials
     }
-    if (@($Rows | Where-Object { $_.Passed -is [bool] -and -not $_.Passed }).Count) {
-        Set-PASUIHtml 'preflight-result' (Get-PASUIPreflightHtml $S)
-        Set-PASUIHtml 'bar' (Get-PASUIBarHtml $S)
-        return
+    Start-PASUITask -ArgumentList @($S.Configuration, $credentials) -ScriptBlock {
+        param($Configuration, [hashtable]$CredentialMap)
+        if ($CredentialMap) {
+            Test-PASPreflight -Configuration $Configuration -CredentialMap $CredentialMap
+        } else {
+            Test-PASPreflight -Configuration $Configuration -ConnectivityOnly
+        }
+    } -OnCompleted {
+        param($result)
+        # One part is done. After part 1 without a problem, part 2 follows; otherwise the result is shown.
+        $rows = @($result)
+        $problems = @($rows | Where-Object { $_.Passed -is [bool] -and -not $_.Passed }).Count
+        if ([string]$S.CheckPhase -eq 'reach' -and -not $problems) {
+            Start-PASUIServerCheckPart 'signin'
+            return
+        }
+        $S.CheckAccounts = $null
+        $S.Preflight = $rows
+        Show-PASUIServerCheckPhase ''
+        if ($S.Screen -ne 'servers') {
+            return
+        }
+        if ($problems) {
+            $ui.Page.ScrollToEnd()
+            return
+        }
+        Show-PASUIScreen 'review'
+    } -OnFailed {
+        param($failure)
+        $S.CheckAccounts = $null
+        Show-PASUIServerCheckPhase ''
+        Set-PASUINotice 'error' ('The servers could not be checked: ' + [string]$failure.Message)
     }
-    Show-PASUIScreen 'review'
+}
+
+function Show-PASUIServerCheckPhase {
+    # Shows which part of the server check is running: 'plan', 'reach', 'signin', or '' when none is.
+    param([string]$Phase)
+    $S.Checking = [bool]$Phase
+    $S.CheckPhase = $Phase
+    # Also in the line at the top, which is in view wherever the page is scrolled to.
+    switch ($Phase) {
+        'plan' { Set-PASUINotice 'busy' 'Checking the servers...' }
+        'reach' { Set-PASUINotice 'busy' 'Checking the servers: looking whether they answer...' }
+        'signin' { Set-PASUINotice 'busy' 'Checking the servers: signing in to each one...' }
+        default { Set-PASUINotice }
+    }
+    if ($S.Screen -eq 'servers') {
+        Show-PASUIPreflight
+        Show-PASUIBar
+        if ($Phase -eq 'plan') {
+            $ui.Page.ScrollToEnd()
+        }
+    }
 }
 
 function Start-PASUIInstall {
-    # Starts the installation in the background, the way the server check runs, so that the window stays
-    # usable for the half minute the installer needs to check the plan and start its own process.
+    # Starts the installation in the background, so that the window stays usable for the half minute the
+    # installer needs to check the plan and start its own process.
     if ($S.Starting) {
         return
     }
     $accounts = Get-PASUIFormAccounts
     $S.Starting = $accounts
     Set-PASUINotice 'busy' 'Starting the installation...'
-    if ([string]$S.Backend -eq 'Mock') {
-        # The simulated installer keeps its runs in the memory of this window and starts at once.
-        Start-PASUIInstallHere
-        return
+    if ($R.ContainsKey('InstallButton')) {
+        $R['InstallButton'].IsEnabled = $false
     }
-    $contract = Join-Path (Join-Path $PSScriptRoot 'Backend') 'Backend.Contract.ps1'
-    try {
-        $null = Start-NativeHTMLKitTask -Application $app -ArgumentList @($contract, [string]$S.Backend, $S.Configuration, $accounts.Credentials, $accounts.Secrets) -ScriptBlock {
-            param([string]$ContractPath, [string]$Kind, $Configuration, [hashtable]$CredentialMap, [hashtable]$SecretMap)
-            . $ContractPath
-            $null = Import-PASUIBackend -Kind $Kind
-            Install-PASLab -Configuration $Configuration -CredentialMap $CredentialMap -SecretMap $SecretMap -Confirm:$false
-        } -OnCompleted {
-            param($result)
-            Invoke-PASUISafe { Complete-PASUIInstallStart ([string](@($result)[-1])) }
-        } -OnFailed {
-            param($failure)
-            $S.Starting = $null
-            Set-PASUINotice 'error' ('The installation was not started: ' + [string]$failure.Message)
-        }
-    } catch {
-        # No background task could be started. The window does not react until the installation is started.
-        Start-PASUIInstallHere
-    }
-}
-
-function Start-PASUIInstallHere {
-    # Starts the installation in the window's own thread, with the accounts in $S.Starting.
-    try {
-        $id = Install-PASLab -Configuration $S.Configuration -CredentialMap $S.Starting.Credentials -SecretMap $S.Starting.Secrets -Confirm:$false
-    } catch {
+    Start-PASUITask -ArgumentList @($S.Configuration, $accounts.Credentials, $accounts.Secrets) -ScriptBlock {
+        param($Configuration, [hashtable]$CredentialMap, [hashtable]$SecretMap)
+        Install-PASLab -Configuration $Configuration -CredentialMap $CredentialMap -SecretMap $SecretMap -Confirm:$false
+    } -OnCompleted {
+        param($result)
+        $runId = [string](@($result)[-1])
+        $accounts = $S.Starting
         $S.Starting = $null
-        throw
+        if ($runId -notmatch '^[0-9a-fA-F]{32}$') {
+            if ($R.ContainsKey('InstallButton')) {
+                $R['InstallButton'].IsEnabled = $true
+            }
+            throw "The installation was not started: the installer returned no run id ($runId)."
+        }
+        # The installer process has the passwords now. The window keeps them only as protected objects, for
+        # "Try again" and "Check the lab", until it is closed. What was typed is forgotten.
+        $S.Kept = @{ RunId = $runId; Credentials = $accounts.Credentials; Secrets = $accounts.Secrets }
+        Clear-PASUIPasswords
+        $S.Preflight = $null
+        $S.RunPlan = @{}
+        foreach ($item in @($S.Plan.Items)) {
+            $S.RunPlan[[string]$item.Id] = @{ Address = [string]$item.Address }
+        }
+        Set-PASUINotice
+        Open-PASUIRun $runId
+    } -OnFailed {
+        param($failure)
+        $S.Starting = $null
+        if ($R.ContainsKey('InstallButton')) {
+            $R['InstallButton'].IsEnabled = $true
+        }
+        Set-PASUINotice 'error' ('The installation was not started: ' + [string]$failure.Message)
     }
-    Complete-PASUIInstallStart ([string]$id)
-}
-
-function Complete-PASUIInstallStart {
-    param([string]$RunId)
-    $accounts = $S.Starting
-    $S.Starting = $null
-    if ($RunId -notmatch '^[0-9a-fA-F]{32}$') {
-        throw "The installation was not started: the installer returned no run id ($RunId)."
-    }
-    # The installer process has the passwords now. The window keeps them only as protected objects, for
-    # "Try again" and "Check the lab", until it is closed. What was typed is forgotten.
-    $S.Kept = @{ RunId = $RunId; Credentials = $accounts.Credentials; Secrets = $accounts.Secrets }
-    foreach ($key in @($S.Slots.Keys)) {
-        $S.Slots[$key].Remove('Password')
-    }
-    $S.Secrets = @{}
-    $S.Preflight = $null
-    $S.RunPlan = @{}
-    foreach ($item in @($S.Plan.Items)) {
-        $S.RunPlan[[string]$item.Id] = @{ Address = [string]$item.Address }
-    }
-    Set-PASUINotice
-    Open-PASUIRun $RunId
 }
 
 function Open-PASUIRun {
@@ -498,12 +732,27 @@ function Open-PASUIRun {
     param([string]$RunId)
     if ($S.RunId -ne $RunId) {
         $S.Health = $null
+        $S.LogOpen = $false
     }
     $S.RunId = $RunId
-    $S.Run = Get-PASRun -RunId $RunId -Tail 1000
-    $S.RunSignature = Get-PASUIRunSignature
-    Show-PASUIScreen 'run'
-    Start-PASUIPoll
+    $S.Opening = $true
+    Start-PASUITask -ArgumentList @($RunId) -ScriptBlock {
+        param([string]$RunId)
+        Get-PASRun -RunId $RunId -Tail 1000
+    } -OnCompleted {
+        param($result)
+        $S.Opening = $false
+        $S.Run = @($result)[-1]
+        $S.RunSignature = Get-PASUIRunSignature
+        if ($S.Notice -and [string]$S.Notice.Kind -eq 'busy') {
+            Set-PASUINotice
+        }
+        Show-PASUIScreen 'run'
+    } -OnFailed {
+        param($failure)
+        $S.Opening = $false
+        Set-PASUINotice 'error' ('This installation could not be read: ' + [string]$failure.Message)
+    }
 }
 
 function Get-PASUIRunSignature {
@@ -517,69 +766,76 @@ function Get-PASUIRunSignature {
 }
 
 function Update-PASUIRun {
-    # Reads the run again and replaces the parts of the run page that show it.
-    if ($S.Screen -ne 'run' -or -not $S.RunId) {
-        return
-    }
-    $S.Run = Get-PASRun -RunId $S.RunId -Tail 1000
-    $signature = Get-PASUIRunSignature
-    if ($signature -eq $S.RunSignature) {
-        return
-    }
-    $S.RunSignature = $signature
-    if ($S.ResumeUntil -and (Test-PASUIRunActive ([string]$S.Run.Status))) {
-        # The installer process has the run again.
-        $S.ResumeUntil = $null
-        Set-PASUINotice
-    }
-    Set-PASUIHtml 'run-status' (Get-PASUIRunStatusHtml $S $Catalog)
-    Set-PASUIHtml 'run-comps' (Get-PASUIRunComponentsHtml $S $Catalog)
-    Set-PASUIHtml 'run-log' (Get-PASUIRunLogHtml $S)
-    Set-PASUIHtml 'run-last' (Get-PASUIRunLastLineHtml $S)
-    Set-PASUIHtml 'run-adv' (Get-PASUIRunAdvancedHtml $S)
-}
-
-function Start-PASUIPoll {
-    # A two-second tick while a running installation is on screen. One tick at a time.
-    if ($S.Polling) {
-        return
-    }
-    # After "continue" the run still reads as stopped for a few seconds, until the installer process has
-    # taken it over again: keep looking for a while.
-    $waitingForResume = ($S.ResumeUntil -and [datetime]::UtcNow -lt $S.ResumeUntil)
-    if (-not $S.Run -or $S.Screen -ne 'run') {
-        return
-    }
-    if (-not (Test-PASUIRunActive ([string]$S.Run.Status)) -and -not $waitingForResume) {
+    # Reads the installation again, in the background, and fills the parts of its page that show it.
+    if ($S.Screen -ne 'run' -or -not $S.RunId -or $S.Polling) {
         return
     }
     $S.Polling = $true
-    $null = Start-NativeHTMLKitTask -Application $app -ScriptBlock { Start-Sleep -Milliseconds 2000 } -OnCompleted {
+    Start-PASUITask -ArgumentList @([string]$S.RunId) -ScriptBlock {
+        param([string]$RunId)
+        Get-PASRun -RunId $RunId -Tail 1000
+    } -OnCompleted {
+        param($result)
         $S.Polling = $false
-        Invoke-PASUISafe { Update-PASUIRun }
-        Start-PASUIPoll
+        $snapshot = @($result)[-1]
+        if ($S.Screen -ne 'run' -or [string]$snapshot.RunId -ne [string]$S.RunId) {
+            return
+        }
+        $S.Run = $snapshot
+        $signature = Get-PASUIRunSignature
+        if ($signature -eq $S.RunSignature) {
+            return
+        }
+        $S.RunSignature = $signature
+        if ($S.ResumeUntil -and (Test-PASUIRunActive ([string]$S.Run.Status))) {
+            # The installer process has the installation again.
+            $S.ResumeUntil = $null
+            Set-PASUINotice
+        }
+        Show-PASUIRunParts
     } -OnFailed {
+        param($failure)
         $S.Polling = $false
     }
 }
 
+function Test-PASUIRunWatched {
+    # Is there an installation on screen that can still change? After "continue" it still reads as stopped
+    # for a few seconds, until the installer process has taken it over again: keep looking for a while.
+    if ($S.Screen -ne 'run' -or -not $S.Run) {
+        return $false
+    }
+    if (Test-PASUIRunActive ([string]$S.Run.Status)) {
+        return $true
+    }
+    return [bool]($S.ResumeUntil -and [datetime]::UtcNow -lt $S.ResumeUntil)
+}
+
 function Resume-PASUIRun {
+    # Continues a stopped installation, in the background; -RetryStep repeats the step that failed.
     param([hashtable]$Accounts, [string]$RetryStep = '')
     $arguments = @{ RunId = [string]$S.RunId; CredentialMap = $Accounts.Credentials; SecretMap = $Accounts.Secrets }
     if ($RetryStep) {
         $arguments.RetryStep = @($RetryStep)
     }
     Set-PASUINotice 'busy' 'Continuing the installation...'
-    $null = Resume-PASRun @arguments -Confirm:$false
-    $S.ResumeUntil = [datetime]::UtcNow.AddSeconds(90)
-    $S.Health = $null
-    Set-PASUINotice 'info' 'The installation continues. Finished steps are checked again first; this page updates by itself.'
-    $S.RunSignature = ''
-    Update-PASUIRun
-    Start-PASUIPoll
+    Start-PASUITask -ArgumentList @(, $arguments) -ScriptBlock {
+        param([hashtable]$Arguments)
+        $null = Resume-PASRun @Arguments -Confirm:$false
+    } -OnCompleted {
+        $S.ResumeUntil = [datetime]::UtcNow.AddSeconds(90)
+        $S.Health = $null
+        Set-PASUINotice 'info' 'The installation continues. Finished steps are checked again first; this page updates by itself.'
+        $S.RunSignature = ''
+        Update-PASUIRun
+    } -OnFailed {
+        param($failure)
+        Set-PASUINotice 'error' ('The installation was not continued: ' + [string]$failure.Message)
+    }
 }
 
 function Invoke-PASUIHealth {
+    # "Check the lab": asks the Vault through PVWA which components are connected, in the background.
     param([hashtable]$Accounts)
     if (-not $Accounts.Secrets.ContainsKey('VaultAdmin')) {
         throw 'The lab check needs the password of the Vault user Administrator.'
@@ -594,27 +850,53 @@ function Invoke-PASUIHealth {
         $arguments.DRCredential = $Accounts.Credentials['dr01']
     }
     Set-PASUINotice 'busy' 'Checking the lab...'
-    try {
-        $S.Health = Test-PASHealth @arguments
-    } catch {
-        if ([string]$_.Exception.Message -match 'configuration has no PVWA') {
-            throw 'This installation has no PVWA of its own, and the lab check asks the Vault through PVWA. Check the lab from the installation that has the PVWA.'
+    Start-PASUITask -ArgumentList @(, $arguments) -ScriptBlock {
+        param([hashtable]$Arguments)
+        Test-PASHealth @Arguments
+    } -OnCompleted {
+        param($result)
+        $S.Health = @($result)[-1]
+        Set-PASUINotice
+        if ($S.Screen -eq 'run') {
+            Show-PASUIRunStatus
         }
-        throw
+    } -OnFailed {
+        param($failure)
+        if ([string]$failure.Message -match 'configuration has no PVWA') {
+            Set-PASUINotice 'error' 'This installation has no PVWA of its own, and the lab check asks the Vault through PVWA. Check the lab from the installation that has the PVWA.'
+            return
+        }
+        Set-PASUINotice 'error' ('The lab could not be checked: ' + [string]$failure.Message)
     }
-    Set-PASUINotice
-    Set-PASUIHtml 'run-status' (Get-PASUIRunStatusHtml $S $Catalog)
 }
 
-function Import-PASUILabFile {
-    # Fills the choices from a saved lab file. Media and passwords are not in it and are entered again.
+function Open-PASUILabFile {
+    # Fills the choices from a saved lab file, read in the background. Media and passwords are not in it.
     param([string]$Path)
-    $configuration = Import-PASLabConfiguration -Path $Path
-    $plan = Get-PASLabPlan -Configuration $configuration
-    $S.LabName = [string]$configuration['name']
+    Set-PASUINotice 'busy' 'Opening the lab file...'
+    Start-PASUITask -ArgumentList @($Path) -ScriptBlock {
+        param([string]$Path)
+        $configuration = Import-PASLabConfiguration -Path $Path
+        @{ Configuration = $configuration; Plan = (Get-PASLabPlan -Configuration $configuration) }
+    } -OnCompleted {
+        param($result)
+        $answer = @($result)[-1]
+        Set-PASUILabFromFile $answer.Configuration $answer.Plan
+        Set-PASUINotice 'info' 'Lab file opened. Choose the media folder again; passwords are never stored in a lab file.'
+        Show-PASUIScreen 'media'
+    } -OnFailed {
+        param($failure)
+        Set-PASUINotice 'error' ('The lab file could not be opened: ' + [string]$failure.Message)
+    }
+}
+
+function Set-PASUILabFromFile {
+    # The choices of a saved lab, from its configuration and plan.
+    param($Configuration, $Plan)
+    $S.LabName = [string]$Configuration['name']
     $S.Preset = 'custom'
     $S.Slots = @{}
-    $types = @($plan.Items | ForEach-Object { [string]$_.Type })
+    $types = @($Plan.Items | ForEach-Object { [string]$_.Type })
     $S.VaultMode = 'Existing'
     if ($types -contains 'Vault') {
         $S.VaultMode = 'Primary'
@@ -626,13 +908,13 @@ function Import-PASUILabFile {
         $S.Counts[$type] = @($types | Where-Object { $_ -eq $type }).Count
     }
     # A CPM that shares its address with a PVWA was installed on the PVWA server.
-    $pvwaAddresses = @($plan.Items | Where-Object { [string]$_.Type -eq 'PVWA' } | ForEach-Object { [string]$_.Address })
-    $cpmAddresses = @($plan.Items | Where-Object { [string]$_.Type -eq 'CPM' } | ForEach-Object { [string]$_.Address })
+    $pvwaAddresses = @($Plan.Items | Where-Object { [string]$_.Type -eq 'PVWA' } | ForEach-Object { [string]$_.Address })
+    $cpmAddresses = @($Plan.Items | Where-Object { [string]$_.Type -eq 'CPM' } | ForEach-Object { [string]$_.Address })
     $S.Colocate = [bool]@($cpmAddresses | Where-Object { $pvwaAddresses -contains $_ }).Count -or -not $cpmAddresses.Count
     $numbers = @{}
-    foreach ($item in @($plan.Items)) {
+    foreach ($item in @($Plan.Items)) {
         $type = [string]$item.Type
-        $account = [string]$configuration['hosts'][[string]$item.Host]['user']
+        $account = [string]$Configuration['hosts'][[string]$item.Host]['user']
         if ($type -eq 'Vault') {
             Set-PASUISlotValue $S 'vault' 'Address' ([string]$item.Address)
             Set-PASUISlotValue $S 'vault' 'User' $account
@@ -653,19 +935,43 @@ function Import-PASUILabFile {
         Set-PASUISlotValue $S $key 'User' $account
     }
     if ($S.VaultMode -eq 'Existing') {
-        $S.ExistingVault = [string]$configuration['vault']['address']
+        $S.ExistingVault = [string]$Configuration['vault']['address']
+    }
+}
+
+function Show-PASUIHome {
+    # The start page; the list of installations is read in the background.
+    $S.RunsLoading = $true
+    Show-PASUIScreen 'home'
+    Start-PASUITask -ScriptBlock {
+        Get-PASRun
+    } -OnCompleted {
+        param($result)
+        $S.RunsLoading = $false
+        $S.Runs = @($result | Where-Object { $_ })
+        if ($S.Screen -eq 'home') {
+            Show-PASUIRunList
+        }
+    } -OnFailed {
+        param($failure)
+        $S.RunsLoading = $false
+        $S.Runs = @()
+        if ($S.Screen -eq 'home') {
+            Show-PASUIRunList
+        }
+        Set-PASUINotice 'error' ('The earlier installations could not be read: ' + [string]$failure.Message)
     }
 }
 
 # ------------------------------------------------------------------ events
 
 function Invoke-PASUIClick {
+    # A button was pressed: $Id is its id.
     param([string]$Id)
     switch -Regex ($Id) {
         '^nav-home$' {
-            $S.Runs = @(Get-PASRun)
             Set-PASUINotice
-            Show-PASUIScreen 'home'
+            Show-PASUIHome
             return
         }
         '^act-new$' {
@@ -673,22 +979,21 @@ function Invoke-PASUIClick {
             return
         }
         '^act-open$' {
-            $pick = Show-NativeHTMLKitFileDialog -Window $window -Kind OpenFiles -Title 'Open a lab file' -Filters @(@{ name = 'Lab files'; extensions = @('json') })
-            if ($pick.cancelled) {
-                return
+            $path = Select-PASUIFile -Kind Open -Title 'Open a lab file' -Filter 'Lab files (*.json)|*.json'
+            if ($path) {
+                Open-PASUILabFile $path
             }
-            Import-PASUILabFile ([string]$pick.paths[0])
-            Set-PASUINotice 'info' 'Lab file opened. Choose the media folder again; passwords are never stored in a lab file.'
-            Show-PASUIScreen 'media'
             return
         }
         '^act-browse$' {
-            $pick = Show-NativeHTMLKitFileDialog -Window $window -Kind ChooseFolder -Title 'Folder with the CyberArk installer media'
-            if ($pick.cancelled) {
+            $path = Select-PASUIFile -Kind Folder -Title 'Folder with the CyberArk installer media'
+            if (-not $path) {
                 return
             }
-            $S.MediaPath = [string]$pick.paths[0]
-            $null = Set-NativeHTMLKitDocumentValue -Document $doc -Element 'f-mediapath' -Value $S.MediaPath
+            $S.MediaPath = $path
+            if ($R.ContainsKey('MediaPathBox')) {
+                $R['MediaPathBox'].Text = $path
+            }
             Invoke-PASUIMediaScan
             return
         }
@@ -705,7 +1010,10 @@ function Invoke-PASUIClick {
         '^act-back$' {
             $order = @('home', 'media', 'lab', 'servers', 'review')
             $position = [array]::IndexOf($order, [string]$S.Screen)
-            if ($position -gt 0) {
+            if ($position -eq 1) {
+                Set-PASUINotice
+                Show-PASUIHome
+            } elseif ($position -gt 1) {
                 Set-PASUINotice
                 Show-PASUIScreen $order[$position - 1]
             }
@@ -748,12 +1056,17 @@ function Invoke-PASUIClick {
             return
         }
         '^act-save$' {
-            $pick = Show-NativeHTMLKitFileDialog -Window $window -Kind SaveFile -Title 'Save the lab file' -FileName ("PASeasyInstall-$($S.LabName).json") -Directory $S.StartDirectory -Filters @(@{ name = 'Lab files'; extensions = @('json') })
-            if ($pick.cancelled) {
+            $path = Select-PASUIFile -Kind Save -Title 'Save the lab file' -Filter 'Lab files (*.json)|*.json' -FileName ("PASeasyInstall-$($S.LabName).json")
+            if (-not $path) {
                 return
             }
-            $saved = Export-PASLabConfiguration -Configuration $S.Configuration -Path ([string]$pick.paths[0]) -Force
-            Set-PASUINotice 'ok' "Saved: $saved"
+            Start-PASUITask -ArgumentList @($S.Configuration, $path) -ScriptBlock {
+                param($Configuration, [string]$Path)
+                Export-PASLabConfiguration -Configuration $Configuration -Path $Path -Force
+            } -OnCompleted {
+                param($result)
+                Set-PASUINotice 'ok' ('Saved: ' + [string](@($result)[-1]))
+            }
             return
         }
         '^act-install$' {
@@ -765,62 +1078,84 @@ function Invoke-PASUIClick {
         '^run-([0-9a-fA-F]{32})$' {
             $S.RunPlan = @{}
             $S.Configuration = $null
+            Set-PASUINotice 'busy' 'Opening the installation...'
             Open-PASUIRun $Matches[1]
+            return
+        }
+        '^act-log$' {
+            $S.LogOpen = -not $S.LogOpen
+            Show-PASUIRunLog
             return
         }
         '^act-retry$' {
             $failure = Get-PASUIFailure $S.Run
-            $step = [string]$failure.RetryStep
-            Request-PASUIAccounts 'Try this step again' 'The accounts are needed again to continue the installation.' (Get-PASUIRunRequirements) { param($accounts) Resume-PASUIRun -Accounts $accounts -RetryStep $step }.GetNewClosure()
+            $S.RetryStep = [string]$failure.RetryStep
+            Request-PASUIAccounts 'Try this step again' 'The accounts are needed again to continue the installation.' (Get-PASUIRunRequirements) {
+                param($accounts)
+                Resume-PASUIRun -Accounts $accounts -RetryStep ([string]$S.RetryStep)
+            }
             return
         }
         '^act-resume$' {
-            Request-PASUIAccounts 'Continue the installation' 'The accounts are needed again to continue the installation.' (Get-PASUIRunRequirements) { param($accounts) Resume-PASUIRun -Accounts $accounts }
+            Request-PASUIAccounts 'Continue the installation' 'The accounts are needed again to continue the installation.' (Get-PASUIRunRequirements) {
+                param($accounts)
+                Resume-PASUIRun -Accounts $accounts
+            }
             return
         }
         '^act-health$' {
-            Request-PASUIAccounts 'Check the lab' 'The lab check signs in to the Vault through PVWA.' (Get-PASUIRunRequirements -Only @('VaultAdmin', 'dr01')) { param($accounts) Invoke-PASUIHealth -Accounts $accounts }
+            Request-PASUIAccounts 'Check the lab' 'The lab check signs in to the Vault through PVWA.' (Get-PASUIRunRequirements -Only @('VaultAdmin', 'dr01')) {
+                param($accounts)
+                Invoke-PASUIHealth -Accounts $accounts
+            }
             return
         }
         '^act-diag$' {
-            $pick = Show-NativeHTMLKitFileDialog -Window $window -Kind SaveFile -Title 'Save the logs' -FileName ("PASeasyInstall-logs-$(([string]$S.RunId).Substring(0, 8)).zip") -Directory $S.StartDirectory -Filters @(@{ name = 'ZIP'; extensions = @('zip') })
-            if ($pick.cancelled) {
-                return
+            $path = Select-PASUIFile -Kind Save -Title 'Save the logs' -Filter 'ZIP (*.zip)|*.zip' -FileName ("PASeasyInstall-logs-$(([string]$S.RunId).Substring(0, 8)).zip")
+            if ($path) {
+                Export-PASUILogs $path
             }
-            Set-PASUINotice 'busy' 'Collecting the logs...'
-            $null = Export-PASDiagnostics -RunId ([string]$S.RunId) -Path ([string]$pick.paths[0]) -Force
-            Set-PASUINotice 'ok' "Logs saved: $($pick.paths[0]). Passwords are not part of them."
             return
         }
         '^act-stop$' {
             Show-PASUIConfirm 'Stop the installation?' 'The step that is running on the server is not interrupted, but nothing new is started. You can continue the installation later.' 'Stop' {
-                $null = Stop-PASRun -RunId ([string]$S.RunId) -Confirm:$false
-                $S.RunSignature = ''
-                Update-PASUIRun
+                Start-PASUITask -ArgumentList @([string]$S.RunId) -ScriptBlock {
+                    param([string]$RunId)
+                    $null = Stop-PASRun -RunId $RunId -Confirm:$false
+                } -OnCompleted {
+                    $S.RunSignature = ''
+                    Update-PASUIRun
+                }
             }
             return
         }
-        '^dlg-confirm-yes$' {
-            $action = $S.Pending
-            $S.Pending = $null
-            Close-PASUIDialog 'dlg-confirm'
-            if ($action) {
-                & $action
-            }
+        '^dlg-yes$' {
+            Submit-PASUIDialog
             return
         }
-        '^dlg-confirm-no$' {
-            $S.Pending = $null
-            Close-PASUIDialog 'dlg-confirm'
-            return
-        }
-        '^dlg-creds-no$' {
+        '^dlg-no$' {
             $S.Pending = $null
             $S.DialogRequirements = @()
-            Set-PASUIHtml 'dlg-creds-fields' ''
-            Close-PASUIDialog 'dlg-creds'
+            Close-PASUIDialog
             return
         }
+    }
+}
+
+function Export-PASUILogs {
+    # Saves the logs of the installation on screen as a ZIP, in the background.
+    param([string]$Path)
+    Set-PASUINotice 'busy' 'Collecting the logs...'
+    Start-PASUITask -ArgumentList @([string]$S.RunId, $Path) -ScriptBlock {
+        param([string]$RunId, [string]$Path)
+        $null = Export-PASDiagnostics -RunId $RunId -Path $Path -Force
+        $Path
+    } -OnCompleted {
+        param($result)
+        Set-PASUINotice 'ok' ('Logs saved: ' + [string](@($result)[-1]) + '. Passwords are not part of them.')
+    } -OnFailed {
+        param($failure)
+        Set-PASUINotice 'error' ('The logs could not be saved: ' + [string]$failure.Message)
     }
 }
 
@@ -829,7 +1164,12 @@ function Invoke-PASUINext {
     switch ([string]$S.Screen) {
         'media' {
             if (-not $S.MediaScanned -and @(Get-PASUIMediaPaths $S).Count) {
-                Invoke-PASUIMediaScan
+                Invoke-PASUIMediaScan -Then {
+                    if ($S.Screen -eq 'media' -and (Show-PASUIIssues 'media')) {
+                        Show-PASUIScreen 'lab'
+                    }
+                }
+                return
             }
             if (Show-PASUIIssues 'media') {
                 Show-PASUIScreen 'lab'
@@ -860,17 +1200,42 @@ function Set-PASUIField {
             $S.MediaScanned = $false
             return
         }
-        '^f-labname$' { $S.LabName = $Value; return }
-        '^f-existing$' { $S.ExistingVault = $Value; return }
-        '^f-domainname$' { $S.DomainName = $Value; return }
-        '^sec-(VaultAdmin|VaultMaster|DRPassword)$' { $S.Secrets[$Matches[1]] = $Value; return }
-        '^f-controller$' { $S.Controller = $Value; return }
-        '^f-installer-name$' { $S.InstallerName = $Value; return }
-        '^f-vault-timezone$' { $S.VaultTimezone = $Value; return }
-        '^f-installer-company$' { $S.InstallerCompany = $Value; return }
-        '^srv-([a-z0-9]+)-name$' { Set-PASUISlotValue $S $Matches[1] 'Name' $Value; return }
-        '^srv-([a-z0-9]+)-user$' { Set-PASUISlotValue $S $Matches[1] 'User' $Value; return }
-        '^srv-([a-z0-9]+)-pass$' { Set-PASUISlotValue $S $Matches[1] 'Password' $Value; return }
+        '^f-labname$' {
+            $S.LabName = $Value
+            return
+        }
+        '^f-existing$' {
+            $S.ExistingVault = $Value
+            return
+        }
+        '^f-domainname$' {
+            $S.DomainName = $Value
+            return
+        }
+        '^f-controller$' {
+            $S.Controller = $Value
+            return
+        }
+        '^f-installer-name$' {
+            $S.InstallerName = $Value
+            return
+        }
+        '^f-vault-timezone$' {
+            $S.VaultTimezone = $Value
+            return
+        }
+        '^f-installer-company$' {
+            $S.InstallerCompany = $Value
+            return
+        }
+        '^srv-([a-z0-9]+)-name$' {
+            Set-PASUISlotValue $S $Matches[1] 'Name' $Value
+            return
+        }
+        '^srv-([a-z0-9]+)-user$' {
+            Set-PASUISlotValue $S $Matches[1] 'User' $Value
+            return
+        }
         '^srv-([a-z0-9]+)-addr$' {
             Set-PASUISlotValue $S $Matches[1] 'Address' $Value
             $S.Preflight = $null
@@ -880,7 +1245,7 @@ function Set-PASUIField {
 }
 
 function Set-PASUIToggle {
-    # A checkbox changed.
+    # A check box or the Advanced switch changed.
     param([string]$Id, [bool]$Checked)
     switch ($Id) {
         'opt-advanced' {
@@ -903,68 +1268,103 @@ function Set-PASUIToggle {
     }
 }
 
-# ------------------------------------------------------------------ window
+$ui.NavHome.Add_Click({ Invoke-PASUISafe { Invoke-PASUIClick 'nav-home' } })
+$ui.BtnBack.Add_Click({ Invoke-PASUISafe { Invoke-PASUIClick 'act-back' } })
+$ui.BtnNext.Add_Click({ Invoke-PASUISafe { Invoke-PASUIClick 'act-next' } })
+$ui.DialogYes.Add_Click({ Invoke-PASUISafe { Invoke-PASUIClick 'dlg-yes' } })
+$ui.DialogNo.Add_Click({ Invoke-PASUISafe { Invoke-PASUIClick 'dlg-no' } })
+$ui.NavHome.Tag = 'nav-home'
+$ui.BtnBack.Tag = 'act-back'
+$ui.BtnNext.Tag = 'act-next'
+$ui.DialogYes.Tag = 'dlg-yes'
+$ui.DialogNo.Tag = 'dlg-no'
+$ui.OptAdvanced.Tag = 'opt-advanced'
+# Checked and Unchecked also come when Show-PASUIScreen sets the switch to what the state says: nothing to do then.
+$advancedChanged = {
+    if ([bool]$ui.OptAdvanced.IsChecked -ne [bool]$S.Advanced) {
+        Invoke-PASUISafe { Set-PASUIToggle 'opt-advanced' ([bool]$ui.OptAdvanced.IsChecked) }
+    }
+}
+$ui.OptAdvanced.Add_Checked($advancedChanged)
+$ui.OptAdvanced.Add_Unchecked($advancedChanged)
 
-try {
-    # Small by default: the window is made to sit next to other windows. It stays usable down to the minimum.
-    $window = New-NativeHTMLKitWindow -Application $app -Title 'PASeasyInstall' -Width 800 -Height 560 -MinWidth 480 -MinHeight 340
-    $doc = Open-NativeHTMLKitFile -Window $window -Path (Join-Path (Join-Path $PSScriptRoot 'Web') 'index.html')
-    if ($Backend -eq 'Mock') {
-        $null = Set-NativeHTMLKitDocumentAttribute -Document $doc -Element 'mode-badge' -Name 'hidden' -Remove
-    }
-
-    $null = Register-NativeHTMLKitDocumentEvent -Document $doc -Type click -Callback {
-        param($evt)
-        $id = [string]$evt.element
-        if ($id) {
-            Invoke-PASUISafe { Invoke-PASUIClick $id }
+# Files and folders dropped from Explorer onto the media step.
+$window.AllowDrop = $true
+$window.Add_DragOver({
+        param($sender, $eventArgs)
+        $eventArgs.Effects = [Windows.DragDropEffects]::None
+        if ($S.Screen -eq 'media' -and $eventArgs.Data.GetDataPresent([Windows.DataFormats]::FileDrop)) {
+            $eventArgs.Effects = [Windows.DragDropEffects]::Copy
         }
-    }
-    $null = Register-NativeHTMLKitDocumentEvent -Document $doc -Type input -Callback {
-        param($evt)
-        Set-PASUIField ([string]$evt.element) ([string]$evt.value)
-    }
-    $null = Register-NativeHTMLKitDocumentEvent -Document $doc -Type change -Callback {
-        param($evt)
-        $id = [string]$evt.element
-        if ($id -in @('opt-advanced', 'f-colocate', 'f-eula')) {
-            Invoke-PASUISafe { Set-PASUIToggle $id ([bool]$evt.checked) }
-        }
-    }
-    # Files and folders dropped from Explorer onto the media step (the element marked data-nativehtmlkit-drop).
-    $null = Register-NativeHTMLKitDocumentEvent -Document $doc -Type drop -Callback {
-        param($evt)
-        $paths = @()
-        $property = $evt.PSObject.Properties['paths']
-        if ($property) {
-            $paths = @($property.Value | ForEach-Object { [string]$_ })
-        }
-        if (-not $paths.Count -or $S.Screen -ne 'media') {
+        $eventArgs.Handled = $true
+    })
+$window.Add_Drop({
+        param($sender, $eventArgs)
+        if ($S.Screen -ne 'media' -or -not $eventArgs.Data.GetDataPresent([Windows.DataFormats]::FileDrop)) {
             return
         }
-        Invoke-PASUISafe {
-            $folders = @($paths | ForEach-Object { [bool](Test-Path -LiteralPath $_ -PathType Container) })
-            Add-PASUIMediaDrop -State $S -Paths $paths -IsFolder $folders
-            Show-PASUIScreen 'media'
-            Invoke-PASUIMediaScan
-        }
-    }
-    $null = Register-NativeHTMLKitDocumentEvent -Document $doc -Type submit -Element 'dlg-creds-form' -Callback {
-        Invoke-PASUISafe { Submit-PASUIAccounts }
-    }
+        $paths = @($eventArgs.Data.GetData([Windows.DataFormats]::FileDrop) | ForEach-Object { [string]$_ })
+        Invoke-PASUISafe { Add-PASUIDroppedMedia $paths }
+    })
 
-    if ($Config) {
-        Invoke-PASUISafe { Import-PASUILabFile $Config }
+function Add-PASUIDroppedMedia {
+    # Takes over what was dropped on the media step and looks for installers in it.
+    param([string[]]$Paths)
+    if (-not $Paths.Count) {
+        return
     }
-    $S.Runs = @(Get-PASRun)
-    Show-PASUIScreen 'home'
-    Set-NativeHTMLKitReady -Application $app
-    if ($SelfTest) {
-        . (Join-Path $PSScriptRoot 'SelfTest.ps1')
-        Invoke-PASUISelfTest -ScenarioPath $SelfTest
-        $null = Request-NativeHTMLKitQuit -Application $app
-    }
-    Wait-NativeHTMLKit -Application $app -UntilShutdown
+    $folders = @($Paths | ForEach-Object { [bool](Test-Path -LiteralPath $_ -PathType Container) })
+    Add-PASUIMediaDrop -State $S -Paths $Paths -IsFolder $folders
+    Show-PASUIScreen 'media'
+    Invoke-PASUIMediaScan
+}
+
+# While a running installation is on screen, it is read again every two seconds.
+$PollTimer = New-Object Windows.Threading.DispatcherTimer
+$PollTimer.Interval = [TimeSpan]::FromSeconds(2)
+$PollTimer.Add_Tick({
+        if (Test-PASUIRunWatched) {
+            Invoke-PASUISafe { Update-PASUIRun }
+        }
+    })
+
+# Last line of defence: an exception that escaped a handler is shown, not fatal.
+$window.Dispatcher.Add_UnhandledException({
+        param($sender, $eventArgs)
+        $eventArgs.Handled = $true
+        Set-PASUINotice 'error' ([string]$eventArgs.Exception.Message)
+    })
+
+# ------------------------------------------------------------------ run
+
+$TestFailures = 0
+if ($SelfTest) {
+    . (Join-Path $PSScriptRoot 'SelfTest.ps1')
+}
+$window.Add_ContentRendered({
+        if ($script:PASUIStarted) {
+            return
+        }
+        $script:PASUIStarted = $true
+        $PollTimer.Start()
+        if ($SelfTest) {
+            $null = $window.Dispatcher.BeginInvoke([Windows.Threading.DispatcherPriority]::ApplicationIdle, [Action]{
+                    $script:TestFailures = Invoke-PASUISelfTest -ScenarioPath $SelfTest
+                    $window.Close()
+                })
+            return
+        }
+        if ($Config) {
+            Invoke-PASUISafe { Open-PASUILabFile $Config }
+        }
+    })
+try {
+    Show-PASUIHome
+    $null = $window.ShowDialog()
 } finally {
-    Close-NativeHTMLKit -Application $app
+    $PollTimer.Stop()
+    Stop-PASUITasks
+}
+if ($TestFailures) {
+    exit 1
 }

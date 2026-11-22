@@ -163,7 +163,7 @@ function Get-PASDeploymentPlan {
         Items = @($items.ToArray())
         DomainJoins = $joins
         Warnings = $validated.Warnings
-        ExecutionMode = 'Sequential'
+        ExecutionMode = [string](Get-PASValue (Get-PASValue $c 'execution' $null) 'mode' 'Sequential')
         SchemaVersion = 2
     }
 }
@@ -556,6 +556,12 @@ function New-PASRuntimeInventory {
 }
 
 # Domain joins are separate durable host workflows, not implicit side effects of other recipes.
+function Get-PASDomainJoinStageNames {
+    # The step ids of the workflow that joins one server to the domain (New-PASDomainJoinWorkflow), in order.
+    # Tests\JoinPlan.Tests.ps1 checks that the generated workflow has exactly these.
+    return @('dns', 'join', 'reboot', 'local-admin', 'verify')
+}
+
 function New-PASDomainJoinWorkflow {
     param([hashtable]$Config, [string]$HostId, [string]$RunDirectory)
     $id = 'join-' + $HostId

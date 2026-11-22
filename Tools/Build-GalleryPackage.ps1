@@ -4,7 +4,7 @@ Stages the PowerShell Gallery package of the PASeasyInstall module and checks it
 .DESCRIPTION
 Copies the module folder of the repository into <Output>\gallery\PASeasyInstall: the commands, the
 recipes, the desktop window (Desktop folder), help and license files. The module has no required
-modules; Start-PASeasyInstall looks for NativeHTMLKit itself.
+modules.
 Tests, tools, docs and screenshots are not part of the package.
 It then:
   - refuses vendor media, binaries, keys and license files, and content that looks like a private key,
@@ -12,21 +12,20 @@ It then:
   - writes a file inventory with SHA256 hashes (<Output>\gallery\<module name>.inventory.json);
   - checks the manifest.
 With -LocalRepositoryPath the package is published to a local folder repository, to
-test Install-Module without the PowerShell Gallery. -MirrorDependencies also copies NativeHTMLKit
-there. This script never publishes to the PowerShell Gallery; .github/workflows/release.yml does that.
+test Install-Module without the PowerShell Gallery. This script never publishes to the PowerShell
+Gallery; .github/workflows/release.yml does that.
 .OUTPUTS
 Version, GalleryRoot, Packages (Module, Stage, Files, SizeKB, Inventory), LocalRepository.
 .EXAMPLE
 .\Tools\Build-GalleryPackage.ps1
 .EXAMPLE
-.\Tools\Build-GalleryPackage.ps1 -Output C:\Temp\pkg -LocalRepositoryPath C:\Temp\repo -MirrorDependencies
+.\Tools\Build-GalleryPackage.ps1 -Output C:\Temp\pkg -LocalRepositoryPath C:\Temp\repo
 #>
 [CmdletBinding()]
 param(
     [string]$Output = '',
     [string]$LocalRepositoryPath = '',
     [string]$LocalRepositoryName = 'PASeasyLocal',
-    [switch]$MirrorDependencies,
     [switch]$AllowMissingLicense
 )
 $ErrorActionPreference = 'Stop'
@@ -40,7 +39,6 @@ $Output = [IO.Path]::GetFullPath($Output)
 $galleryRoot = Join-Path $Output 'gallery'
 # One module: the commands and the desktop window.
 $moduleNames = @('PASeasyInstall')
-$nativeKitVersion = '0.1.2'
 
 function Get-PackageVersion {
     # ModuleVersion plus the optional PSData.Prerelease label, for example 2.0.0 or 2.0.0-rc1.
@@ -65,7 +63,7 @@ function Get-PackageProblems {
     param([string]$Stage)
     $problems = New-Object System.Collections.ArrayList
     $forbiddenExtensions = @('.zip', '.exe', '.msi', '.dll', '.key', '.pvk', '.pfx', '.p12', '.cer', '.crt', '.pem', '.lic', '.nupkg')
-    $textExtensions = @('.ps1', '.psm1', '.psd1', '.json', '.css', '.txt', '.md', '.sh', '.xml', '.j2', '.ini', '.iss', '.html')
+    $textExtensions = @('.ps1', '.psm1', '.psd1', '.json', '.css', '.txt', '.md', '.sh', '.xml', '.j2', '.ini', '.iss', '.xaml')
     # Written as character codes so that this script does not contain the value it searches for.
     $labPassword = -join [char[]](67, 121, 98, 101, 114, 97, 114, 107, 48, 49, 33)
     $patterns = @(
@@ -83,6 +81,10 @@ function Get-PackageProblems {
         }
         if ($file.Name -ieq 'license.xml') {
             [void]$problems.Add("$relative : vendor license file")
+            continue
+        }
+        if ($extension -eq '.ico' -and $relative -like '*Desktop*') {
+            # The window icon: own artwork, not text.
             continue
         }
         if ($extension -notin $textExtensions) {
@@ -201,9 +203,6 @@ if ($LocalRepositoryPath) {
     }
     foreach ($package in $packages) {
         Publish-PSResource -Path $package.Stage -Repository $LocalRepositoryName -SkipDependenciesCheck
-    }
-    if ($MirrorDependencies) {
-        Save-PSResource -Name NativeHTMLKit -Version $nativeKitVersion -Repository PSGallery -AsNupkg -Path $LocalRepositoryPath -TrustRepository
     }
     $published = $true
 }

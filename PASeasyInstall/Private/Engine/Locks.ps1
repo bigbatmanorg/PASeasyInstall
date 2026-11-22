@@ -13,7 +13,9 @@ function Enter-PASVaultLock {
     # Waits for the Vault lock of one Vault address and returns it. Pass the result to Exit-PASVaultLock.
     # The mutex is re-entrant on the same thread: a workflow step may take it again while the controller
     # already holds it for the whole Vault installation.
-    param([Parameter(Mandatory)][string]$Address, [int]$TimeoutSeconds = 180)
+    # -Cancel: a wait handle of a parallel run (Private\Run\Lanes.ps1). When it is set the wait ends with
+    # PASLaneStopped, so a server waiting for its turn does not wait for a run that is being stopped.
+    param([Parameter(Mandatory)][string]$Address, [int]$TimeoutSeconds = 180, $Cancel = $null)
     $key = $Address.Trim().TrimEnd('.').ToLowerInvariant() -replace '[^a-z0-9.-]', '_'
     if (-not $key) { throw 'The Vault lock needs the Vault address' }
     $name = 'Global\PASeasyInstall-Vault-' + $key
@@ -30,8 +32,15 @@ function Enter-PASVaultLock {
         $mutex = [Threading.Mutex]::OpenExisting($name, $rights)
     }
     $held = $false
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     try {
-        $held = $mutex.WaitOne([TimeSpan]::FromSeconds($TimeoutSeconds))
+        while (-not $held -and [DateTime]::UtcNow -lt $deadline) {
+            $held = $mutex.WaitOne(1000)
+            if (-not $held -and $Cancel -and $Cancel.WaitOne(0)) {
+                $mutex.Dispose()
+                throw 'PASLaneStopped: the run is being stopped because another server failed. Nothing was started for this step.'
+            }
+        }
     } catch [Threading.AbandonedMutexException] {
         # The previous holder ended without releasing it. The mutex is ours now.
         $held = $true
@@ -41,6 +50,45 @@ function Enter-PASVaultLock {
         throw "Vault $Address is in use by another PASeasyInstall controller on this machine (waited $TimeoutSeconds seconds). Wait until it has finished, then resume this run."
     }
     return $mutex
+}
+
+function Wait-PASVaultGate {
+    <# A parallel run (Private\Run\Lanes.ps1) hands every server a gate for its steps that sign in to the Vault:
+         Wait    wait handles that must all be set first (the Vault is installed; the first PVWA is registered)
+         Cancel  a wait handle that is set when the run is being stopped.
+       Returns $true when it had to wait. Throws PASLaneStopped when the run is stopped while waiting. #>
+    param($Gate)
+    if (-not $Gate) {
+        return $false
+    }
+    $waited = $false
+    foreach ($handle in @($Gate.Wait)) {
+        if ($null -eq $handle) {
+            continue
+        }
+        while (-not $handle.WaitOne(0)) {
+            $waited = $true
+            if ($Gate.Cancel -and $Gate.Cancel.WaitOne(0)) {
+                throw 'PASLaneStopped: the run is being stopped because another server failed. Nothing was started for this step.'
+            }
+            [void]$handle.WaitOne(1000)
+        }
+    }
+    return $waited
+}
+
+function Test-PASVaultGateOpen {
+    # $true when a step would not have to wait at this gate.
+    param($Gate)
+    if (-not $Gate) {
+        return $true
+    }
+    foreach ($handle in @($Gate.Wait)) {
+        if ($null -ne $handle -and -not $handle.WaitOne(0)) {
+            return $false
+        }
+    }
+    return $true
 }
 
 function Exit-PASVaultLock {

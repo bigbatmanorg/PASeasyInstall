@@ -294,6 +294,9 @@ function Invoke-PASRawSSH {
         if ($InputBytes) {
             $process.StandardInput.BaseStream.Write($InputBytes, 0, $InputBytes.Length)
             $process.StandardInput.BaseStream.Flush()
+            # The remote side reads exactly this many bytes. Closing the stream means that a transfer that
+            # came up short ends with an error there instead of waiting for more until the time limit.
+            $process.StandardInput.Close()
         } else { $process.StandardInput.Close() }
         $seconds = [int](Get-PASValue $Target 'CommandTimeoutSeconds' 120)
         if (-not $process.WaitForExit($seconds * 1000)) {

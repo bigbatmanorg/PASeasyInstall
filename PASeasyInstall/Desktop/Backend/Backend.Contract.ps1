@@ -13,7 +13,7 @@
 #   Test-PASLabConfiguration     -Configuration <cfg> [-CheckMedia] -> Valid, Issues, Warnings, Configuration
 #   Get-PASLabPlan               -Configuration <cfg>
 #                                -> Items (Id, Type, Host, Name, Address, Os, Media, DependsOn), Warnings, ExistingVault
-#   Get-PASCredentialRequirement -Configuration <cfg>
+#   Get-PASCredentialRequirement -Configuration <cfg> | -Path <config.json of a run>
 #                                -> objects: Kind (Credential|Secret), Key, HostId, User, Os, Label
 #   Export-PASLabConfiguration   -Configuration -Path [-Force]   writes the project file, returns its full path
 #   Import-PASLabConfiguration   -Path                           -> configuration (hashtable)
@@ -26,7 +26,7 @@
 #                                Run status: Launching, Running, Succeeded, Failed, LaunchFailed, Unknown,
 #                                Interrupted, Blocked, Abandoned.
 #   Get-PASRunEvent              -RunId [-Tail]
-#   Get-PASStageCatalog          -Component Vault|DR|PVWA|CPM|PSM|PSMP|AD -> objects: Component, Stage, Order
+#   Get-PASStageCatalog          -Component Vault|DR|PVWA|CPM|PSM|PSMP|HTML5GW|PTA|AD|DomainJoin -> objects: Component, Stage, Order
 #   Resume-PASRun                -RunId [-RetryStep] [-CredentialMap] [-SecretMap]
 #   Stop-PASRun                  -RunId
 #   Export-PASDiagnostics        -RunId -Path [-Force]
@@ -48,7 +48,7 @@ $script:PASUIBackendContract = [ordered]@{
         'Media', 'SecurityProfile', 'AcceptEula', 'InstallerName', 'InstallerCompany')
     'Test-PASLabConfiguration' = @('Configuration', 'CheckMedia')
     'Get-PASLabPlan' = @('Configuration')
-    'Get-PASCredentialRequirement' = @('Configuration')
+    'Get-PASCredentialRequirement' = @('Configuration', 'Path')
     'Export-PASLabConfiguration' = @('Configuration', 'Path', 'Force')
     'Import-PASLabConfiguration' = @('Path')
     'Install-PASLab' = @('Configuration', 'CredentialMap', 'SecretMap')

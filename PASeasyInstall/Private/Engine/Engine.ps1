@@ -275,8 +275,12 @@ function Invoke-PASWorkflow {
         [string]$RunId = ([guid]::NewGuid().ToString('N')),
         [hashtable]$Credentials = @{}, [hashtable]$Secrets = @{},
         [string[]]$Retry = @(), [string]$VaultAddress = '',
+        [hashtable]$VaultGate = $null, [hashtable]$StepSignals = @{},
         [switch]$Resume, [switch]$PlanOnly, [switch]$Quiet
     )
+    # -VaultGate, -StepSignals: only a parallel run passes them (Private\Run\Lanes.ps1). A step that opens a
+    # Vault session first waits at the gate (Wait-PASVaultGate), then for the Vault lock without the usual time
+    # limit. StepSignals: @{ <step id> = wait handles that are set when that step is finished and verified }.
     # -VaultAddress: steps marked RequiresVaultSession / VerifyRequiresVaultSession hold the Vault lock of
     # this address (Locks.ps1) while they run.
     $plan = Get-PASWorkflowPlan -WorkflowPath $WorkflowPath -InventoryPath $InventoryPath
@@ -389,7 +393,16 @@ function Invoke-PASWorkflow {
             if ($requiresVault) {
                 # Nothing has been dispatched yet, so a missing address or a busy Vault is a plain failure.
                 if (-not $VaultAddress) { throw "Step '$id' opens a Vault session and needs -VaultAddress" }
-                $vaultLock = Enter-PASVaultLock -Address $VaultAddress
+                if ($VaultGate) {
+                    if (-not (Test-PASVaultGateOpen $VaultGate)) {
+                        Add-PASEvent $context 'VaultWaiting' $id 'Waiting for the Vault: this step signs in to the Vault and runs when the Vault is installed and no other server is signing in'
+                    }
+                    [void](Wait-PASVaultGate $VaultGate)
+                    # Other servers of this run register one after the other: wait for the turn, however long.
+                    $vaultLock = Enter-PASVaultLock -Address $VaultAddress -TimeoutSeconds 14400 -Cancel $VaultGate.Cancel
+                } else {
+                    $vaultLock = Enter-PASVaultLock -Address $VaultAddress
+                }
                 $context.VaultLocked = $true
                 Add-PASEvent $context 'VaultLockAcquired' $id "Vault lock held for this step ($VaultAddress)"
             }
@@ -444,6 +457,7 @@ function Invoke-PASWorkflow {
                     Exit-PASVaultLock $vaultLock
                     $vaultLock = $null
                 }
+                if ($StepSignals.ContainsKey($id)) { foreach ($signal in @($StepSignals[$id])) { [void]$signal.Set() } }
                 continue
             }
             if ($current -and -not $retrying) {
@@ -739,6 +753,7 @@ function Invoke-PASWorkflow {
                     Exit-PASVaultLock $vaultLock
                     $vaultLock = $null
                 }
+                if ($StepSignals.ContainsKey($id)) { foreach ($signal in @($StepSignals[$id])) { [void]$signal.Set() } }
             } catch {
                 $message = [string]$_.Exception.Message
                 $uncertain = ($message.StartsWith('PAExecUnknown:') -or
@@ -768,13 +783,19 @@ function Invoke-PASWorkflow {
     } catch {
         $text = [string]$_.Exception.Message
         if ($context.State -and $context.State.status -ne 'Succeeded') {
-            if ($text -match '^PAExecLocked:') { $context.State.status = 'Blocked' }
+            # PASLaneStopped: a parallel run stopped this server while it waited for its turn; nothing was started.
+            if ($text -match '^PASLaneStopped:') { $context.State.status = 'Stopped' }
+            elseif ($text -match '^PAExecLocked:') { $context.State.status = 'Blocked' }
             elseif ($text -match '^(Unknown:|PAExecUnknown:)') { $context.State.status = 'Unknown' }
             else { $context.State.status = 'Failed' }
             $context.State.lastError = Protect-PASText $text $redactions
             try {
                 Save-PASState $context
-                Add-PASEvent $context 'RunStopped' '' "$($context.State.status): $text" 'Error'
+                if ($context.State.status -eq 'Stopped') {
+                    Add-PASEvent $context 'LaneWaitingEnded' '' ($text -replace '^PASLaneStopped:\s*', '') 'Warning'
+                } else {
+                    Add-PASEvent $context 'RunStopped' '' "$($context.State.status): $text" 'Error'
+                }
             } catch { Write-Verbose 'state save failed' }
         }
         throw

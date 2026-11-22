@@ -11,11 +11,11 @@ PASeasyInstall/              core module, no dependencies
   Private/Config             configuration (read, validate, compose), credentials, plan, workflow generator
   Private/Media              find and select installer media
   Private/Engine             runs ONE workflow on ONE server: transports, step attempts, journal, locks
-  Private/Run                the run controller: all components of a run, one after the other
+  Private/Run                the run controller: all components of a run; the servers at the same time (Lanes.ps1)
   Private/Diagnostics        health, logs, diagnostics export
   Recipes/                   scripts executed ON the servers (Vault, WindowsComponent, LinuxComponent, ActiveDirectory)
   Controllers/               Invoke-PASRunController.ps1, entry script of the detached controller process
-PASeasyInstall/Desktop/      desktop window; calls only the public commands in Backend/Backend.Contract.ps1
+PASeasyInstall/Desktop/      desktop window (WPF); calls only the public commands in Backend/Backend.Contract.ps1
 ```
 
 Names: a **run** is one installation (one controller process, one run id). A **component** is one item of the plan
@@ -50,7 +50,7 @@ An **attempt** is one execution of a step on the server.
 
 | File | Content |
 |---|---|
-| `run.json` | status, controller PID and start time, current component, message |
+| `run.json` | status, controller PID and start time, current component (several in a parallel run), message |
 | `config.json`, `plan.json` | what the run installs; frozen at start |
 | `events.jsonl` | events of the run controller |
 | `controller.lock` | the run lock (empty file, held open by the controller) |
@@ -80,6 +80,28 @@ target lock `~/.paeasyinstall/locks/<server id>/owner`; `/opt/paeasyinstall/medi
    touches a half-installed server. The same run takes it again on resume. `Stop-PASRun` releases it.
 3. **Vault lock**: a named mutex on the controller (`Global\PASeasyInstall-Vault-<address>`). One authenticated
    Vault session at a time. Always released in `finally`, never kept after a failure, leaves no files.
+
+## Servers at the same time (`Private/Run/Lanes.ps1`)
+
+A configuration with `execution.mode = Parallel` (the default of `New-PASLabConfiguration`) installs the servers
+side by side. `Sequential`, or a configuration without the key, installs one component after the other.
+
+- **Lane**: the work of one server, in plan order. Each lane is a runspace of the controller process with its
+  own copy of the module, so remoting sessions are not shared. The Vault with its DR Vault is one lane, the new
+  forest is one lane. Components on the same server stay one after the other.
+- **Signals** (wait handles inside the controller, set once): `Domain` (forest installed), `Vault` (Vault
+  sequence finished), `PvwaRegistered` (first PVWA finished `register`), `Cert:<pvwa>` (PVWA has its
+  certificate), `Done:<pvwa>`, `Cancel` (a lane failed).
+- **Who waits:** a joined server waits for `Domain` before its join. A component that trusts the PVWA
+  certificate (CPM, gateway, PTA) starts when every PVWA has one. A step that signs in to the Vault waits for
+  `Vault`; every component except the first PVWA also for `PvwaRegistered`; PTA for every PVWA to be finished.
+  Then the step takes the Vault lock, so the registrations run one at a time.
+- **A lane fails:** `Cancel` is set. A lane that waits gives up (its target is journalled as `Stopped`, shown as
+  Pending); a lane that works finishes the component it is installing. The run ends Failed with the step that
+  failed. `Resume-PASRun` starts every lane again; finished steps are only revalidated.
+- Gateway registration, PTA trust and the GPOs follow the lanes, in order, as in a sequential run.
+- While preparing a component, the lanes of one run share the SSH known-hosts file and the PVWA certificate
+  bundle; that short part is guarded by a mutex of the run (`prepare-<run id>`).
 
 ## Resume, retry, stop
 

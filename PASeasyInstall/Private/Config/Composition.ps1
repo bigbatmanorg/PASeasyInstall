@@ -168,7 +168,7 @@ function New-PASDeploymentConfiguration {
         [AllowEmptyString()][string]$PrimaryAddress = '', [AllowEmptyString()][string]$DRAddress = '',
         [AllowEmptyString()][string]$ExistingVaultAddress = '',
         [string]$Username = 'Administrator', [string]$LinuxUsername = 'root', [hashtable]$Media = @{},
-        [ValidateSet('Sequential', 'Parallel')][string]$ExecutionMode = 'Sequential',
+        [ValidateSet('Sequential', 'Parallel')][string]$ExecutionMode = 'Parallel',
         [AllowEmptyString()][string]$PrimaryUsername = '', [AllowEmptyString()][string]$DRUsername = '',
         [ValidateSet('Secure', 'Lab')][string]$SecurityProfile = 'Secure', [switch]$AcceptEula,
         [AllowEmptyString()][string]$InstallerName = '', [AllowEmptyString()][string]$InstallerCompany = '',

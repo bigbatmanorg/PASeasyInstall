@@ -14,6 +14,9 @@ Describe 'Public domain join payload generation' {
             ) New-PASDomainJoinWorkflow -Config $c -HostId member -RunDirectory $r } $c (Join-Path $TestDrive 'run')
         $inventory = Import-PowerShellDataFile $result.Inventory
         $inventory.Values.Components['join-member'].DnsServers[0] | Should -Be $c.hosts.dc01.address
+        # The step catalog lists exactly the steps of this workflow.
+        $steps = @((Import-PowerShellDataFile $result.Workflow).Steps | ForEach-Object { [string]$_.Id })
+        (@(Get-PASStageCatalog -Component DomainJoin | Sort-Object Order | ForEach-Object { $_.Stage }) -join ',') | Should -Be ($steps -join ',')
         foreach ($name in @('Join-Task.ps1', 'Join-Verify.ps1')) {
             $text = Get-Content (Join-Path (Split-Path (Split-Path $result.Workflow -Parent) -Parent) $name) -Raw
             $text | Should -Match 'function Test-PASeasyJoinPending'
