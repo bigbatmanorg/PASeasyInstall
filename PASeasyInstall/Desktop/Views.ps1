@@ -297,6 +297,10 @@ function Get-PASUIServersHtml {
         [void]$html.Append('<div class="card advanced"><h2>Network</h2>')
         [void]$html.Append('<div class="field"><label for="f-controller">Address of this computer</label><input type="text" id="f-controller" value="' + (ConvertTo-PASUIText $State.Controller) + '">')
         [void]$html.Append('<p class="hint">As the Vault sees it. The hardened Vault firewall is opened for it.</p></div></div>')
+        [void]$html.Append('<div class="card advanced"><h2>Who installs</h2><div class="row">')
+        [void]$html.Append('<div class="grow field"><label for="f-installer-name">User name</label><input type="text" id="f-installer-name" value="' + (ConvertTo-PASUIText $State.InstallerName) + '"></div>')
+        [void]$html.Append('<div class="grow field"><label for="f-installer-company">Company</label><input type="text" id="f-installer-company" value="' + (ConvertTo-PASUIText $State.InstallerCompany) + '"></div>')
+        [void]$html.Append('</div><p class="hint">What the CyberArk installers record as registered user and company. Empty: the CyberArk defaults.</p></div>')
     }
 
     [void]$html.Append('<div id="servers-issues"></div>')

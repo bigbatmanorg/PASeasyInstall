@@ -507,3 +507,39 @@ Describe 'Server check of a Linux server before its SSH key exists' {
         $row[0].Passed | Should -BeNullOrEmpty
     }
 }
+
+Describe '"Who installs": user and company name for the vendor installers' {
+    BeforeAll {
+        . (Join-Path $uiRoot 'Model.ps1')
+        . (Join-Path $uiRoot 'Views.ps1')
+    }
+    It 'is optional, is kept in the configuration and reaches every Windows component' {
+        $plain = New-LabConfig
+        $plain.options.Contains('installerName') | Should -BeFalse
+        $cfg = New-PASLabConfiguration -Environment WhoLab -VaultMode Existing -ExistingVaultAddress 192.0.2.5 -Media $script:selection -SecurityProfile Lab `
+            -InstallerName ' Lab Admin ' -InstallerCompany 'Example & Co. (Lab)' -Instances @(@{ Type = 'PVWA'; Name = 'PVWA01'; Address = '192.0.2.33' })
+        $cfg.options.installerName | Should -Be 'Lab Admin'
+        $cfg.options.installerCompany | Should -Be 'Example & Co. (Lab)'
+        (Test-PASLabConfiguration -Configuration $cfg).Valid | Should -BeTrue
+        $inventory = & (Get-Module -Name PASeasyInstall) { param($c) New-PASRuntimeInventory -Config $c -CredentialMap @{} -SkipMediaHash } $cfg
+        $inventory.Values.Components['pvwa01'].InstallerName | Should -Be 'Lab Admin'
+        $inventory.Values.Components['pvwa01'].InstallerCompany | Should -Be 'Example & Co. (Lab)'
+    }
+    It 'refuses characters that do not belong into an installer answer file' {
+        $cfg = New-PASLabConfiguration -Environment WhoLab -VaultMode Existing -ExistingVaultAddress 192.0.2.5 -Media $script:selection -SecurityProfile Lab `
+            -InstallerName "Lab`"Admin" -Instances @(@{ Type = 'PVWA'; Name = 'PVWA01'; Address = '192.0.2.33' })
+        $check = Test-PASLabConfiguration -Configuration $cfg
+        $check.Valid | Should -BeFalse
+        ($check.Issues -join ' ') | Should -Match 'options\.installerName'
+    }
+    It 'has a field pair in the Advanced view of the Servers step' {
+        $state = New-PASUIState
+        Set-PASUIPreset $state 'starter'
+        Get-PASUIServersHtml $state | Should -Not -Match 'f-installer-name'
+        $state.Advanced = $true
+        $state.InstallerCompany = 'Example Corp'
+        $html = Get-PASUIServersHtml $state
+        $html | Should -Match 'id="f-installer-name"'
+        $html | Should -Match 'id="f-installer-company" value="Example Corp"'
+    }
+}

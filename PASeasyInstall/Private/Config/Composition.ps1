@@ -143,6 +143,7 @@ function New-PASDeploymentConfiguration {
         [ValidateSet('Sequential', 'Parallel')][string]$ExecutionMode = 'Sequential',
         [AllowEmptyString()][string]$PrimaryUsername = '', [AllowEmptyString()][string]$DRUsername = '',
         [ValidateSet('Secure', 'Lab')][string]$SecurityProfile = 'Secure', [switch]$AcceptEula,
+        [AllowEmptyString()][string]$InstallerName = '', [AllowEmptyString()][string]$InstallerCompany = '',
         [string]$DataRoot = (Get-PASDataRoot))
     $lab = ($SecurityProfile -eq 'Lab')
     $overrides = [ordered]@{}
@@ -167,6 +168,13 @@ function New-PASDeploymentConfiguration {
         }
         hosts = [ordered]@{}; components = @(); media = [ordered]@{}; options = [ordered]@{}
         execution = [ordered]@{mode = $ExecutionMode }
+    }
+    # "Who installs": the user and company name the vendor installers record. Empty: the vendor defaults.
+    if ($InstallerName.Trim()) {
+        $c.options.installerName = $InstallerName.Trim()
+    }
+    if ($InstallerCompany.Trim()) {
+        $c.options.installerCompany = $InstallerCompany.Trim()
     }
     $components = New-Object System.Collections.ArrayList
     $anyWindows = $false

@@ -51,6 +51,12 @@ function New-PASLabConfiguration {
     .PARAMETER AcceptEula
     Confirms that you read and accept the CyberArk end user license agreement of the PSMP installer.
     Required when the lab contains a PSMP.
+    .PARAMETER InstallerName
+    User name the CyberArk installers record ("who installs"). Default: what the vendor files contain
+    ("Windows User"; "CyberArk Vault Image" for the Vault). Letters, digits, spaces and simple punctuation.
+    .PARAMETER InstallerCompany
+    Company name the CyberArk installers record. Default: what the vendor files contain ("My Company";
+    "CyberArk" for the Vault).
     .PARAMETER DataRoot
     Data folder of this controller (media cache, SSH keys). Default: %LOCALAPPDATA%\PASeasyInstall.
     .EXAMPLE
@@ -110,6 +116,12 @@ function New-PASLabConfiguration {
         [string]$SecurityProfile = 'Secure',
 
         [switch]$AcceptEula,
+
+        [AllowEmptyString()]
+        [string]$InstallerName = '',
+
+        [AllowEmptyString()]
+        [string]$InstallerCompany = '',
 
         [string]$DataRoot = ''
     )

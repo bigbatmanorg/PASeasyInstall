@@ -31,6 +31,15 @@ function Set-XmlParameter([string]$XmlPath, [string]$Name, [string]$Value) {
     if ($node.Attributes['Value']) { $node.SetAttribute('Value', $Value) }else { $node.Value = $Value }
     $xml.Save($XmlPath)
 }
+function Set-InstallerIdentity([string]$XmlPath, [string]$NameParameter) {
+    # "Who installs": user and company name of InstallationConfig.xml. Not given: the vendor values stay.
+    if ([string]$Settings.InstallerName) {
+        Set-XmlParameter $XmlPath $NameParameter ([string]$Settings.InstallerName)
+    }
+    if ([string]$Settings.InstallerCompany) {
+        Set-XmlParameter $XmlPath 'Company' ([string]$Settings.InstallerCompany)
+    }
+}
 function Write-Marker([string]$Name, [string]$Message) {
     New-Item -ItemType Directory -Path $markerRoot -Force | Out-Null
     [IO.File]::WriteAllText((Join-Path $markerRoot ($Name + '.json')),
@@ -114,11 +123,13 @@ try {
             if ($opts.Contains('installDirectory')) { Set-XmlParameter $xml 'PVWAInstallDirectory' ([string]$opts.installDirectory) }
             if ($opts.Contains('applicationDirectory')) { Set-XmlParameter $xml 'PVWAApplicationDirectory' ([string]$opts.applicationDirectory) }
             if ($opts.Contains('applicationName')) { Set-XmlParameter $xml 'PVWAApplicationName' ([string]$opts.applicationName) }
+            Set-InstallerIdentity $xml 'Username'
             $result = Invoke-VendorScript $cmd
         } elseif ($type -eq 'CPM') {
             $cmd = Get-VendorScript 'CPMInstallation.ps1'
             $xml = Join-Path (Split-Path -Parent $cmd) 'InstallationConfig.xml'
             if ($opts.Contains('installDirectory')) { Set-XmlParameter $xml 'CPMInstallDirectory' ([string]$opts.installDirectory) }
+            Set-InstallerIdentity $xml 'Username'
             $result = Invoke-VendorScript $cmd
         } else {
             $cmd = Get-VendorScript 'Execute-Stage.ps1'

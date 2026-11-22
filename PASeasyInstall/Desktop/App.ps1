@@ -286,6 +286,8 @@ function Update-PASUIPlan {
             LinuxUsername = 'root'
             Media = $S.MediaSelection
             SecurityProfile = 'Lab'
+            InstallerName = ([string]$S.InstallerName).Trim()
+            InstallerCompany = ([string]$S.InstallerCompany).Trim()
         }
         foreach ($slot in Get-PASUIServerSlots $S) {
             if ($slot.Key -eq 'vault') {
@@ -835,6 +837,8 @@ function Set-PASUIField {
         '^f-existing$' { $S.ExistingVault = $Value; return }
         '^sec-(VaultAdmin|VaultMaster|DRPassword)$' { $S.Secrets[$Matches[1]] = $Value; return }
         '^f-controller$' { $S.Controller = $Value; return }
+        '^f-installer-name$' { $S.InstallerName = $Value; return }
+        '^f-installer-company$' { $S.InstallerCompany = $Value; return }
         '^srv-([a-z0-9]+)-name$' { Set-PASUISlotValue $S $Matches[1] 'Name' $Value; return }
         '^srv-([a-z0-9]+)-user$' { Set-PASUISlotValue $S $Matches[1] 'User' $Value; return }
         '^srv-([a-z0-9]+)-pass$' { Set-PASUISlotValue $S $Matches[1] 'Password' $Value; return }

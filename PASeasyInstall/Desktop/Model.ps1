@@ -72,6 +72,9 @@ function New-PASUIState {
         Slots = @{}
         Secrets = @{}
         Controller = $ControllerAddress
+        # "Who installs" (Advanced): empty means the vendor defaults.
+        InstallerName = ''
+        InstallerCompany = ''
         AcceptEula = $false
 
         # Server check of the Servers step: running, and the configuration it passed for.

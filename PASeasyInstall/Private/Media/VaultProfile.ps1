@@ -7,7 +7,8 @@ function New-PASProfile {
         [string]$MediaPath = '', [hashtable]$MediaOverrides = @{},
         [string]$DataDrive = 'C:', [string]$PackagesRoot = 'C:\Cyberark\packages',
         [string]$AutomationRoot = 'C:\Cyberark\Automation',
-        [string]$KeysDir = 'C:\Keys', [string]$InstallRoot = 'C:\Program Files (x86)\PrivateArk')
+        [string]$KeysDir = 'C:\Keys', [string]$InstallRoot = 'C:\Program Files (x86)\PrivateArk',
+        [string]$InstallerName = '', [string]$InstallerCompany = '')
     return [ordered]@{ SchemaVersion = 1
         Mode = $Mode
         PrimaryIP = $PrimaryIP.Trim()
@@ -22,6 +23,8 @@ function New-PASProfile {
         AutomationRoot = $AutomationRoot
         KeysDir = $KeysDir
         InstallRoot = $InstallRoot
+        InstallerName = $InstallerName
+        InstallerCompany = $InstallerCompany
         CreatedUtc = [DateTime]::UtcNow.ToString('o')
     }
 }
@@ -121,6 +124,7 @@ function Export-PASInventory {
     $settings = [ordered]@{PackagesRoot = [string]$Profile.PackagesRoot; AutomationRoot = [string]$Profile.AutomationRoot;
         KeysDir = [string]$Profile.KeysDir; InstallRoot = [string]$Profile.InstallRoot; DataDrive = [string]$Profile.DataDrive;
         PrimaryIP = [string]$Profile.PrimaryIP; DRIP = $drIP;
+        InstallerName = [string]$Profile.InstallerName; InstallerCompany = [string]$Profile.InstallerCompany;
         Hardening = [ordered]@{Architecture = 'StandardVault'; AllowRDP = $false };
         Management = [ordered]@{
             ControllerAddress = [string]$Profile.ControllerIP

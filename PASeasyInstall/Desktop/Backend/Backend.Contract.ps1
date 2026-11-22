@@ -8,7 +8,7 @@
 #                                -Instances @( @{Type='PVWA';Name='PVWA01';Address='10.0.0.21';Username=''} )
 #                                -ControllerAddress -PrimaryAddress -DRAddress -ExistingVaultAddress
 #                                -Username -LinuxUsername -PrimaryUsername -DRUsername -Media @{Vault=item;..}
-#                                -SecurityProfile Secure|Lab -AcceptEula
+#                                -SecurityProfile Secure|Lab -AcceptEula -InstallerName -InstallerCompany
 #                                -> configuration (hashtable)
 #   Test-PASLabConfiguration     -Configuration <cfg> [-CheckMedia] -> Valid, Issues, Warnings, Configuration
 #   Get-PASLabPlan               -Configuration <cfg>
@@ -45,7 +45,7 @@ $script:PASUIBackendContract = [ordered]@{
     'Get-PASMediaSelection' = @('Inventory')
     'New-PASLabConfiguration' = @('Environment', 'VaultMode', 'Instances', 'ControllerAddress', 'PrimaryAddress', 'DRAddress',
         'ExistingVaultAddress', 'Username', 'LinuxUsername', 'PrimaryUsername', 'DRUsername',
-        'Media', 'SecurityProfile', 'AcceptEula')
+        'Media', 'SecurityProfile', 'AcceptEula', 'InstallerName', 'InstallerCompany')
     'Test-PASLabConfiguration' = @('Configuration', 'CheckMedia')
     'Get-PASLabPlan' = @('Configuration')
     'Get-PASCredentialRequirement' = @('Configuration')

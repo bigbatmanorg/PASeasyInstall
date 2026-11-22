@@ -164,6 +164,13 @@ function Test-PASConfiguration {
                 -not(Test-Path -LiteralPath $mediaPath -PathType Leaf)) { $issues.Add("Media ZIP missing for component '$id' ($mediaPath)") }
         }
     }
+    # "Who installs" goes into vendor XML files and the ASCII response file of the Vault.
+    foreach ($name in @('installerName', 'installerCompany')) {
+        $value = Get-PASValue (Get-PASValue $c 'options' @{}) $name $null
+        if ($null -ne $value -and [string]$value -cnotmatch '^[A-Za-z0-9][A-Za-z0-9 .,_()&+-]{0,63}$') {
+            $issues.Add("options.$name must be 1 to 64 characters: letters, digits, spaces and . , _ ( ) & + -")
+        }
+    }
     if ($CheckMedia -and $issues.Count -eq 0) {
         # The Vault needs more than its installer ZIPs. Report every missing file here, before a run is started.
         try {

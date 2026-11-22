@@ -26,6 +26,17 @@ $map = [ordered]@{
 }
 foreach ($k in $map.Keys) { $contents = $contents.Replace($k, $map[$k]) }
 if ($contents -match '{{[^}]+}}') { throw 'Unresolved vendor installer template variables' }
+# "Who installs": the registered user and company of the response file. Not given: the vendor values stay.
+foreach ($pair in @(@('szName', 'InstallerName'), @('szCompany', 'InstallerCompany'))) {
+    $value = ''
+    if ($Settings.Contains($pair[1])) {
+        $value = [string]$Settings[$pair[1]]
+    }
+    if ($value) {
+        if (@([regex]::Matches($contents, '(?m)^' + $pair[0] + '=.*$')).Count -ne 1) { throw "Vendor response template has no single $($pair[0]) line" }
+        $contents = [regex]::Replace($contents, '(?m)^' + $pair[0] + '=[^\r\n]*', ($pair[0] + '=' + $value.Replace('$', '$$')))
+    }
+}
 New-Item -ItemType Directory -Force -Path (Join-Path $Settings.DataDrive 'PrivateArk\StagingArea') | Out-Null
 try {
     [IO.File]::WriteAllText($iss, $contents, [Text.Encoding]::ASCII)

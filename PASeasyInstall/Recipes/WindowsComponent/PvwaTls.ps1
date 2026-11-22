@@ -135,7 +135,20 @@ function Invoke-PASeasyPvwaTls {
             $public.Dispose()
         }
     }
-    Assert-PASeasyPvwaCertificate $cert
+    # Windows needs a moment to use a root that was just added: directly after the import the chain can
+    # still be reported as not trusted (seen in the lab on 2026-11-22). Lab: ask again for up to a minute.
+    $deadline = [DateTime]::UtcNow.AddSeconds(60)
+    while ($true) {
+        try {
+            Assert-PASeasyPvwaCertificate $cert
+            break
+        } catch {
+            if (-not $policy.Lab -or [DateTime]::UtcNow -ge $deadline) {
+                throw
+            }
+            Start-Sleep -Seconds 3
+        }
+    }
     $bindingInfo = '*:' + $policy.Uri.Port + ':' + $policy.Uri.DnsSafeHost
     $bindings = @(Get-WebBinding -Name $policy.Site -Protocol https -ErrorAction Stop | Where-Object { $_.bindingInformation -ieq $bindingInfo })
     if ($bindings.Count -gt 1) { throw 'PVWA HTTPS binding is ambiguous' }
