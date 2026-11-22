@@ -324,7 +324,7 @@ namespace PASeasyInstall {
                     Total = [int]$_.ComponentTotalCount
                 } })
         $rows = @()
-        foreach ($id in @('PVWA', 'CPM', 'SessionManagement')) {
+        foreach ($id in @('PVWA', 'CPM', 'SessionManagement', 'PTA')) {
             try { $d = Invoke-RestMethod -Uri ($api + '/ComponentsMonitoringDetails/' + $id) -Headers $headers -TimeoutSec $TimeoutSeconds -ErrorAction Stop }catch { continue }
             foreach ($x in @($d.ComponentsDetails)) {
                 $rows += [pscustomobject]@{
@@ -340,7 +340,7 @@ namespace PASeasyInstall {
         $result.Components = $rows
         foreach ($row in @($rows | Where-Object { -not $_.LoggedOn })) { [void]$issues.Add("$($row.Component) $($row.User) ($($row.Address)) is not logged on to the Vault") }
         $expectedTypes = @($c.components | Where-Object { $_ } | ForEach-Object { [string]$_.type })
-        foreach ($t in @('PVWA', 'CPM')) {
+        foreach ($t in @('PVWA', 'CPM', 'PTA')) {
             if ($expectedTypes -contains $t -and
                 -not @($rows | Where-Object { $_.Component -eq $t }).Count) { [void]$issues.Add("No $t is registered in the Vault") }
         }
