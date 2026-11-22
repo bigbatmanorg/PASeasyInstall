@@ -34,12 +34,12 @@ Tested on real servers, from clean operating systems, without any manual step.
 
 ## 2. Experimental
 
-Usable, but expect rough edges. The desktop shows PTA as not yet installable.
+Usable, but expect rough edges.
 
 | What | State |
 |---|---|
 | Desktop window (`Start-PASeasyInstall`) | Rewritten on 2026-11-21 directly on the NativeHTMLKit SDK: four steps, a page per installation, an Advanced switch. A real window installed a Full lab (15.2) on real servers, including a stop with an error, *Try again*, reopening the installation and the lab check. That run was driven by a script calling the same functions as the buttons; clicking through by hand was only done with the simulated installation. Drag and drop of media is not tested by hand. Since 2026-11-22 *(not released)* the installation is started in the background: with the real installer and a window without a display (scripted walk), the window was free at once and the installation of a PVWA and a PSMP (15.2) for an existing Vault had started 4 seconds later; it finished in 11 minutes and the lab check from the window was Healthy. Not yet seen in a visible window. |
-| PTA | Not in the module yet. Proven by hand on 2026-11-22: PTA 15.2.2 installs on Rocky Linux 9.9 with 8 GB and 4 cores and can be configured without the wizard, through the installer's own REST interface (the steps are in NEXT.md 2.4). After it all PTA services run and the Vault has the PTA user; the Vault does not list PTA as connected yet and PVWA cannot reach it: certificates, PVWA settings and Vault syslog are still to do. |
+| PTA (component type `PTA`) *(not released)* | Installs with the vendor's `pta_installer.sh` and is configured with the vendor's `ptaAutomaticConfiguration.py`. 2026-11-22, once from clean servers in one run: Vault and PVWA 15.2 and PTA 15.2.2 on Rocky Linux 9.9 (8 GB, 4 cores) in 20 minutes; all PTA services run, the lab check lists PTA as connected (`PTAAppUser`, 15.2.2). Not done: Vault syslog forwarding to PTA, so PTA gets no Vault audit yet; the window with PTA was walked with the simulated installation only |
 | HTML5 Gateway (component type `HTML5GW`) *(not released)* | Installs with `html5_console.sh` from the 15.0 package on Ubuntu 24.04 (Docker), on the PSMP server, 4 GB. 2026-11-22, one lab from clean servers (15.2 Vault, PVWA, CPM, PSM, PSMP; gateway 15.0): the gateway step took about two minutes, its health page answers 200, PVWA has the gateway entry for the PSM server, lab check Healthy. The controller process of that run crashed once during the Vault upload (Windows PowerShell remoting exception on the shared controller VM); `Resume-PASRun` continued it without any other step by hand. Not done: a PSM session opened in a browser through the gateway |
 
 ## 3. Next (roadmap after 2.0.0)
@@ -79,10 +79,25 @@ A lab with a new domain works (see the table in section 1). What is left:
 
 ### 3.3 PTA
 
-Not in the module. The unattended configuration, which was the open question, works by hand on 15.2 (see the
-table in section 2 and NEXT.md 2.4 for the exact calls). Left: the component itself, the trust between PTA and
-PVWA in both directions, the PVWA settings for PTA, Vault syslog forwarding to PTA, and a health check.
-Ubuntu is not supported by the vendor; the documented 16 GB / 8 cores are not enforced by the installer.
+Installs and connects (see the table in section 2). What is left:
+
+- **Vault syslog forwarding to PTA.** PTA analyses the Vault audit, which the Vault sends by syslog. That needs
+  `dbparm.ini` on the Vault (`AllowNonStandardFWAddresses` for the PTA address and a `[SYSLOG]` section with the
+  `PTA.xsl` translator) and a Vault restart. Not built; without it PTA is connected but sees no Vault events.
+- **Root password.** The PTA installer application signs in as root of its own server, so the installation needs
+  the root password of the PTA server (not only an SSH key), and sets SELinux to permissive for that one call.
+- **firewalld.** The vendor's configuration tool installs and enables firewalld with only its port forwarding;
+  the recipe then opens the ports PTA listens on (80, 443, 8080, 8443, 514, 11514).
+- **Trust in a lab:** PTA trusts the lab PVWA certificate (Java trust stores); the PVWA server trusts the
+  certificate PTA presents (trusted on first use, listed as a lab deviation) and gets a hosts entry for the PTA
+  name. The Secure profile has no way for this yet.
+- **Vault time zone.** PTA wants the time zone of the Vault server as a tz database name. Default UTC with a
+  warning in the plan; `VaultTimezone` of the PTA instance or the field in the window's Advanced view sets it.
+- **Only in a lab that also installs a PVWA**, and the media folder needs a PSMP package: the CyberArk package
+  signing key the PTA installer checks comes from there.
+- **Memory:** about 3.2 GB of 8 GB in use after the installation, with the vendor's default heap sizes. Not
+  watched under load. Rocky Linux 9 only; RHEL 8 was not run. Ubuntu is not supported by the vendor.
+- The old PTA branches in `Recipes/LinuxComponent/Task.sh` and `Verify.sh` are unused now and can be removed.
 
 ### 3.4 HTML5 Gateway
 

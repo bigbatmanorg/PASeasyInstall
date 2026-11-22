@@ -7,6 +7,11 @@
   before they are installed, and at the end imports the CyberArk hardening GPOs of the vendor packages, links
   them and applies them to the joined servers. `-DomainMode Existing` joins the servers to a domain you already
   have (its GPOs are not touched). The window has the choice on the Lab step. Vault servers are never joined.
+- **PTA.** A new component type `PTA` (in the window: PTA) installs Privileged Threat Analytics on a RHEL-family
+  server with 8 GB with the vendor's installer, connects it to the Vault and to PVWA with the vendor's automatic
+  configuration tool, and the lab check lists it. It needs a PVWA in the same lab, a PSMP package in the media
+  folder (for the CyberArk package signing key) and the root password of the PTA server. Vault syslog forwarding
+  to PTA is not set up yet.
 - **PSM HTML5 Gateway.** A new component type `HTML5GW` (in the window: HTML5 Gateway) installs the gateway as a
   container with the vendor's script on a Linux server, also next to a PSMP, makes PVWA trust and know it, and
   checks its health page. It needs a PVWA in the same lab and the PACLI package in the media folder.

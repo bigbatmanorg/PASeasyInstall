@@ -137,51 +137,26 @@ commands and stays untested; the window keeps using Lab. What it would need is l
 
 ### 2.4 PTA
 
-The largest piece. **The unattended configuration is solved** (found on 2026-11-22 with the help of the
-`CyberArk-VMware-Lab` project, which configures PTA the same way). Nothing of it is in the module yet.
+**Done on 2026-11-22** (in the source, not released): component type `PTA`. A lab with Vault, PVWA and PTA on a
+RHEL-family server with 8 GB installed unattended, PTA is connected to the Vault and the lab check reports it.
+How it works and what it needs: [STATUS.md](STATUS.md) 3.3 and [DESIGN.md](DESIGN.md).
 
-**What works by hand on PTA 15.2.2 (Rocky Linux 9.9, 8 GB, 4 cores)**
+The method, for the record (found with the help of the `CyberArk-VMware-Lab` project): the installer application
+on port 8443 takes the configuration by REST. The vendor ships a script that does it,
+`/opt/pta/utility/internal/ptaAutomaticConfiguration.py`, with the values in environment variables
+(`rootPassword`, `vault_ip`, `vault_timezone`, `vault_adminUser`, `vault_adminPassword`, `pvwa_host`). The sign-in
+only works while SELinux is permissive. The address is `/installer/api/installation` without a slash at the end;
+with the slash 15.2 answers 404, which looked like a missing call on 2026-11-21.
 
-1. Install as before: `pta_installer.sh` (needs `sshpass`, `unzip`, `tar`), then a restart. After it `ptaweb`
-   listens on 8443 with the installer application; `appmgr` is not active yet.
-2. The server must resolve the PVWA name (hosts entry), and its own name must not point to 127.0.0.1 only.
-3. `setenforce 0`. With SELinux enforcing the sign-in of the installer application answers 401.
-4. `POST https://localhost:8443/installer/api/getauthtoken` with form fields `username=root` and `password=<root
-   password>` returns `{"Authorization": "<token>"}`.
-5. `GET https://localhost:8443/installer/api/installation` with `Authorization: Bearer <token>` returns
-   `{"status":"NOT_STARTED"}`. **No slash at the end:** with a trailing slash 15.2 answers 404, which is what
-   looked like "the call does not exist on 15.2" on 2026-11-21. When the status is SUCCESS or FAILED, a `DELETE`
-   on the same address resets it first.
-6. `POST` to the same address, JSON body:
-   `{"vault":{"ip","port":"1858","timezone":"Europe/Berlin","adminUser","adminPassword","daysActivity":"180"},
-   "pvwa":{"connectionMethod":"https","host","port":"443","appContext":"PasswordVault"},
-   "syslogInbound":{"inbound_514":"tls","inbound_11514":"tcp,tls"},"skipRestart":"true"}`.
-   The status is RUNNING for about a minute (the application does not answer for a moment while it restarts),
-   then SUCCESS.
-7. `setenforce 1` again. PTA keeps running under enforcing.
+**Left**
 
-**Result in the lab:** all PTA services run (`appmgr`, `ptaweb`, `ptadb`, `ptalistenerd`, `ptaservicesd`, ...),
-`Vault.ini` has the Vault address, PTA read the PVWA version, the Vault has the user `PTAAppUser` (so the NFR
-licence allows a PTA user), the PTA web page answers, about 3.3 GB of the 8 GB are used with the default heap
-sizes. **Not there yet:** the Vault lists PTA as 0 of 1 connected, and PVWA cannot reach PTA (503).
-
-**To do**
-
-1. The component: install, restart, steps 2 to 7. Recipe next to `Recipes/Html5Gateway` (own small `Task.sh`);
-   the old PTA branches in `Recipes/LinuxComponent/Task.sh` drive the wizard differently and can go.
-2. What `CyberArk-VMware-Lab` (`Scripts/11-InstallPTA-Primary.ps1`, steps 6e to 6j) does after the wizard, to be
-   tried one by one: the personal safe of `PTAAppUser` (PVWA REST), the PVWA certificate into PTA's Java trust
-   store, the PTA certificate into the trusted roots of the PVWA server, DiamondWebApp, restart of `appmgr`.
-3. Vault side (`Scripts/Configure-VaultSyslogToPTA.ps1` there): `dbparm.ini` with `AllowNonStandardFWAddresses`
-   for the PTA address and a `[SYSLOG]` section with `Syslog\PTA.xsl`, then a Vault restart; on PTA a plain TCP
-   listener on 11514. The Vault recipes for this were removed in commit `b3bffad`.
-4. Lower the heap sizes (`/opt/pta/utility/changeComponentResource.sh`) only if 8 GB turn out too small under
-   load; at rest it was not needed.
-5. Verify: `appmgr` active, Vault shows PTA connected, PVWA shows the PTA component; then the lab check.
-6. Window: one more component, needs a RHEL-family server.
-
-**Done when:** a lab with PTA installs unattended on a RHEL-family server with 8 GB, PTA is connected to the
-Vault, and the lab check reports it.
+- [ ] Vault syslog forwarding to PTA (`dbparm.ini` with `AllowNonStandardFWAddresses` and a `[SYSLOG]` section
+      using `Syslog\PTA.xsl`, Vault restart; on PTA a plain TCP listener on 11514). The Vault recipes for it were
+      removed in commit `b3bffad`; `CyberArk-VMware-Lab` has a working example in
+      `Scripts/Configure-VaultSyslogToPTA.ps1`. Then check in the PTA web page that events arrive.
+- [ ] Run the window with PTA against real servers (only the simulated installation was walked).
+- [ ] Remove the unused PTA branches from `Recipes/LinuxComponent/Task.sh` and `Verify.sh`.
+- [ ] RHEL 8, and memory under load (lower the heap sizes with `changeComponentResource.sh` if 8 GB are too small).
 
 ---
 
