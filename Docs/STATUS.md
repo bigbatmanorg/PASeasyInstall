@@ -1,7 +1,7 @@
 # PASeasyInstall 2.0: state of things
 
 One page that says what can be used now, what is experimental and what comes later.
-Last updated 2026-11-22, after release 2.0.4. Rows marked *(2.0.4)* are new in 2.0.4.
+Last updated 2026-11-22, for release 2.0.5 (parallel installation, WPF window). Rows marked *(2.0.4)* were new in 2.0.4.
 
 PASeasyInstall builds **labs**. Everything below was tested with the **Lab** security profile on
 Windows Server 2022 and Ubuntu 24.04, from a Windows Server 2022 controller.
@@ -21,6 +21,7 @@ Tested on real servers, from clean operating systems, without any manual step.
 | PSMP on Rocky Linux 9.9 (RHEL 9 package) | 15.2, once |
 | New Active Directory forest (`Install-PASDomainController`) | Windows Server 2022 |
 | Lab with a new domain *(2.0.4)*: new forest, PVWA + CPM server and PSM server joined, Vault, PVWA, CPM, PSM, then the CyberArk hardening GPOs of the vendor packages imported, linked and applied (`New-PASLabConfiguration -DomainMode New`) | 15.2 on Windows Server 2022, 2026-11-22, once from clean servers in one run: 36 minutes, lab check Healthy; after a restart of the joined servers all services came up again and the check stayed Healthy |
+| Servers installed at the same time (`execution.mode = Parallel`, the default) | 15.2, 2026-11-22, clean servers. Full lab with DR: 23 minutes (41 one after the other), lab check Healthy, registrations one at a time. New domain with PVWA + CPM, PSM, PSMP and GPOs: 20 minutes through the window. New domain with gateway: one step stopped with an SSH time-out and was continued by name (see [PARALLEL.md](PARALLEL.md)). A lab with PTA and a provoked failure on one server: the run stopped as intended and `Resume-PASRun` finished it; Healthy |
 | Whole lab in one run (`Install-PASLab`) | 15.0: 42 minutes; 15.2: 43 minutes; health check Healthy |
 | Two instances of each component in one run (2 x PVWA, CPM, PSM, PSMP) | 15.2, once: 62 minutes, health check Healthy with 2/2 PVWA, 2/2 CPM, 4/4 PSM and PSMP |
 | Media as single ZIPs or as the one full bundle ZIP | 15.0 single ZIPs, 15.2 bundle |
@@ -38,7 +39,7 @@ Usable, but expect rough edges.
 
 | What | State |
 |---|---|
-| Desktop window (`Start-PASeasyInstall`) | Rewritten on 2026-11-21 directly on the NativeHTMLKit SDK: four steps, a page per installation, an Advanced switch. A real window installed a Full lab (15.2) on real servers, including a stop with an error, *Try again*, reopening the installation and the lab check. That run was driven by a script calling the same functions as the buttons; clicking through by hand was only done with the simulated installation. Drag and drop of media is not tested by hand. Since 2026-11-22 *(2.0.4)* the installation is started in the background: with the real installer and a window without a display (scripted walk), the window was free at once and the installation of a PVWA and a PSMP (15.2) for an existing Vault had started 4 seconds later; it finished in 11 minutes and the lab check from the window was Healthy. Not yet seen in a visible window. |
+| Desktop window (`Start-PASeasyInstall`) | Rewritten in WPF on 2026-11-22 (no NativeHTMLKit, no other dependency): four steps, a page per installation, an Advanced switch. Tested without a desktop session, through UI Automation: six walks with the simulated installer (Full lab, Advanced, new domain with gateway and PTA, a failed step retried, the accounts dialog, a server that does not answer, a saved lab file with dropped media, Stop). With the real installer the window installed a lab with a new domain (15.2: forest, two joins, Vault, PVWA + CPM, PSM, PSMP, GPOs) on clean servers in 20 minutes, checked it and opened the installation again from the start page. **Never seen on a real desktop:** visibility, icon, mouse and keyboard, the file dialogs and a drag from Explorer are untested. |
 | PTA (component type `PTA`) *(2.0.4)* | Installs with the vendor's `pta_installer.sh` and is configured with the vendor's `ptaAutomaticConfiguration.py`. 2026-11-22, once from clean servers in one run: Vault and PVWA 15.2 and PTA 15.2.2 on Rocky Linux 9.9 (8 GB, 4 cores) in 20 minutes; all PTA services run, the lab check lists PTA as connected (`PTAAppUser`, 15.2.2). Not done: Vault syslog forwarding to PTA, so PTA gets no Vault audit yet; the window with PTA was walked with the simulated installation only |
 | HTML5 Gateway (component type `HTML5GW`) *(2.0.4)* | Installs with `html5_console.sh` from the 15.0 package on Ubuntu 24.04 (Docker), on the PSMP server, 4 GB. 2026-11-22, one lab from clean servers (15.2 Vault, PVWA, CPM, PSM, PSMP; gateway 15.0): the gateway step took about two minutes, its health page answers 200, PVWA has the gateway entry for the PSM server, lab check Healthy. The controller process of that run crashed once during the Vault upload (Windows PowerShell remoting exception on the shared controller VM); `Resume-PASRun` continued it without any other step by hand. Not done: a PSM session opened in a browser through the gateway |
 

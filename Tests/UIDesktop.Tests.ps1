@@ -542,6 +542,24 @@ Describe 'Servers form and server check' {
         # A step whose own name ends in -reboot stays a step of its own.
         Get-PASUIStepOfStage 'hardening-reboot' @('harden-primary', 'hardening-reboot') | Should -Be 'hardening-reboot'
     }
+    It 'keeps the number of steps of a component from the start to the end' {
+        $names = @('media-upload', 'preflight', 'install', 'register', 'verify')
+        $events = @(
+            [pscustomobject]@{ Component = 'cpm'; Stage = 'LocalPreflight'; Event = 'TaskCompleted' }
+            [pscustomobject]@{ Component = 'cpm'; Stage = 'pvwa-trust-certificate'; Event = 'TaskCompleted' }
+            [pscustomobject]@{ Component = 'cpm'; Stage = 'media-upload'; Event = 'TaskCompleted' }
+            [pscustomobject]@{ Component = 'cpm'; Stage = 'preflight'; Event = 'TaskStarted' })
+        $components = @(
+            [pscustomobject]@{ Id = 'cpm'; Type = 'CPM'; Status = 'Running'; Message = '' }
+            [pscustomobject]@{ Id = 'join-web'; Type = 'DomainJoin'; Status = 'Pending'; Message = '' })
+        $snapshot = [pscustomobject]@{ Status = 'Running'; Events = $events; Components = $components }
+        $catalog = @{ CPM = $names; DomainJoin = @('dns', 'join', 'reboot', 'local-admin', 'verify') }
+        $progress = Get-PASUIRunProgress -Snapshot $snapshot -Catalog $catalog
+        $progress.Components[0].Done | Should -Be 1
+        $progress.Components[0].Total | Should -Be 5
+        $progress.Components[1].Total | Should -Be 5
+        $progress.Total | Should -Be 10
+    }
     It 'says that a component waits for its turn at the Vault' {
         $events = @(
             [pscustomobject]@{ Component = 'psm'; Stage = 'install'; Event = 'TaskCompleted' }

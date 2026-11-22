@@ -41,8 +41,9 @@ readable by somebody who did not write it. When the vendor ships an automation s
 test harness are described in the private lab notes of the workstation, not in this repository.
 A stopped run cannot be continued after the module was changed (it pins its recipe files): when a lab run shows
 a defect, fix it, reset that server and start a new run.
-The window can be driven without a mouse: `App.ps1 -Backend Live -SelfTest <scenario.json>` walks the screens
-through the same functions the buttons call. That is how the real installs through the window were tested.
+The window can be driven without a mouse and without a desktop session: `App.ps1 -Backend Live -SelfTest
+<scenario.json>` presses the buttons through UI Automation and saves every screen as a PNG file. That is how
+the real installs through the window were tested.
 
 **Releasing.** Bump `ModuleVersion` in `PASeasyInstall/PASeasyInstall.psd1`, add the release notes
 (`site-src/release-notes.md` and `ReleaseNotes` in the manifest), merge to `main`, push tag `v<version>`.
@@ -63,7 +64,9 @@ of the media selection; "who installs" values. What is left:
 
 Needs a person at a Windows desktop, or a real interactive session.
 
-- [ ] `Start-PASeasyInstall` typed into an interactive Windows PowerShell console opens the window (2.0.2 fix).
+- [ ] The window is WPF since 2026-11-22 and was never seen on a real desktop: every check below is open again.
+      Look also at the icon in the title bar and the taskbar, and at keyboard use (Tab, Enter, Esc).
+- [ ] `Start-PASeasyInstall` typed into an interactive Windows PowerShell console opens the window.
 - [ ] The Servers form: a wrong address and a wrong password are named within seconds; correct entries lead to
       the plan (2.0.3). A wrong Linux root password is named too (2026-11-22, by script only).
 - [ ] Dropping a media folder, and single files, on the Media step.
@@ -163,13 +166,20 @@ with the slash 15.2 answers 404, which looked like a missing call on 2026-11-21.
 
 ## Part 2.5: install the servers at the same time
 
-Owner's request of 2026-11-22. Analysed, not built: the design, the rules of what must stay in order, the code
-that has to change and how to prove it are in [PARALLEL.md](PARALLEL.md). Short: one lane per server, three
-gates (domain, Vault ready, first PVWA), and the Vault lock that exists already as the queue for registrations.
-Estimate: a Full lab with DR in about 20 to 24 minutes instead of 41.
+**Done on 2026-11-22** (owner's request of that day): `execution.mode = Parallel`, the default of new lab
+configurations. One lane per server, signals for the domain, the Vault and the first PVWA, and the Vault lock as
+the queue for the registrations. Results: [PARALLEL.md](PARALLEL.md) and [STATUS.md](STATUS.md).
 
-- [ ] Build it as described in PARALLEL.md, behind `execution.parallel`.
-- [ ] Prove it with the four lab runs and the failure run listed there.
+**Left**
+
+- [ ] The step that stopped once with "SSH observation timed out" (PARALLEL.md, "Open"): find the cause.
+- [ ] Let the registrations start when the Primary Vault is ready instead of waiting for the DR Vault.
+- [ ] Two of each component, and a lab with DR and a new domain, in parallel.
+- [ ] The simulated installer of the window installs one component after the other; make it show lanes.
+- [ ] The server check (`Test-PASPreflight`) signs in to one server after the other: five servers took almost
+      five minutes from the window on 2026-11-22. Check the servers at the same time.
+- [ ] `Install-PASLab` needed 108 seconds before the run started (five servers, 15.2 bundle). Find out where
+      the time goes (media digests are the first suspect).
 
 ---
 
@@ -220,6 +230,8 @@ Every run assumes clean servers.
 
 ### 3.7 Tests
 
+- [ ] `KeyGeneration.Tests.ps1` ("captures true zero and nonzero exit statuses") failed once on the Windows
+      controller on 2026-11-22 while other work ran there, and passed when it was run alone.
 - [ ] `ControllerBootstrap.Tests.ps1` failed once on the GitHub-hosted runner on 2026-11-22 (status
       `LaunchFailed` instead of `Failed` after 1.5 seconds: the controller process could not be started) and
       passed when the job was run again. Find out why, or move it to `Tests/ci-exclude-hosted.txt`.
@@ -232,5 +244,3 @@ Every run assumes clean servers.
 - More combinations (three or four instances of a component, PSMP on RHEL 8, SLES and Ubuntu 22): test them when
   somebody needs them.
 - Tidying of code carried over from 1.0 (old internal names, dense code): only where a task above touches it.
-- The NativeHTMLKit module itself: its interactive-console defect is tracked in its own project (B-0100) and
-  needs a release there. PASeasyInstall works around it since 2.0.2.

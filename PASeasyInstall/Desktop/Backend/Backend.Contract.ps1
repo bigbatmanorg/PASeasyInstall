@@ -26,7 +26,7 @@
 #                                Run status: Launching, Running, Succeeded, Failed, LaunchFailed, Unknown,
 #                                Interrupted, Blocked, Abandoned.
 #   Get-PASRunEvent              -RunId [-Tail]
-#   Get-PASStageCatalog          -Component Vault|DR|PVWA|CPM|PSM|PSMP|AD -> objects: Component, Stage, Order
+#   Get-PASStageCatalog          -Component Vault|DR|PVWA|CPM|PSM|PSMP|HTML5GW|PTA|AD|DomainJoin -> objects: Component, Stage, Order
 #   Resume-PASRun                -RunId [-RetryStep] [-CredentialMap] [-SecretMap]
 #   Stop-PASRun                  -RunId
 #   Export-PASDiagnostics        -RunId -Path [-Force]

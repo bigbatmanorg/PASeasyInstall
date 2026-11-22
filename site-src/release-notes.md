@@ -1,6 +1,12 @@
 # Release notes
 
-## Not released yet (after 2.0.4)
+## 2.0.5
+
+- **The window is a native Windows window (WPF). NativeHTMLKit is gone.** `Start-PASeasyInstall` needs nothing
+  but Windows PowerShell 5.1: no second module to install, nothing bundled in the portable ZIP (0.4 MB). The
+  screens and what they do are the same, in a new dark design. Every call to the installer runs in the
+  background, so the window never stops reacting. It was tested by script on real servers, but not yet seen on
+  a real desktop; please report what looks wrong.
 
 - **The servers are installed at the same time.** Every server of a lab starts at once: upload, checks,
   prerequisites and the installation itself run side by side. A step that signs in to the Vault waits until the
@@ -18,9 +24,11 @@
   answer, then signing in to each. Before, nothing changed for some seconds.
 - **The Advanced switch is shown only where it does something**: on the Custom lab, the Servers step, the
   review and the installation page.
-- **The step count of a component no longer grows during an installation.** A step, the restart it asked for
-  and its continuation count as one step (PSM showed up to 17 of 10).
-- **The window has its own icon** in the title bar and the taskbar.
+- **The step count of a component no longer changes during an installation.** A step, the restart it asked
+  for and its continuation count as one step, and only the steps of the step list are counted (PSM showed up to
+  17 of 10; a lab showed 65 steps at the start and 82 at the end). `Get-PASStageCatalog` also lists the steps of
+  a domain join.
+- **The window has its own icon.**
 
 ## 2.0.4
 

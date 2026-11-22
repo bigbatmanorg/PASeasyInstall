@@ -649,7 +649,9 @@ function Get-PASUIStepOfStage {
 
 function Get-PASUIRunProgress {
     # What the run page shows: per component Done/Total steps and the current step; plus the totals.
-    # Catalog: @{ <type> = <number of steps> }. PlanItems: @{ <component id> = @{ Address } }.
+    # Catalog: @{ <type> = <names of its steps> } (or the number of steps). With names, only these steps are
+    # counted: what a run does besides them (the controller's own checks, an extra upload) changes no number.
+    # PlanItems: @{ <component id> = @{ Address } }.
     param($Snapshot, [hashtable]$Catalog = @{}, [hashtable]$PlanItems = @{})
     $events = @($Snapshot.Events)
     $rows = New-Object System.Collections.ArrayList
@@ -672,7 +674,14 @@ function Get-PASUIRunProgress {
             $catalogKey = 'DR'
         }
         if ($Catalog.ContainsKey($catalogKey)) {
-            $total = [int]$Catalog[$catalogKey]
+            $entry = $Catalog[$catalogKey]
+            if ($entry -is [int]) {
+                $total = $entry
+            } else {
+                $known = @($entry | ForEach-Object { [string]$_ })
+                $total = $known.Count
+                $finished = @($finished | Where-Object { $known -contains $_ })
+            }
         }
         $done = $finished.Count
         if ($done -gt $total) {

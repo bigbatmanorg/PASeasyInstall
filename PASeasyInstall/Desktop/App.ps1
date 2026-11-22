@@ -63,9 +63,11 @@ function Get-PASUILocalAddress {
 }
 
 $S = New-PASUIState -Backend $Backend -StartDirectory $StartDirectory -ControllerAddress (Get-PASUILocalAddress)
+# The steps of every component type, by name: the run page counts only these, so that the number of steps
+# of a component is known from the start and does not change while it is installed.
 $Catalog = @{}
-foreach ($type in @('Vault', 'DR', 'PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'PTA', 'AD')) {
-    $Catalog[$type] = @(Get-PASStageCatalog -Component $type).Count
+foreach ($type in @('Vault', 'DR', 'PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'PTA', 'AD', 'DomainJoin')) {
+    $Catalog[$type] = @(Get-PASStageCatalog -Component $type | Sort-Object -Property Order | ForEach-Object { [string]$_.Stage })
 }
 
 # ------------------------------------------------------------------ window
