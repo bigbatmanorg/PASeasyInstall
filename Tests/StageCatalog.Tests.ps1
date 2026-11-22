@@ -55,7 +55,8 @@ Describe 'Stage catalog of the Vault' {
         }
         (@(Get-PASStageCatalog -Component DR | ForEach-Object { $_.Stage }) -join ',') | Should -Be ($expected -join ',')
     }
-    It 'has no PTA' {
-        { Get-PASStageCatalog -Component PTA } | Should -Throw
+    It 'lists the PTA stages with the restart after the vendor installer' {
+        $stages = @(Get-PASStageCatalog -Component PTA | ForEach-Object { $_.Stage })
+        ($stages -join ',') | Should -Be 'media-upload,preflight,extract,prerequisites,install,register,verify'
     }
 }

@@ -3,8 +3,8 @@
 # work: no server is contacted. The only side effect is extracting a selected installer that lives
 # inside a ZIP bundle into the controller's media cache (read-only on the source).
 
-$script:PASComponentTypes = @('PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW')
-$script:PASLinuxTypes = @('PSMP', 'HTML5GW')
+$script:PASComponentTypes = @('PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'PTA')
+$script:PASLinuxTypes = @('PSMP', 'HTML5GW', 'PTA')
 # Engine/journal names that must never be used as instance ids (event mapping and credential aliases).
 $script:PASReservedIds = @('vault', 'dr', 'primary', 'primary_final', 'dr_final', 'vault01', 'dr01', 'primaryadmin', 'dradmin', 'controller')
 
@@ -66,6 +66,34 @@ function Resolve-PASMediaItemPath {
     } finally { $zip.Dispose() }
     return $target
 }
+function Export-PASRpmSigningKey {
+    # Copies RPM-GPG-KEY-CyberArk out of a PSMP package (ZIP) into the media cache and returns its path, or ''.
+    param([string]$Package, [string]$DataRoot)
+    if (-not $Package -or -not (Test-Path -LiteralPath $Package -PathType Leaf)) {
+        return ''
+    }
+    Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+    $zip = [IO.Compression.ZipFile]::OpenRead($Package)
+    try {
+        $entry = @($zip.Entries | Where-Object { $_.Name -eq 'RPM-GPG-KEY-CyberArk' }) | Select-Object -First 1
+        if (-not $entry) {
+            return ''
+        }
+        $directory = Join-Path (Join-Path $DataRoot 'MediaAssets') (Get-PASCacheKey (Get-Item -LiteralPath $Package) 'rpmkey-v1')
+        if (-not (Test-Path -LiteralPath $directory)) {
+            New-Item -ItemType Directory -Path $directory -Force |
+                Out-Null
+        }
+        $target = Join-Path $directory 'RPM-GPG-KEY-CyberArk'
+        if (-not (Test-Path -LiteralPath $target)) {
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $false)
+        }
+        return $target
+    } finally {
+        $zip.Dispose()
+    }
+}
+
 function Select-PASVaultMediaRoot {
     <# The Vault recipe scans one media folder for the packages and the VC++ runtimes. Start at the folder that
        holds the Vault packages and walk up only while the runtimes are missing; stop at the first folder where
@@ -284,6 +312,13 @@ function New-PASDeploymentConfiguration {
             }
             'PSMP' { if ($AcceptEula) { $options.acceptEula = $true } }
             'HTML5GW' { if ($AcceptEula) { $options.acceptEula = $true } }
+            'PTA' {
+                if ($AcceptEula) { $options.acceptEula = $true }
+                # PTA reads the Vault's audit times in the time zone of the Vault server (tz database name).
+                $options.vaultTimezone = 'UTC'
+                $timezone = ([string](Get-PASMediaItemValue $inst 'VaultTimezone')).Trim()
+                if ($timezone) { $options.vaultTimezone = $timezone }
+            }
         }
         $entry = [ordered]@{
             id = $id
@@ -301,7 +336,7 @@ function New-PASDeploymentConfiguration {
     # CPM pins the self-signed certificate of the first PVWA installed in this deployment; the
     # installer reads it from that PVWA over the authenticated management channel at install time.
     if ($lab -and $firstPvwa) {
-        foreach ($e in @($components | Where-Object { $_.type -in @('CPM', 'HTML5GW') })) { $e.options.pvwaTrustFrom = $firstPvwa }
+        foreach ($e in @($components | Where-Object { $_.type -in @('CPM', 'HTML5GW', 'PTA') })) { $e.options.pvwaTrustFrom = $firstPvwa }
         if (@($components | Where-Object { $_.type -eq 'CPM' }).Count) { $overrides['CPM.AllowPinnedLeafTrust'] = $true }
     }
     if ($lab -and $anyWindows) {
@@ -334,6 +369,13 @@ function New-PASDeploymentConfiguration {
         } else {
             $c.activeDirectory.mode = 'Existing'
             $c.activeDirectory.dnsServers = @($DomainControllerAddress.Trim())
+        }
+    }
+    # The PTA installer checks a package signature with the CyberArk signing key, which comes with every PSMP package.
+    if (@($components | Where-Object { $_.type -eq 'PTA' }).Count -and $Media.ContainsKey('PSMP')) {
+        $key = Export-PASRpmSigningKey -Package (Resolve-PASMediaItemPath $Media.PSMP $DataRoot) -DataRoot $DataRoot
+        if ($key) {
+            $c.options.cyberArkRpmKey = $key
         }
     }
     # An HTML5 Gateway is entered into the PVWA configuration with PACLI, run on a PVWA server of the lab.

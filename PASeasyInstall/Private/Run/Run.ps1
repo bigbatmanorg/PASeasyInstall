@@ -411,7 +411,15 @@ function Initialize-PASComponentRun {
             Select-PASPsmpMediaForHost -Component $Component -HostRecord $hostRecord -Directory $Run.Directory -DataRoot $Run.DataRoot
         }
     }
-    if (-not $prepared -and $type -in @('CPM', 'HTML5GW')) {
+    if ($type -eq 'PTA') {
+        # The PTA installer application signs in as root of its own server: the configuration step needs that password.
+        $rootCredential = Get-PASHostCredential $config $Run.Credentials $hostId $id
+        if (-not $rootCredential -or $rootCredential.Password.Length -eq 0) {
+            throw "PTA ($id) needs the root password of its server (the PTA installer application signs in with it). Pass the account of server '$hostId' with its password."
+        }
+        $Run.Secrets['PTARoot-' + $id] = $rootCredential.Password
+    }
+    if (-not $prepared -and $type -in @('CPM', 'HTML5GW', 'PTA')) {
         $options = Get-PASValue $Component 'options' $null
         $trustFrom = [string](Get-PASValue $options 'pvwaTrustFrom' '')
         if ($trustFrom) {
@@ -432,6 +440,7 @@ function Initialize-PASComponentRun {
     $values = (Import-PowerShellDataFile -Path $files.Inventory).Values.Components[$id]
     Add-PASFrozenMedia ([string](Get-PASValue $values 'MediaZip' '')) ([string](Get-PASValue $values 'MediaSHA256' ''))
     Add-PASFrozenMedia ([string](Get-PASValue $values 'PVWATrustCertificateFile' '')) ([string](Get-PASValue $values 'PVWATrustCertificateSHA256' ''))
+    Add-PASFrozenMedia ([string](Get-PASValue $values 'RpmKeyFile' '')) ([string](Get-PASValue $values 'RpmKeySHA256' ''))
     return $files
 }
 function Invoke-PASRunTarget {
@@ -515,6 +524,16 @@ function Invoke-PASGatewayRegistration {
         Add-PASFrozenMedia -Path $item.Archive -SHA256 (Get-FileHash -LiteralPath $item.Archive -Algorithm SHA256).Hash
         Set-PASRunCurrentComponent $Run $item.Target
         Write-PASRunEvent $Run.Directory 'GatewayRegistration' 'Registering the HTML5 Gateway in the PVWA configuration' $item.Target
+        Invoke-PASRunTarget -Run $Run -Target $item.Target -WorkflowPath $item.Workflow -InventoryPath $item.Inventory
+    }
+}
+function Invoke-PASPtaTrust {
+    # After the components: the first PVWA server of the lab trusts the certificate of every PTA
+    # (see Private\Config\PtaTrust.ps1). Lab profile only.
+    param([hashtable]$Run)
+    foreach ($item in @(New-PASPtaTrustWorkflow -Config $Run.Config -RunDirectory $Run.Directory)) {
+        Set-PASRunCurrentComponent $Run $item.Target
+        Write-PASRunEvent $Run.Directory 'PtaTrust' 'Making PVWA trust the PTA certificate' $item.Target
         Invoke-PASRunTarget -Run $Run -Target $item.Target -WorkflowPath $item.Workflow -InventoryPath $item.Inventory
     }
 }
@@ -799,6 +818,7 @@ function Invoke-PASRunControllerCore {
             Invoke-PASComponent -Run $run -Component $component
         }
         Invoke-PASGatewayRegistration -Run $run
+        Invoke-PASPtaTrust -Run $run
         Invoke-PASDomainPolicy -Run $run
         $record.status = 'Succeeded'
         $record.message = 'All selected component workflows completed'

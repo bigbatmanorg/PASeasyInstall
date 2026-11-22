@@ -19,12 +19,13 @@ $script:PASMediaRules = @(
     @{C = 'PSM'; R = '(?i)^(privileged session manager|psm)-rls-v' }
     @{C = 'PSMP'; R = '(?i)^privilegedsessionmanagersshproxy-' }
     @{C = 'HTML5GW'; R = '(?i)^html5 gateway-rls-' }
+    @{C = 'PTA'; R = '(?i)^pta-installer-rls-' }
     @{C = 'License'; R = '(?i)licen[cs]e.*\.xml$' }
     @{C = 'RecoveryKey'; R = '(?i)^recpub\.key$' }
     # Needed by the Vault install, found by the backend in the media folder; not a selectable installer.
     @{C = 'Prerequisite'; R = '(?i)^(vc_redist\.(x86|x64)|vcredist_x86(_2013)?)\.exe$' }
 )
-$script:PASMediaInstallable = @('Vault', 'PACLI', 'DR', 'KeyGen', 'PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'License', 'RecoveryKey')
+$script:PASMediaInstallable = @('Vault', 'PACLI', 'DR', 'KeyGen', 'PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'PTA', 'License', 'RecoveryKey')
 
 function Get-PASMediaClassification {
     param([string]$Name)

@@ -131,56 +131,32 @@ health page as verification, one more component in the window. Results and limit
 
 ### 2.3 Secure profile
 
-**State:** the default profile of the commands, never run. The window always uses Lab.
-
-**To do**
-
-1. A certificate authority in the test lab and a repeatable way to issue server certificates (the domain
-   controller of 2.1 with AD CS, or a small openssl CA; pick the simpler one).
-2. WinRM over HTTPS with certificates of that authority on every Windows server; no `SkipCACheck` /
-   `SkipCNCheck`.
-3. PVWA with a certificate of that authority; CPM trusts the authority (`-PvwaCertificateFile` with the CA
-   certificate), not a pinned PVWA certificate.
-4. No RDP to the hardened Vault; no lab deviation left in the plan.
-5. Window: a profile choice in Advanced, and a place to give the CA certificate.
-
-**Done when:** one full lab installs with `-SecurityProfile Secure`, the plan lists no deviation, and the lab
-check is healthy.
+**Out of scope for the lab for now** (owner's decision of 2026-11-22). The profile stays the default of the
+commands and stays untested; the window keeps using Lab. What it would need is listed in
+[STATUS.md](STATUS.md) 3.1.
 
 ### 2.4 PTA
 
-The largest and least certain piece. Find out the unattended method first; do not write module code before
-that works by hand.
+**Done on 2026-11-22** (in the source, not released): component type `PTA`. A lab with Vault, PVWA and PTA on a
+RHEL-family server with 8 GB installed unattended, PTA is connected to the Vault and the lab check reports it.
+How it works and what it needs: [STATUS.md](STATUS.md) 3.3 and [DESIGN.md](DESIGN.md).
 
-**Known from 2026-11-21**
+The method, for the record (found with the help of the `CyberArk-VMware-Lab` project): the installer application
+on port 8443 takes the configuration by REST. The vendor ships a script that does it,
+`/opt/pta/utility/internal/ptaAutomaticConfiguration.py`, with the values in environment variables
+(`rootPassword`, `vault_ip`, `vault_timezone`, `vault_adminUser`, `vault_adminPassword`, `pvwa_host`). The sign-in
+only works while SELinux is permissive. The address is `/installer/api/installation` without a slash at the end;
+with the slash 15.2 answers 404, which looked like a missing call on 2026-11-21.
 
-- The 15.2 installer (`pta_installer.sh`) installs on Rocky Linux 9.9 with 8 GB RAM and 4 cores in under
-  30 minutes. Its checks look only at the operating system version (RHEL-family 8.8+ / 9.3+), 2 GB of free disk
-  and a few packages (`sshpass`, `unzip`, `tar` must be there). The documented 16 GB / 8 cores are not enforced.
-  Ubuntu is not supported.
-- Before configuration it uses about 1.5 GB. Memory use comes from fixed Java heap sizes (Listener 2 to 8 GB,
-  scheduler up to 4 GB, ActiveMQ up to 5 GB). The vendor tool `/opt/pta/utility/changeComponentResource.sh
-  -c <id> -m <size>` changes them. 8 GB works in another lab; 4 GB is reported to thrash.
-- Unattended configuration is not solved. The installer's REST sign-in (`/installer/api/getauthtoken` on port
-  8443, user root) only works with SELinux in permissive mode: the PTA SELinux policy stops it from running
-  `su`. The configuration call that works on 15.0 (`POST /installer/api/installation/`) returns 404 on 15.2.
-- It is not known whether the lab licence covers PTA.
+**Left**
 
-**To do**
-
-1. Find the working unattended configuration on 15.2: try the PTA Ansible role shipped in the media
-   (`PTA-Ansible-Role`), then the documented "PTA automatic installation" calls, then the wizard
-   (`/opt/pta/prepwiz/run.sh`) with scripted answers. Write down what works.
-2. Then the component: install, reboot, configure against the Vault and PVWA, lower the heap sizes when the
-   server has less than 16 GB.
-3. Vault side: syslog forwarding to PTA (`dbparm.ini` plus the `PTA.xsl` translator), and the PVWA
-   trusted-connection setting. The Vault recipes for this were removed in commit `b3bffad` and can be taken from
-   the history; `Recipes/LinuxComponent/Task.sh` still has PTA branches.
-4. Verify: PTA services run (`appmgr`), PTA is connected to the Vault, the PVWA shows the PTA component.
-5. Window: one more component, needs a RHEL-family server.
-
-**Done when:** a lab with PTA installs unattended on a RHEL-family server with 8 GB, PTA is connected to the
-Vault, and the lab check reports it.
+- [ ] Vault syslog forwarding to PTA (`dbparm.ini` with `AllowNonStandardFWAddresses` and a `[SYSLOG]` section
+      using `Syslog\PTA.xsl`, Vault restart; on PTA a plain TCP listener on 11514). The Vault recipes for it were
+      removed in commit `b3bffad`; `CyberArk-VMware-Lab` has a working example in
+      `Scripts/Configure-VaultSyslogToPTA.ps1`. Then check in the PTA web page that events arrive.
+- [ ] Run the window with PTA against real servers (only the simulated installation was walked).
+- [ ] Remove the unused PTA branches from `Recipes/LinuxComponent/Task.sh` and `Verify.sh`.
+- [ ] RHEL 8, and memory under load (lower the heap sizes with `changeComponentResource.sh` if 8 GB are too small).
 
 ---
 

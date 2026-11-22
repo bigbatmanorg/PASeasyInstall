@@ -29,6 +29,7 @@ $privateFiles = @(
     'Config\Planning.ps1'
     'Config\DomainPolicy.ps1'
     'Config\GatewayRegistration.ps1'
+    'Config\PtaTrust.ps1'
     'Engine\RecipePayload.ps1'
     'Engine\Manifest.ps1'
     'Engine\Adapters.ps1'

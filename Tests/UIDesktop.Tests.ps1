@@ -675,3 +675,72 @@ Describe 'HTML5 Gateway' {
         Get-PASUILabHtml $state | Should -Match 'id="cnt-HTML5GW-inc"'
     }
 }
+
+Describe 'PTA' {
+    BeforeAll {
+        . (Join-Path $uiRoot 'Model.ps1')
+        . (Join-Path $uiRoot 'Views.ps1')
+        $ptaMedia = Join-Path $TestDrive 'pta-media'
+        New-TestZip (Join-Path $ptaMedia 'PTA-Installer-Rls-v15.2.2.zip') @('pta_installer.sh', 'pta-15.2.2.tgz')
+        New-TestZip (Join-Path $ptaMedia 'PTA-Upgrade-Rls-v15.2.2.zip') @('x')
+        New-TestZip (Join-Path $ptaMedia 'PrivilegedSessionManagerSSHProxy-RHELinux9-Intel64-Rls-v15.2.1.zip') @('CARKpsmp-15.2.1.24.x86_64.rpm', 'RPM-GPG-KEY-CyberArk')
+        $script:ptaInventory = @($script:inventory | Where-Object { $_.Component -ne 'PSMP' }) + @(Get-PASMediaInventory -Path $ptaMedia)
+        $script:ptaSelection = Get-PASMediaSelection -Inventory $script:ptaInventory
+        $script:ptaLab = @(@{ Type = 'PVWA'; Name = 'PAS-PVWA'; Address = '192.0.2.33' }, @{ Type = 'PTA'; Name = 'pta01'; Address = '192.0.2.37'; VaultTimezone = 'Europe/Berlin' })
+        $script:SavedPtaDataRoot = $env:PAS_EASY_DATA_ROOT
+    }
+    It 'finds the installer package, not the upgrade package' {
+        $items = @($script:ptaInventory | Where-Object Component -eq 'PTA')
+        $items.Count | Should -Be 1
+        $items[0].Name | Should -Be 'PTA-Installer-Rls-v15.2.2.zip'
+        $items[0].Version | Should -Be '15.2.2'
+    }
+    It 'takes the signing key from the PSMP package, comes last and gets the Vault time zone' {
+        $cfg = New-PASLabConfiguration -Environment PtaLab -VaultMode Primary -PrimaryAddress 192.0.2.31 -ControllerAddress 198.51.100.250 `
+            -Media $script:ptaSelection -SecurityProfile Lab -AcceptEula -Instances $script:ptaLab
+        $check = Test-PASLabConfiguration -Configuration $cfg
+        $check.Issues | Should -BeNullOrEmpty
+        ($check.Warnings -join ' ') | Should -Not -Match 'assumes that the Vault server runs in UTC'
+        [IO.Path]::GetFileName([string]$cfg.options.cyberArkRpmKey) | Should -Be 'RPM-GPG-KEY-CyberArk'
+        Test-Path -LiteralPath $cfg.options.cyberArkRpmKey | Should -BeTrue
+        $pta = @($cfg.components | Where-Object type -eq 'PTA')[0]
+        $pta.options.vaultTimezone | Should -Be 'Europe/Berlin'
+        $pta.options.pvwaTrustFrom | Should -Be 'pas-pvwa'
+        $plan = Get-PASLabPlan -Configuration $cfg
+        $plan.Items[-1].Type | Should -Be 'PTA'
+        $inventory = & (Get-Module -Name PASeasyInstall) { param($c) New-PASRuntimeInventory -Config $c -CredentialMap @{} -SkipMediaHash -ComponentId 'pta01' } $cfg
+        $settings = $inventory.Values.Components['pta01']
+        $settings.PvwaHost | Should -Be 'PAS-PVWA'
+        $settings.PvwaAddress | Should -Be '192.0.2.33'
+        $settings.VaultTimezone | Should -Be 'Europe/Berlin'
+        $settings.RpmKeyTarget | Should -Be '/opt/paeasyinstall/media/pta01/RPM-GPG-KEY-CyberArk'
+    }
+    It 'names what is missing: the license agreement, a PVWA, the signing key; and warns about UTC' {
+        $bare = New-PASLabConfiguration -Environment PtaLab -VaultMode Existing -ExistingVaultAddress 192.0.2.5 -Media ($script:ptaSelection.Clone()) -SecurityProfile Lab `
+            -Instances @(@{ Type = 'PTA'; Name = 'pta01'; Address = '192.0.2.37' })
+        $text = (Test-PASLabConfiguration -Configuration $bare).Issues -join ' '
+        $text | Should -Match 'license agreement \(EULA\) for PTA'
+        $text | Should -Match 'needs a PVWA in the same lab'
+        $noKey = $script:ptaSelection.Clone()
+        $noKey.Remove('PSMP')
+        $cfg = New-PASLabConfiguration -Environment PtaLab -VaultMode Primary -PrimaryAddress 192.0.2.31 -ControllerAddress 198.51.100.250 `
+            -Media $noKey -SecurityProfile Lab -AcceptEula -Instances @(@{ Type = 'PVWA'; Name = 'PAS-PVWA'; Address = '192.0.2.33' }, @{ Type = 'PTA'; Name = 'pta01'; Address = '192.0.2.37' })
+        $check = Test-PASLabConfiguration -Configuration $cfg
+        ($check.Issues -join ' ') | Should -Match 'needs a PSMP package in the media folder'
+        ($check.Warnings -join ' ') | Should -Match 'assumes that the Vault server runs in UTC'
+    }
+    It 'is one more component in the window, on its own Linux server' {
+        $state = New-PASUIState
+        Set-PASUIPreset $state 'standard'
+        $state.Counts['PTA'] = 1
+        $state.VaultTimezone = 'Europe/Berlin'
+        $slot = @(Get-PASUIServerSlots $state | Where-Object { $_.Types -contains 'PTA' })
+        $slot.Count | Should -Be 1
+        $slot[0].Os | Should -Be 'Linux'
+        (Get-PASUIInstances $state | Where-Object Type -eq 'PTA').VaultTimezone | Should -Be 'Europe/Berlin'
+        Get-PASUILabHtml $state | Should -Not -Match 'Not yet installable'
+        $state.Advanced = $true
+        Get-PASUIServersHtml $state | Should -Match 'id="f-vault-timezone" placeholder="UTC" value="Europe/Berlin"'
+        (Get-PASUIInputIssues $state 'servers') -join ' ' | Should -Match 'license agreement of the Linux installers'
+    }
+}

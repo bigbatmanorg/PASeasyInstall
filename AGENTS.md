@@ -36,9 +36,9 @@ use is at your own risk. Read `Docs/DESIGN.md` first: it explains the layout and
 - A successful process exit is not proof that a component works. Use the verify step and `Test-PASHealth`.
 - **Three locks only** (`PASeasyInstall/Private/Engine/Locks.ps1`): run lock, target lock, Vault mutex. Do not
   add another coordination mechanism.
-- **PTA was removed** from the PowerShell code. It will be re-added later as a normal component recipe. Do not
-  add PTA special cases to the controller. (PTA shell branches still exist in `Recipes/LinuxComponent`; see the
-  debt list in `Docs/DESIGN.md`.)
+- **PTA, the HTML5 Gateway and the domain steps are normal recipes** (`Recipes/Pta`, `Recipes/Html5Gateway`,
+  `Recipes/ActiveDirectory`). Keep it that way: a new component gets its own small recipe folder and a type
+  name, not special cases in the controller.
 
 ## Build and test
 

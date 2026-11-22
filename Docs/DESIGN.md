@@ -128,6 +128,16 @@ runs `Register-Gateway.ps1` on the first PVWA server (target `register-<gateway 
 back and restarts the PVWA application pool. PACLI runs from `C:\PASeasyInstallGateway`, a folder closed to
 everybody but SYSTEM and the administrators (the PACLI helper refuses `C:\ProgramData`).
 
+## PTA
+
+Component type `PTA`, recipe `Recipes/Pta`. `Task.sh` stages: Extract, Prerequisites (sshpass, unzip, tar; the
+CyberArk signing key, which the composer takes out of the PSMP package), Install (`pta_installer.sh`), then a
+restart step of the engine, Register (hosts entries, the PVWA certificate into PTA's Java trust stores, SELinux
+permissive for the vendor's `ptaAutomaticConfiguration.py`, ports in firewalld, restart of `appmgr`). The root
+password of the server reaches the Register step as the run secret `PTARoot-<id>`, which
+`Initialize-PASComponentRun` takes from the server's account. After the components, `Invoke-PASPtaTrust` runs
+`Trust-Pta.ps1` on the first PVWA server (target `trust-<pta id>`, Lab profile only).
+
 ## Known debt
 
 - What was tested, what is experimental and what comes later is in [STATUS.md](STATUS.md).
@@ -137,8 +147,8 @@ everybody but SYSTEM and the administrators (the PACLI helper refuses `C:\Progra
   the CPM user (`Get-PASeasyCpmRegistrationMode` in `Recipes/WindowsComponent/Vendor.ps1`). One state cannot be
   repaired that way and is reported instead (see STATUS.md 3.5).
 - Anti-tamper ACL code (owner/ACL checks of staging folders) is duplicated in about 8 places; not consolidated.
-- PTA shell branches still exist in `Recipes/LinuxComponent/Task.sh` and `Verify.sh`, although PTA was removed
-  from the PowerShell code.
+- Unused PTA shell branches still exist in `Recipes/LinuxComponent/Task.sh` and `Verify.sh`; PTA has its own
+  recipe in `Recipes/Pta` now.
 - Install paths are hard-coded (`C:\` drive, `C:\ProgramData\...`, `/opt/paeasyinstall`).
 - Vault recipes are read from the module at resume, not from a per-run copy: editing them blocks the resume of
   Vault targets (digest mismatch).

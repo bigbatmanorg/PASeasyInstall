@@ -1,7 +1,7 @@
 # The data behind the desktop window: what the user chose and what follows from it.
 # Nothing here opens a window or calls the installer, so every function can be tested on its own.
 
-$script:PASUIComponentTypes = @('PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW')
+$script:PASUIComponentTypes = @('PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'PTA')
 
 $script:PASUITypeNames = @{
     Vault = 'Vault'
@@ -12,6 +12,7 @@ $script:PASUITypeNames = @{
     PSM = 'PSM (session recording)'
     PSMP = 'PSMP (SSH sessions)'
     HTML5GW = 'HTML5 Gateway (sessions in the browser)'
+    PTA = 'PTA (threat analytics)'
     AD = 'Domain controller'
 }
 
@@ -25,6 +26,7 @@ $script:PASUIMediaNames = [ordered]@{
     PSM = 'PSM'
     PSMP = 'PSMP (Linux)'
     HTML5GW = 'HTML5 Gateway (Linux)'
+    PTA = 'PTA (Linux)'
     License = 'Vault license (license.xml)'
     RecoveryKey = 'Recovery public key (recpub.key)'
     Prerequisite = 'Visual C++ runtimes'
@@ -51,6 +53,8 @@ $script:PASUIStageNames = @{
     'dns' = 'Pointing the server at the domain'
     'join' = 'Joining the domain'
     'local-admin' = 'Giving the domain account administrator rights'
+    'rpm-signing-key' = 'Copying the CyberArk signing key'
+    'pta-trust' = 'Making PVWA trust PTA'
     'pacli-upload' = 'Copying PACLI to the PVWA server'
     'gateway-register' = 'Registering the gateway in PVWA'
     'gpo-firewall' = 'Allowing the management port in the firewall'
@@ -77,7 +81,7 @@ function New-PASUIState {
         LabName = 'MyPAM'
         Preset = 'standard'
         VaultMode = 'Primary'
-        Counts = @{ PVWA = 1; CPM = 1; PSM = 1; PSMP = 0; HTML5GW = 0 }
+        Counts = @{ PVWA = 1; CPM = 1; PSM = 1; PSMP = 0; HTML5GW = 0; PTA = 0 }
         Colocate = $true
         ExistingVault = ''
         # Active Directory: None, New (a new forest on one more server) or Existing.
@@ -90,6 +94,8 @@ function New-PASUIState {
         Controller = $ControllerAddress
         # "Who installs" (Advanced): empty means the vendor defaults.
         InstallerName = ''
+        # PTA (Advanced): the time zone of the Vault server as a tz database name; empty means UTC.
+        VaultTimezone = ''
         InstallerCompany = ''
         AcceptEula = $false
 
@@ -206,6 +212,10 @@ function Get-PASUIServerSlots {
     for ($i = [int]$State.Counts.PSMP + 1; $i -le $gateways; $i++) {
         [void]$slots.Add(@{ Key = "gw$i"; Roles = 'HTML5 Gateway'; Types = @('HTML5GW'); Os = 'Linux'; DefaultName = ('html5gw{0:00}' -f $i); Named = $true })
     }
+    # PTA needs its own RHEL-family server with 8 GB.
+    for ($i = 1; $i -le [int]$State.Counts['PTA']; $i++) {
+        [void]$slots.Add(@{ Key = "pta$i"; Roles = 'PTA (RHEL family, 8 GB)'; Types = @('PTA'); Os = 'Linux'; DefaultName = ('pta{0:00}' -f $i); Named = $true })
+    }
     return @($slots)
 }
 
@@ -294,7 +304,11 @@ function Get-PASUIInstances {
             } elseif ($type -eq 'CPM') {
                 $cpmNumber++
             }
-            [void]$instances.Add(@{ Type = $type; Name = $instanceName; Address = $address; Username = (Get-PASUISlotValue $State $slot 'User') })
+            $instance = @{ Type = $type; Name = $instanceName; Address = $address; Username = (Get-PASUISlotValue $State $slot 'User') }
+            if ($type -eq 'PTA' -and ([string]$State.VaultTimezone).Trim()) {
+                $instance.VaultTimezone = ([string]$State.VaultTimezone).Trim()
+            }
+            [void]$instances.Add($instance)
         }
     }
     return @($instances)
@@ -324,6 +338,14 @@ function Get-PASUIInputIssues {
         }
         if ((Get-PASUIDomainSlot $State) -and [string]$State.DomainName -notmatch '^[A-Za-z0-9][A-Za-z0-9-]*(\.[A-Za-z0-9][A-Za-z0-9-]*)+$') {
             [void]$issues.Add('Enter the DNS name of the domain, for example pam.lab.')
+        }
+        if ([int]$State.Counts['PTA'] -gt 0) {
+            if ([int]$State.Counts.PVWA -eq 0) {
+                [void]$issues.Add('PTA connects to PVWA: add a PVWA to the lab.')
+            }
+            if ($State.MediaScanned -and -not $State.MediaSelection.ContainsKey('PSMP')) {
+                [void]$issues.Add('PTA needs a PSMP package in the media folder (it holds the CyberArk package signing key).')
+            }
         }
         if ([int]$State.Counts['HTML5GW'] -gt 0) {
             if ([int]$State.Counts.PVWA -eq 0 -or ([int]$State.Counts.PSM -eq 0 -and $State.VaultMode -ne 'Existing')) {
@@ -375,8 +397,8 @@ function Get-PASUIInputIssues {
                 [void]$issues.Add("The $($field.Label) may hold letters, digits and the usual signs, but no space and no double quote.")
             }
         }
-        if (([int]$State.Counts.PSMP -gt 0 -or [int]$State.Counts['HTML5GW'] -gt 0) -and -not $State.AcceptEula) {
-            [void]$issues.Add('Accept the CyberArk license agreement of the PSMP and HTML5 Gateway installers.')
+        if (([int]$State.Counts.PSMP -gt 0 -or [int]$State.Counts['HTML5GW'] -gt 0 -or [int]$State.Counts['PTA'] -gt 0) -and -not $State.AcceptEula) {
+            [void]$issues.Add('Accept the CyberArk license agreement of the Linux installers (PSMP, HTML5 Gateway, PTA).')
         }
     }
     return @($issues)
@@ -492,6 +514,7 @@ function Get-PASUIEstimateMinutes {
     $minutes += 13 * [int]$State.Counts.PSM
     $minutes += 3 * [int]$State.Counts.PSMP
     $minutes += 3 * [int]$State.Counts['HTML5GW']
+    $minutes += 30 * [int]$State.Counts['PTA']
     return $minutes
 }
 

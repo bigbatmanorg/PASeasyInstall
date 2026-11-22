@@ -95,7 +95,7 @@ function Test-PASConfiguration {
     if ($c.hosts -isnot [System.Collections.IDictionary]) { $issues.Add('hosts must be an object') }
     $ids = @{}
     $windows = @('Vault', 'DRVault', 'PVWA', 'CPM', 'PSM', 'AD')
-    $linux = @('PSMP', 'HTML5GW')
+    $linux = @('PSMP', 'HTML5GW', 'PTA')
     if ($c.vault -is [System.Collections.IDictionary]) {
         foreach ($field in @('secretRef', 'masterSecretRef', 'drSecretRef')) {
             if ($c.vault.Contains($field) -and
@@ -119,6 +119,20 @@ function Test-PASConfiguration {
         $entryOptions = Get-PASValue $entry 'options' $null
         $label = [string](Get-PASValue $entry 'name' '')
         if (-not $label) { $label = $id }
+        if ($type -eq 'PTA') {
+            if (-not [bool](Get-PASValue $entryOptions 'acceptEula' $false)) {
+                $issues.Add("Accept the CyberArk license agreement (EULA) for PTA ($label): options.acceptEula = true")
+            }
+            if (-not @($c.components | Where-Object { $_ -and $_.type -eq 'PVWA' }).Count) {
+                $issues.Add("PTA ($label) needs a PVWA in the same lab: PTA connects to it and PVWA must trust PTA")
+            }
+            if (-not [string](Get-PASValue (Get-PASValue $c 'options' @{}) 'cyberArkRpmKey' '')) {
+                $issues.Add("PTA ($label) needs a PSMP package in the media folder: it holds the CyberArk package signing key the PTA installer checks")
+            }
+            if ([string](Get-PASValue $entryOptions 'vaultTimezone' 'UTC') -eq 'UTC') {
+                $warnings.Add("PTA ($label) assumes that the Vault server runs in UTC. Set the time zone of the Vault server (tz database name, for example Europe/Berlin) as VaultTimezone of the PTA instance.")
+            }
+        }
         if ($type -eq 'HTML5GW') {
             if (-not [bool](Get-PASValue $entryOptions 'acceptEula' $false)) {
                 $issues.Add("Accept the CyberArk license agreement (EULA) for the HTML5 Gateway ($label): options.acceptEula = true")
@@ -138,7 +152,7 @@ function Test-PASConfiguration {
         # controller reads that certificate from the PVWA server right before the CPM is installed.
         $trustFrom = [string](Get-PASValue $entryOptions 'pvwaTrustFrom' '')
         if ($trustFrom) {
-            if ($type -notin @('CPM', 'HTML5GW')) { $issues.Add("${label}: options.pvwaTrustFrom is only valid for a CPM or an HTML5 Gateway") }
+            if ($type -notin @('CPM', 'HTML5GW', 'PTA')) { $issues.Add("${label}: options.pvwaTrustFrom is only valid for a CPM, an HTML5 Gateway or PTA") }
             if (@($c.components | Where-Object { $_ -and [string]$_.id -eq $trustFrom -and $_.type -eq 'PVWA' }).Count -ne 1) {
                 $issues.Add("$label trusts PVWA '$trustFrom', which is not part of this deployment")
             }
@@ -213,7 +227,7 @@ function Test-PASConfiguration {
     }
     if (@($c.components).Count -eq 0 -and
         -not $joinOnly) { $issues.Add('At least one component or an explicit Existing AD Windows domain join is required') }
-    foreach ($limited in @('PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW')) {
+    foreach ($limited in @('PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'PTA')) {
         if (@($c.components | Where-Object { $_ -and $_.type -eq $limited }).Count -gt 4) { $issues.Add("At most 4 $limited server(s) are supported") }
     }
     # 'execution' is written by New-PASDeploymentConfiguration. A run always installs one component after
