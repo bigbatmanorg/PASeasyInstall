@@ -4,7 +4,7 @@ function Get-PASMediaSelection {
     Picks one installer per component from the output of Get-PASMediaInventory.
     .DESCRIPTION
     Returns a hashtable @{ <Component> = <inventory item> } with one entry for each of Vault, PACLI, DR,
-    KeyGen, PVWA, CPM, PSM, PSMP, License and RecoveryKey that was found. It is the form the -Media
+    KeyGen, PVWA, CPM, PSM, PSMP, HTML5GW, PTA, License and RecoveryKey that was found. It is the form the -Media
     parameter of New-PASLabConfiguration expects.
 
     Per component the highest version wins. PSMP prefers the Ubuntu 24 package, then RHEL 9, then

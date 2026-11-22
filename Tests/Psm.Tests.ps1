@@ -96,7 +96,7 @@ Describe 'PSM controller-owned reboot continuation contract' {
             schemaVersion = 2
             stage = 'Register'
             restartRequired = $false
-        } | ConvertTo-Json | Set-Content (Join-Path $root 'stage/PostInstall.json')
+        } | ConvertTo-Json | Set-Content (Join-Path $root 'stage/Register.json')
         Mock Invoke-VendorScript { [pscustomobject]@{isSucceeded = 0; restartRequired = $false } }
         Mock Get-ItemProperty {
             if ($LiteralPath -like '*TLS 1.2*') {
@@ -126,7 +126,7 @@ Describe 'PSM controller-owned reboot continuation contract' {
             schemaVersion = 2
             stage = 'Harden'
             restartRequired = $false
-        } | ConvertTo-Json | Set-Content (Join-Path $root 'stage/Install.json')
+        } | ConvertTo-Json | Set-Content (Join-Path $root 'stage/Harden.json')
         Mock Get-ItemProperty {
             if ($LiteralPath -like '*TLS 1.2*') {
                 [pscustomobject]@{

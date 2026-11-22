@@ -1,11 +1,14 @@
 function Install-PASLab {
     <#
     .SYNOPSIS
-    Installs everything a lab configuration describes: Vault, DR, PVWA, CPM, PSM, PSMP, Active Directory.
+    Installs everything a lab configuration describes: Vault, DR, PVWA, CPM, PSM, PSMP, HTML5 Gateway, PTA, Active Directory.
     .DESCRIPTION
     Takes a configuration file (written by Export-PASLabConfiguration or saved by the desktop wizard)
-    or a configuration object (from New-PASLabConfiguration). The components are installed one after
-    the other in a fixed order: Active Directory, domain joins, Vault and DR, then PVWA, CPM, PSM, PSMP.
+    or a configuration object (from New-PASLabConfiguration). The servers are installed at the same
+    time. A step that registers a component with the Vault waits until the Vault is installed; the
+    registrations then run one at a time: every PVWA, every CPM, then the other components. A
+    configuration with execution.mode Sequential installs one component after the other instead:
+    Active Directory, domain joins, Vault and DR, then PVWA, CPM, PSM, PSMP.
 
     The command validates the configuration and the installer media and asks for confirmation. Only
     then it asks for every server account and password that -CredentialMap, -SecretMap or -LabPassword

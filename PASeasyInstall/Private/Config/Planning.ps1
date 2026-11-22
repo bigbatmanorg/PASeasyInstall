@@ -211,16 +211,18 @@ function Get-PASComponentStageNames {
     switch ($Type) {
         'AD' { return @('ad-prerequisites', 'ad-install', 'ad-reboot', 'ad-verify') }
         # Certificate comes first: what has to trust this PVWA copies its certificate then (Lanes.ps1).
-        # Registration with the Vault is the last stage before the final check, after hardening: the vendor
-        # documents that order for PSM (post-installation, hardening, registration), allows it for PVWA and CPM
-        # ("it's possible to perform hardening before registration") and uses it in its own automation. So a
-        # server does everything that needs no Vault first, and only the registrations wait for the Vault.
+        # PVWA and PSMP register with the Vault as the last stage before the final check, after hardening: the
+        # vendor allows that order ("it's possible to perform hardening before registration") and uses it in
+        # its own automation. So these servers do everything that needs no Vault first and only wait to register.
         'PVWA' { return @('Certificate', 'Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Harden', 'Register', 'Verify') }
         # CPM is the exception: its hardening switches the CPM services to a local user and starts them, and the
         # scanner service of a CPM that is not registered does not start (lab, 15.2, 2026-11-22). So CPM
         # registers first, as in the vendor's default order.
         'CPM' { return @('Extract', 'Prerequisites', 'Install', 'ConfigureTLS', 'Register', 'Harden', 'Verify') }
-        'PSM' { return @('Extract', 'Prerequisites', 'Install', 'PostInstall', 'Harden', 'Register', 'Verify') }
+        # PSM is the second exception. The vendor documents post-installation, hardening, registration, but on
+        # a hardened PSM server the vendor's registration fails in ApiKeyManager ("SSL peer certificate ... was
+        # not OK"; lab, 15.2, 2026-11-22). Registration before hardening has always worked, so it stays first.
+        'PSM' { return @('Extract', 'Prerequisites', 'Install', 'Register', 'Harden', 'PostInstall', 'Verify') }
         'HTML5GW' { return @('Extract', 'Prerequisites', 'Install', 'Verify') }
         'PTA' { return @('Extract', 'Prerequisites', 'Install', 'Register', 'Verify') }
         default { return @('Extract', 'Prerequisites', 'Install', 'Harden', 'Register', 'Verify') }
