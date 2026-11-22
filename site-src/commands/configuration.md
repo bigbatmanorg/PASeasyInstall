@@ -1,10 +1,21 @@
 # Lab configuration commands
 
-A lab configuration describes a whole lab: the Vault, the component servers and the installer media. It is a hashtable in memory and a JSON file on disk. It never contains a password. These commands contact no server.
+A lab configuration says what to install where: the Vault, the components, their servers and installers. These
+commands compose it, check it, show its plan and save it. None of them contacts a server, and a configuration
+never contains a password.
 
-Generated from the command help.
+```powershell
+$media = Get-PASMediaInventory -Path D:\CyberArk | Get-PASMediaSelection
+$cfg = New-PASLabConfiguration -Environment MyLab -VaultMode Primary -PrimaryAddress 192.0.2.11 `
+    -ControllerAddress 192.0.2.10 -Media $media -SecurityProfile Lab `
+    -Instances @(@{ Type = 'PVWA'; Name = 'PVWA01'; Address = '192.0.2.21' })
+Test-PASLabConfiguration -Configuration $cfg -CheckMedia | Format-List Valid, Issues, Warnings
+Export-PASLabConfiguration -Configuration $cfg -Path .\MyLab.json
+```
 
-| Command | Purpose |
+The text of every command below is its own help (`Get-Help <command> -Full`).
+
+| Command | What it does |
 |---|---|
 | [`New-PASLabConfiguration`](#new-paslabconfiguration) | Composes the configuration of a lab: the Vault (new Primary, Primary and DR, or an existing Vault) and any number of PVWA, CPM, PSM and PSMP servers. Nothing is contacted or installed. |
 | [`Test-PASLabConfiguration`](#test-paslabconfiguration) | Checks a lab configuration: structure, topology rules and, with -CheckMedia, the installer files. |
@@ -18,12 +29,9 @@ Generated from the command help.
 
 Composes the configuration of a lab: the Vault (new Primary, Primary and DR, or an existing Vault) and any number of PVWA, CPM, PSM and PSMP servers. Nothing is contacted or installed.
 
-Returns the configuration as an ordered hashtable. Check it with Test-PASLabConfiguration, look at
-the result with Get-PASLabPlan, save it with Export-PASLabConfiguration and install it with
-Install-PASLab. The configuration never contains a password.
+Returns the configuration as an ordered hashtable. Check it with Test-PASLabConfiguration, look at the result with Get-PASLabPlan, save it with Export-PASLabConfiguration and install it with Install-PASLab. The configuration never contains a password.
 
-The only thing this command may write is a copy of an installer that you selected inside a ZIP
-bundle: it is extracted once into the media cache under the data folder of this controller.
+The only thing this command may write is a copy of an installer that you selected inside a ZIP bundle: it is extracted once into the media cache under the data folder of this controller.
 
 | Parameter | Meaning |
 |---|---|
@@ -37,7 +45,7 @@ bundle: it is extracted once into the media cache under the data folder of this 
 | `-Username` | Default Windows account name for the servers. Default: Administrator. |
 | `-LinuxUsername` | Default Linux account name. Default: root (PSMP is installed as root). |
 | `-Media` | The installers to use: @{ Vault = item; PACLI = item; DR = item; PVWA = item; CPM = item; PSM = item; PSMP = item; License = item; RecoveryKey = item }. An item is an object from Get-PASMediaInventory, @{ Path = ...; Entry = ... } or a plain file path. Get-PASMediaSelection builds this hashtable. |
-| `-ExecutionMode` | Kept for compatibility. Only Sequential exists: components are installed one after the other. |
+| `-ExecutionMode` | Parallel (default): the servers are installed at the same time; the steps that sign in to the Vault wait until the Vault is installed and then run one at a time. Sequential: one component after the other. |
 | `-PrimaryUsername` | Windows account name for the Primary Vault server, if it differs from -Username. |
 | `-DRUsername` | Windows account name for the DR Vault server, if it differs from the Primary. |
 | `-SecurityProfile` | Secure (default) or Lab. Lab adds the explicit, audited deviations a template-built lab needs: self-signed WinRM certificates, RDP to the Vault from the controller, a self-signed PVWA certificate that CPM pins. |
@@ -48,6 +56,7 @@ bundle: it is extracted once into the media cache under the data folder of this 
 | `-DomainUsername` | Account name without the domain, default Administrator. DomainMode New: the local administrator of the new domain controller, who becomes the administrator of the domain. DomainMode Existing: a domain account that may join computers. |
 | `-InstallerName` | User name the CyberArk installers record ("who installs"). Default: what the vendor files contain ("Windows User"; "CyberArk Vault Image" for the Vault). Letters, digits, spaces and simple punctuation. |
 | `-InstallerCompany` | Company name the CyberArk installers record. Default: what the vendor files contain ("My Company"; "CyberArk" for the Vault). |
+| `-SkipHardening` | Installs and registers the components but does not run the vendor hardening on any server: not on the Vault, not on PVWA, CPM, PSM or PSMP, and no hardening GPOs in a new domain. For tests that need servers without the security settings. Only with -SecurityProfile Lab. |
 | `-DataRoot` | Data folder of this controller (media cache, SSH keys). Default: %LOCALAPPDATA%\PASeasyInstall. |
 
 ```powershell
@@ -72,9 +81,7 @@ A PSM server for a Vault that already exists, then validated.
 
 Checks a lab configuration: structure, topology rules and, with -CheckMedia, the installer files.
 
-Returns one object with Valid (true or false), Issues (what must be corrected), Warnings and the
-normalized Configuration. Lab security deviations appear as warnings that start with
-"SECURITY DEVIATION". No server is contacted and nothing is changed.
+Returns one object with Valid (true or false), Issues (what must be corrected), Warnings and the normalized Configuration. Lab security deviations appear as warnings that start with "SECURITY DEVIATION". No server is contacted and nothing is changed.
 
 To check the servers themselves (reachable, WinRM, disk space) use Test-PASPreflight.
 
@@ -96,12 +103,9 @@ if (-not (Test-PASLabConfiguration -Configuration $cfg).Valid) { 'Not ready yet'
 
 Shows what a configuration would install: one item per component with its server, installer and order.
 
-A dry run. Returns the plan with Name, Items, DomainJoins and Warnings. Each item has Id, Name, Type,
-Host, Address, Os, Media and DependsOn; the items are listed in installation order. No server is
-contacted and nothing is changed.
+A dry run. Returns the plan with Name, Items, DomainJoins and Warnings. Each item has Id, Name, Type, Host, Address, Os, Media and DependsOn; the items are listed in installation order. No server is contacted and nothing is changed.
 
-With -ResolveMedia the exact installer files are resolved and hashed too (plan properties Media and
-MediaDigest). That reads every installer once and can take a few minutes.
+With -ResolveMedia the exact installer files are resolved and hashed too (plan properties Media and MediaDigest). That reads every installer once and can take a few minutes.
 
 | Parameter | Meaning |
 |---|---|
@@ -121,8 +125,7 @@ Get-PASLabPlan -Configuration $cfg -ResolveMedia | Select-Object -ExpandProperty
 
 Saves a lab configuration as a JSON file. The file never contains a password.
 
-Validates the configuration first; a configuration with issues is not saved. An existing file is
-only replaced with -Force. The file is written completely or not at all. Returns the full path.
+Validates the configuration first; a configuration with issues is not saved. An existing file is only replaced with -Force. The file is written completely or not at all. Returns the full path.
 
 Read the file again with Import-PASLabConfiguration, or pass it to Install-PASLab -Path.
 
@@ -144,9 +147,7 @@ $cfg | Export-PASLabConfiguration -Path D:\Labs\MyLab.json -Force
 
 Reads a lab configuration from a JSON file and returns it as an ordered hashtable.
 
-The result can be changed in memory (for example $cfg.hosts.pvwa01.address = '192.0.2.31') and then
-passed to Test-PASLabConfiguration, Get-PASLabPlan, Install-PASLab or Export-PASLabConfiguration.
-The file is only read and parsed; use Test-PASLabConfiguration to validate it.
+The result can be changed in memory (for example $cfg.hosts.pvwa01.address = '192.0.2.31') and then passed to Test-PASLabConfiguration, Get-PASLabPlan, Install-PASLab or Export-PASLabConfiguration. The file is only read and parsed; use Test-PASLabConfiguration to validate it.
 
 | Parameter | Meaning |
 |---|---|
@@ -168,18 +169,17 @@ Copies a configuration under a new environment name.
 
 Lists the server accounts and passwords a lab configuration needs before it can be installed.
 
+```text
 Returns one object per requirement with:
-Kind    Credential (an account with its password) or Secret (a password only)
-Key     the key to use in -CredentialMap or -SecretMap of Install-PASLab and Resume-PASRun
-HostId  the server id in the configuration (empty for secrets)
-User    the account name the configuration expects
-Os      Windows or Linux
-Label   a description to show when asking for it
+  Kind    Credential (an account with its password) or Secret (a password only)
+  Key     the key to use in -CredentialMap or -SecretMap of Install-PASLab and Resume-PASRun
+  HostId  the server id in the configuration (empty for secrets)
+  User    the account name the configuration expects
+  Os      Windows or Linux
+  Label   a description to show when asking for it
+```
 
-Secrets are VaultAdmin (Vault Administrator password), VaultMaster and DRPassword (new Vault and
-DR), ADSafeMode (new domain) and DomainJoinPassword. A Linux server is listed when the controller
-key still has to be authorised there with the password of the account.
-Nothing is contacted and nothing is asked.
+Secrets are VaultAdmin (Vault Administrator password), VaultMaster and DRPassword (new Vault and DR), ADSafeMode (new domain) and DomainJoinPassword. A Linux server is listed when the controller key still has to be authorised there with the password of the account. Nothing is contacted and nothing is asked.
 
 | Parameter | Meaning |
 |---|---|
@@ -203,18 +203,13 @@ Collects the server accounts into a hashtable for Install-PASLab -CredentialMap.
 
 Lists the installation stages of a component type, in the order they run.
 
-Returns one object per stage with Component, Stage and Order. The stage names are the step ids you
-see as Stage in Get-PASRunEvent and that Resume-PASRun -RetryStep accepts.
+Returns one object per stage with Component, Stage and Order. The stage names are the step ids you see as Stage in Get-PASRunEvent and that Resume-PASRun -RetryStep accepts.
 
-The list is read from what the installer really runs: the Vault and DR workflow files of the
-module, and the step list the workflow generator uses for PVWA, CPM, PSM, PSMP and AD.
-Not listed, because they depend on the run: the extra passes and restarts of a PSM stage
-(&lt;stage&gt;-pass2, &lt;stage&gt;-reboot), the upload of a certificate pinned by CPM (pvwa-trust-certificate)
-and the steps the controller performs itself (ssh-bootstrap, media-select).
+The list is read from what the installer really runs: the Vault and DR workflow files of the module, and the step list the workflow generator uses for PVWA, CPM, PSM, PSMP and AD. DomainJoin lists the steps that join one server to the domain. Not listed, because they depend on the run: the extra passes and restarts of a PSM stage (&lt;stage&gt;-pass2, &lt;stage&gt;-reboot), the upload of a certificate pinned by CPM (pvwa-trust-certificate) and the steps the controller performs itself (ssh-bootstrap, media-select).
 
 | Parameter | Meaning |
 |---|---|
-| `-Component` | Vault, DR, PVWA, CPM, PSM, PSMP or AD. Default: all of them. |
+| `-Component` | Vault, DR, PVWA, CPM, PSM, PSMP, HTML5GW, PTA, AD or DomainJoin. Default: all of them. |
 
 ```powershell
 Get-PASStageCatalog -Component Vault | Format-Table Order, Stage

@@ -1,95 +1,79 @@
-# The desktop
+# The window
 
-`Start-PASeasyInstall` opens one window. It is part of the PASeasyInstall module and is drawn with WPF, which is
-part of Windows, so nothing else has to be installed. It builds a lab in four steps and then
-shows the installation while it runs. The window only calls the [commands](../commands/index.md) of the
-PASeasyInstall module, so everything it does can also be done from PowerShell.
+```powershell
+Start-PASeasyInstall
+```
 
-!!! note "New in 2.0"
-    The window was rewritten for 2.0. On 2026-11-21 it installed a Full lab (CyberArk 15.2) on real servers, was
-    stopped by an error on purpose, continued with *Try again*, and ran the lab check. That run was driven by a
-    script that calls the same functions as the buttons, so mouse and keyboard use is tested less than the logic.
+One window builds a lab in four steps and then shows the installation while it runs. It is part of the
+PASeasyInstall module and is drawn with WPF, which is part of Windows, so there is nothing else to install. The
+window only calls the [commands](../commands/index.md) of the module: everything it does can also be done from
+the prompt, and the Review step shows you how.
 
-The window is small on purpose (800 x 560, usable down to 480 x 340) and uses one dim colour scheme, so it can sit
-beside other windows or in a remote desktop session while an installation runs.
+| Page | What you do there |
+|---|---|
+| [Start page](#start-page) | Start a new lab, open a saved lab file, open an installation |
+| [1. Media](media.md) | Say where your CyberArk download, license and keys lie |
+| [2. Lab](lab.md) | Choose what to build |
+| [3. Servers](servers.md) | Name the servers, enter accounts and passwords, have them checked |
+| [4. Install](review.md) | Read the plan and press Install |
+| [The installation page](run.md) | Follow the installation, continue it when it stopped, check the lab |
+
+Nothing is changed on any server before you press **Install the lab** on step 4 and confirm.
 
 ## Start page
 
-Two buttons, **Start a new lab** and **Open a saved lab file**, and the list of installations started from this
-computer. **Open** on an installation shows its page: progress while it runs, what to do when it stopped.
+![The start page before any installation](../assets/window/01-start.png)
 
-## Step 1: Media { #media }
+- **Start a new lab** begins with step 1.
+- **Open a saved lab file** reads a lab file (JSON) saved on the Review step or written by
+  `Export-PASLabConfiguration`. Its name, lab choice, addresses and server names are filled in. Media and
+  passwords are entered again: a lab file never contains them.
+- **Your installations** lists every installation started from this computer, with its state. **Open** shows its
+  page: the progress while it runs, what to do when it stopped, the lab check when it finished.
 
-Choose the folder with the CyberArk installer media: the one big ZIP or the separate ZIPs, your `license.xml` and
-the recovery public key. Type the folder, **Browse** to it, or drop the folder or the files on the window.
-**Look for installers** lists what was found. Nothing is changed in that folder.
+![The start page with one finished installation](../assets/window/02-start-with-installations.png)
 
-The VC++ runtimes the Vault needs are taken from the CPM, PVWA or PSM package of the lab. Only a Vault on its own
-needs `VC_redist.x86.exe` and `VC_redist.x64.exe` in the folder.
+The name **PASeasyInstall** in the top bar brings you back to this page from anywhere.
 
-## Step 2: Lab { #lab }
+## The Advanced switch
 
-Pick a ready-made lab:
+The switch at the top right shows what most labs never need. It appears only on pages where it changes something:
 
-| Lab | What it installs | Servers |
-|---|---|---|
-| Starter | Vault, PVWA, CPM | 2 |
-| Standard | Starter plus PSM | 3 |
-| Full | Standard plus a DR Vault and PSMP | 5 |
-| Custom | You choose: a new Vault, a Vault with DR or a Vault you already have, and how many of each component | |
+| Page | Advanced adds |
+|---|---|
+| Lab (Custom) | Up to four instances of a component instead of two |
+| Servers | Every single result of the server check, the address of this computer, "who installs", the hardening switch, the PTA time zone |
+| Install | The same lab as PowerShell commands, and **Save the lab file** |
+| Installation page | The PowerShell commands for this installation, and **Stop the installation** |
 
-In **Custom**, *Install CPM on the PVWA server* saves one server. Give the lab a name; installations are listed
-under it.
+## An installation runs on its own
 
-## Step 3: Servers { #servers }
+When you press Install, the installation starts in its own process on this computer. You can close the window.
+Open it again later and the start page lists the installation.
 
-A plain form. One line per server: its computer name, its address, and the account to sign in with (a local
-administrator on Windows, `root` on Linux) with its password. Below it, the Vault passwords: for a new Vault the
-passwords to set for the Vault users Administrator and Master (and the DR user, with a DR Vault); for a Vault you
-already have, the password of its Administrator. With PSMP in the lab you also accept the CyberArk license agreement
-of its installer here.
+While the window stays open, it remembers the accounts and passwords you typed for the installation it started.
+They are kept in memory only, never in a file. For an installation you open later, the window asks again when it
+needs them, for example for **Try this step again** or **Check the lab**:
 
-**Next** checks the servers before anything else happens:
+![The window asks for the Vault Administrator password before the lab check](../assets/window/20-accounts-dialog.png)
 
-1. within a few seconds, whether every server answers at its address at all;
-2. then, in the background, whether the account can sign in to each server and whether the server is ready
-   (operating system, free disk space, pending restarts).
+## Try it without servers
 
-A server that does not answer or an account that does not work is named with the reason, and the window stays on
-this step. Only when every server passed, the review step is shown. The check changes nothing on the servers.
+```powershell
+Start-PASeasyInstall -Backend Mock
+```
 
-## Step 4: Review and install { #install }
+The same window with a simulated installer. It contacts no server and installs nothing, and a badge
+**Simulation** in the top bar says so. Two lab names make it misbehave on purpose, so that you can try what
+happens:
 
-The plan in installation order, with the installer file used for each part and a rough duration. Problems are
-listed in plain words and block the **Install the lab** button until they are solved. *Lab shortcuts in use* lists
-what the Lab profile relaxes.
+- a lab name that contains `unreach`: the server check finds a server that does not answer;
+- a lab name that contains `fail`: the installation stops with an error.
 
-## The installation page { #run }
+## What was tested
 
-One line per component with a progress bar and the step that is running. The installation runs in its own process:
-you can close the window and open it again later.
-
-- **Stopped with an error:** the page shows the step and the installer's own error text. Correct the cause on the
-  server, then **Try this step again**, or **Continue without repeating it**. **Save the logs as a ZIP** collects
-  the diagnostics.
-- **Finished:** **Check the lab** asks the Vault whether every component is connected.
-- **Activity log** shows the events of the run, newest first: time, component, step and message. A coloured bar
-  marks finished, started, warning and failed lines. Folded, it shows the newest event.
-
-While the window stays open it remembers the accounts of the installation it started (protected in memory, never
-in a file), so *Try again* and *Check the lab* need nothing more. For an installation opened later from the list
-it asks for the accounts again.
-
-## Advanced options { #advanced }
-
-The switch in the top bar shows what most labs never need:
-
-- the address of this computer as the Vault sees it;
-- up to four instances of a component (two were tested);
-- every single result of the server check;
-- the same installation as PowerShell commands, **Save the lab file**, and **Stop the installation**.
-
-## Simulation
-
-`Start-PASeasyInstall -Backend Mock` runs the same window against a simulated installation that contacts no server.
-A lab whose name contains `fail` stops with an error, so you can try the retry buttons.
+The window was walked by a script that presses its buttons, with the simulated installer and with real servers:
+it installed a lab with a new domain (CyberArk 15.2) on clean servers, checked it and opened the installation
+again. It has not been tried by hand on a real desktop for every screen, and the folder and file pickers were
+not part of the scripted walks. If something looks wrong, please
+[report it](https://github.com/bigbatmanorg/PASeasyInstall/issues).

@@ -1,25 +1,28 @@
 # Execution policy
 
-PASeasyInstall is not Authenticode-signed. How to run it under each PowerShell execution policy:
+PASeasyInstall is not code-signed. What to do depends on the execution policy of the controller
+(`Get-ExecutionPolicy -List` shows it).
 
 | Situation | What to do |
 |---|---|
-| Default Windows Server policy (`RemoteSigned`), installed with `Install-Module` | Nothing. Files installed from the Gallery carry no internet zone mark. |
-| Portable ZIP | Unblock the ZIP before extracting: `Unblock-File .\PASeasyInstall-*-portable.zip`, or, after extracting, `Get-ChildItem -Path <folder> -Recurse \| Unblock-File`. `Start-PASeasyInstall.cmd` starts PowerShell with `-ExecutionPolicy Bypass` for its own process. |
-| `AllSigned` or `Restricted` policy | Allow unsigned code for this PowerShell window only. This changes nothing machine-wide and ends when the window closes. |
-| Policy enforced by Group Policy (`Get-ExecutionPolicy -List` shows `MachinePolicy` or `UserPolicy`) | PowerShell does not let the commands below override it. Ask your administrator for an exception for the controller, or use a controller without that policy. |
+| The default of Windows Server (`RemoteSigned`), module installed with `Install-Module` | Nothing. Files installed from the Gallery carry no "downloaded" mark. |
+| Portable ZIP | Unblock the ZIP before you extract it: `Unblock-File .\PASeasyInstall-*-portable.zip`. If it is extracted already: `Get-ChildItem -Path <folder> -Recurse \| Unblock-File`. `Start-PASeasyInstall.cmd` starts PowerShell with `-ExecutionPolicy Bypass` for its own process. |
+| `AllSigned` or `Restricted` | Allow unsigned code for this PowerShell window only (below). It changes nothing for the computer and ends with the window. |
+| A policy set by Group Policy (`MachinePolicy` or `UserPolicy` in the list) | PowerShell does not let you override it. Ask your administrator for an exception for the controller, or use a controller without that policy. |
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 Start-PASeasyInstall
 ```
 
-Or in one line:
+Or in one line, from any prompt:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command Start-PASeasyInstall
 ```
 
-The background processes PASeasyInstall starts on the controller, and the scripts it runs on the target servers,
-always start with an explicit `-ExecutionPolicy Bypass`. So they also work on hosts whose local policy is `AllSigned`.
-A policy enforced by Group Policy on a target still applies.
+## On the servers
+
+Every PowerShell process PASeasyInstall starts, on the controller and on the servers, is started with
+`-ExecutionPolicy Bypass`. So an installation also works on a server whose local policy is `AllSigned`. A policy
+set by Group Policy on a server still applies.

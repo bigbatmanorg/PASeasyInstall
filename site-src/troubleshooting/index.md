@@ -1,170 +1,189 @@
 # Troubleshooting
 
-Real problems met while building labs, and their fixes. Start with the event log on [step 6](../gui/install.md) or with
-these commands. The failing step and its message are usually enough.
+Messages that were really seen while building labs, and what to do. Start with what stopped:
+
+=== "In the window"
+
+    The installation page shows the step that stopped and the installer's own error text. See
+    [When it stopped](../gui/run.md#stopped).
+
+=== "From the prompt"
+
+    ```powershell
+    Get-PASRun                                 # all runs, newest first
+    Get-PASRun -RunId <id>                     # one run: state, components, latest events
+    Get-PASRunEvent -RunId <id> -Failed        # what failed
+    Test-PASPreflight -Path .\MyLab.json       # do the servers answer, are they ready?
+    ```
+
+After you corrected the cause, continue the same run. A step that failed is not repeated on its own; you name
+it:
 
 ```powershell
-Get-PASRun                                # all runs, newest first
-Get-PASRun -RunId <id>                    # one run: status, components, latest events
-Get-PASRunEvent -RunId <id> -Failed       # what failed
-Get-PASRunLog -RunId <id>                 # the controller journal of the run
-Test-PASPreflight -Path .\Lab01.json      # are the servers reachable and ready?
+Resume-PASRun -RunId <id>                             # check finished steps, install the rest
+Resume-PASRun -RunId <id> -RetryStep cpm01:install    # also run this failed step again
 ```
 
-After you corrected the cause, continue the same run. A step that failed is not repeated on its own; name it:
+Why it works like this: [Runs and resume](../concepts/durable-runs.md).
+
+## Before the installation
+
+### The server check says a server does not answer
+
+The address is wrong, the server is off, or a firewall is in the way. Windows servers must answer on port 5986
+(WinRM over HTTPS), Linux servers on port 22. See [Server prerequisites](../servers/prerequisites.md).
+
+### WinRM: "Access is denied" with `Administrator`
+
+When you test WinRM by hand with the user name `Administrator`, the controller tries its own local
+`Administrator` first. Write `.\Administrator` or `SERVERNAME\Administrator`. PASeasyInstall does this for you;
+keep the plain name in the window and in the configuration.
+
+### "Password sign-in to root@... failed"
+
+The root password is wrong, or the server does not let root sign in with a password. Correct the password, or
+allow it while you install, or authorise the key shown in the message for root yourself. See
+[Linux servers](../servers/prerequisites.md#linux-servers).
+
+### "PASeasyInstall signs in to Linux servers as root, but ... is not root"
+
+The account entered for the Linux server is not root. The installation writes system packages and services, so
+it runs as root. Enter `root`.
+
+### "Accept the CyberArk license agreement ..."
+
+The lab has a PSM for SSH, an HTML5 Gateway or PTA, and the license agreement of their installers was not
+accepted. Tick the box on the Servers step of the window, or pass `-AcceptEula` to `New-PASLabConfiguration` or
+`Install-PASPSMP`.
+
+### "Several copies of the VC++ runtime were found"
+
+The media you added holds `VC_redist.x86.exe` or `VC_redist.x64.exe` more than once outside the packages. Keep
+one copy of each.
+
+### Nothing is recognised on the Media step
+
+The folder holds an unpacked copy. Add the folder with the ZIP files as downloaded from CyberArk.
+
+### "The controller could not be started ..." (Windows DPAPI) { #the-controller-could-not-be-started-windows-dpapi }
+
+The installation was started from a remote PowerShell session (`Enter-PSSession`, `Invoke-Command`, SSH). The
+installation process gets the accounts protected with Windows DPAPI, which does not work in such sessions.
+Start `Start-PASeasyInstall` or the `Install-PAS*` command in a local session on the controller: at the console
+or through remote desktop.
+
+### "Environment '...' is being deployed right now by run ..."
+
+Another installation of the same lab name is working on this controller. Wait for it
+(`Wait-PASRun -RunId <id>`), or stop it with `Stop-PASRun -RunId <id> -Force`.
+
+## During the installation
+
+### "PAExecLocked: server ... is locked by run ..." (the run is Blocked)
+
+An earlier run started on this server and did not finish. It left its lock there on purpose, so that no other
+run touches a half-installed server. Choose one:
+
+- Continue the earlier run: `Resume-PASRun -RunId <that run id>`.
+- Give it up and release its locks: `Stop-PASRun -RunId <that run id> -CredentialMap $creds`.
+- If you reset the servers to their clean state, the lock is gone with it; start a new run.
+
+Then resume the blocked run. More: [Locks](../concepts/coordination.md).
+
+### "Nothing was started for this step" on other servers
+
+One server failed. The servers that were waiting for their turn at the Vault gave up; nothing was started for
+them. That is how a run that installs the servers at the same time stops. Look for the step that really
+failed (`Get-PASRunEvent -RunId <id> -Failed`), correct it, and resume: every server continues.
+
+### "SSH observation timed out; target work was not stopped" { #ssh-observation-timed-out }
+
+The controller did not get an answer from a Linux server within two minutes, and the state of the step is
+Unknown. Seen once, while five servers were being installed; the cause is not known. Look at the server: if it
+answers again, run the step again by name:
 
 ```powershell
-Resume-PASRun -RunId <id>                           # check finished components, install the rest
-Resume-PASRun -RunId <id> -RetryStep cpm01:install  # also execute this failed step again
+Resume-PASRun -RunId <id> -RetryStep <component id>:<step>
 ```
 
-More: [Durable runs and resume](../concepts/durable-runs.md).
+### "Vault ... is in use by another PASeasyInstall controller on this machine"
 
-## WinRM: "Access is denied" with `Administrator`
+Another run on this controller was signed in to the Vault for more than three minutes. Wait until it is past
+that step, then resume.
 
-**Symptom:** testing WinRM by hand with the user name `Administrator` fails from the controller, while the same
-password works on the console.
+### "Cannot resume: workflow, scripts or inventory changed since run began"
 
-**Cause:** the controller has its own local `Administrator`, and a bare name is matched against the controller first.
+PASeasyInstall was updated, or the source was changed, after the run started. A server is never continued with
+different scripts. Reset that server to its clean state and start a new run.
 
-**Fix:** use `.\Administrator` (or `SERVERNAME\Administrator`). PASeasyInstall does this automatically for plain
-account names. Keep the plain name `Administrator` in the configuration, because the Vault's management endpoint
-requires an unqualified local account name.
+### "The configuration of this run changed" / "The installer media changed"
 
-## "PAExecLocked: server … is locked by run …" (run status Blocked)
+A run installs exactly what was planned. Put the original files back, or start a new run.
 
-**Cause:** an earlier run started on this server and did not finish. It left its **target lock** there on purpose,
-so that no other run touches a half-installed server. The message names the run that holds the lock and the lock
-folder.
+### Linux: "unzip required"
 
-**Fix:** choose one:
+The server has no `unzip` and its package sources could not be reached to install it. Make them reachable, or
+install `unzip` yourself, then:
 
-- The earlier run can continue: `Resume-PASRun -RunId <that run id>`.
-- You will not continue it (for example you reset or rebuilt the servers): give it up and release its locks with
-  `Stop-PASRun -RunId <that run id> -CredentialMap $creds`. Without `-CredentialMap` it lists the lock folders
-  instead.
-- That run no longer exists on this controller: delete the lock folder named in the message on that server
-  (Windows: `locks\<server>` under `C:\ProgramData\PASeasyInstall` or `C:\ProgramData\PAExec`; Linux:
-  `~/.paeasyinstall/locks/<server>`).
+```powershell
+Resume-PASRun -RunId <id> -RetryFailedPreflight
+```
 
-Then resume the blocked run. See [Coordination and locks](../concepts/coordination.md).
+### PSM for SSH: "User [PSMPApp_...] already exists in the Vault"
 
-!!! note
-    The 1.0 message "Unreconciled resource 'environment-…'" no longer exists. A stopped run does not block a new
-    run on the controller any more; only the lock on the server does.
+Another PSM for SSH server with the same host name is registered. Give each one a unique host name. If the old
+server is gone, remove its users `PSMPApp_<host>`, `PSMPGW_<host>` and `PSMP_ADB_<host>` in PVWA
+(Administration, Users), then run the step again.
 
-## "Vault … is in use by another PASeasyInstall controller on this machine"
+### HTML5 Gateway stops at `extract`
 
-**Cause:** another run on this controller holds the Vault lock: it is working with an authenticated Vault session
-(a registration, a PACLI step or a health check). The step waited three minutes.
+The gateway package inside the 15.2 big ZIP is cut short. Use the complete 15.0 package; see
+[HTML5 Gateway](../components/html5gw.md#media).
 
-**Fix:** wait until the other run has finished that step, then `Resume-PASRun -RunId <id>`.
+### The controller was closed or restarted during an installation
 
-## "Vault media VCx86: Missing"
+Nothing to do in a hurry. The step that was running goes on, on the server. Look at the run
+(`Get-PASRun -RunId <id>`, or open it in the window). If it is Interrupted, resume it. What ran is found again
+and not repeated.
 
-**Cause:** the media folder doesn't contain the VC++ x86 redistributable, or the folder points one level too deep
-(for example `…\CorePAS` inside an extracted bundle).
+## After the installation
 
-**Fix:** put `VC_redist.x86.exe` and `VC_redist.x64.exe` next to the installers, and add the top-level media folder.
+### A component is not connected in the lab check { #a-component-is-not-connected-in-the-lab-check }
 
-## "Several copies of the VC++ runtime were found"
+The server is off, cannot reach the Vault on port 1858, or the Vault was restarted underneath it. Check the
+service of the component on its server, then the network. For PVWA see the next entry.
 
-**Cause:** the media folder you added holds more than one `VC_redist.x86.exe` / `VC_redist.x64.exe` (for example a
-copy inside a subfolder). The Vault recipe needs exactly one of each.
+### PVWA: "PASWS383E Vault is currently under maintenance mode"
 
-**Fix:** keep one copy next to the Vault installers. Separate media folders for different product versions side by
-side are fine: add only the folder of the version you install.
-
-## "The controller could not be started … Windows DPAPI"
-
-**Cause:** the deployment was started from a remote PowerShell session (`Enter-PSSession` / `Invoke-Command`). The
-background installer receives credentials encrypted with Windows DPAPI, which is not available in such sessions.
-
-**Fix:** start `Start-PASeasyInstall` or the `Install-PAS*` command in a local session on the controller (console or
-RDP). A scheduled task that runs as the user with a stored password also works.
-
-## "Environment '…' is being deployed right now by run …"
-
-**Cause:** another run of the same environment has a live controller process on this controller.
-
-**Fix:** wait for it (`Wait-PASRun -RunId <id>`), or stop it with `Stop-PASRun -RunId <id> -Force`. A run whose
-controller never started or is no longer running is detected automatically and does not block a new start.
-
-## PVWA: "PASWS383E Vault is currently under maintenance mode"
-
-**Cause:** PVWA started while the Vault was still booting (for example after both were restarted together), and kept
-that state.
-
-**Fix:** on the PVWA server, recycle the application pool:
+PVWA started while the Vault was still starting, and kept that state. On the PVWA server:
 
 ```powershell
 Import-Module WebAdministration; Restart-WebAppPool PasswordVaultWebAccessPool
 ```
 
-Next time, start the Vault first and PVWA once the Vault is up.
+Start the Vault first next time, and PVWA when the Vault is up.
 
-## Component password changes fail with CASTM057E
+### Password changes of components fail with CASTM057E
 
-**Message:** `CASTM057E Password has not yet been replicated to DR site(s)`.
+`CASTM057E Password has not yet been replicated to DR site(s)`: the lab has a DR Vault and it is stopped. Start
+it; it catches up within one replication cycle.
 
-**Cause:** with a DR Vault configured, the Vault rotates component passwords only after DR has replicated them, and
-the DR Vault is stopped.
+### Recordings: "PSMRecordings" not found
 
-**Fix:** start the DR Vault. It catches up within one replication cycle.
+The Vault creates that safe at the first recorded session, and only members of the Vault group **Auditors** see
+it. Sign in as the built-in user `Auditor`, or add your user to Auditors.
 
-## Linux: "signs in to Linux servers as root, but … is not root"
+### The browser cannot open the web portal
 
-**Cause:** the account entered for the Linux server is not `root`. The installation writes system packages,
-services and `/opt/paeasyinstall`, so it runs as root.
-
-**Fix:** use `root`. If the server's image blocks root sign-in, allow it while you install (a root password and
-`PermitRootLogin yes` in `/etc/ssh/sshd_config.d/`), or authorise the controller key for root. See
-[Prerequisites](../servers/prerequisites.md#psmp-linux).
-
-## PSMP preflight: "unzip required"
-
-**Cause:** the server has no `unzip`, and the preflight could not install it from the OS repositories (it does so
-automatically when they are reachable).
-
-**Fix:** make the OS repositories reachable (or `apt-get install -y unzip` on the PSMP server), then resume the run
-with `Resume-PASRun -RunId <id> -RetryFailedPreflight`.
-
-## PSMP register: "User [PSMPApp_<host>] already exists in the Vault"
-
-**Cause:** PASeasyInstall lets the vendor setup recreate the credential files of an existing PSMP server's users, so a
-rebuilt server re-registers by itself. This message means the setup still refused, for example because another PSMP
-server with the same hostname is registered and running.
-
-**Fix:** give each PSMP server a unique hostname. If the old server is gone, remove its `PSMPApp_<host>`,
-`PSMPGW_<host>` and `PSMP_ADB_<host>` users in PVWA (**Administration → Users**), then start the deployment again.
-
-## Recordings not visible: "PSMRecordings" not found
-
-**Cause:** the recordings safe is visible only to Vault **Auditors** members, and it exists only after the first
-recorded session.
-
-**Fix:** sign in as the built-in `Auditor` user, or add your reviewer to the Auditors group.
-
-## PSMP: "Accept the CyberArk license agreement (EULA) for the PSMP installer"
-
-**Cause:** the CyberArk EULA for PSMP was not accepted.
-
-**Fix:** tick the license checkbox on [step 2](../gui/what-to-install.md), or use `-AcceptEula` with
-`New-PASLabConfiguration` or `Install-PASPSMP`. The rule is checked when the configuration is validated, before
-anything is installed.
-
-## A component shows "not logged on" in the health check
-
-The server is stopped, cannot reach the Vault on port 1858, or the Vault restarted underneath it. Check the
-component's service, then the network. For PVWA, see the maintenance-mode entry above.
-
-## The controller closed or rebooted during an installation
-
-Nothing to do in a hurry. The stage keeps running on the target. Check the run with
-`Get-PASRun -RunId <id>`. If its status is Interrupted, resume it with `Resume-PASRun -RunId <id>`. The finished and
-running attempts are reconciled and never repeated.
+The computer with the browser must resolve the computer name of the PVWA server; add a line to its hosts file.
+In a lab the certificate is self-signed, so the browser warns.
 
 ## Getting help
 
-Export the run with [`Export-PASDiagnostics -RunId <id>`](../commands/checks.md#export-pasdiagnostics) and attach it to an issue on
-[GitHub](https://github.com/bigbatmanorg/PASeasyInstall/issues). It contains no passwords.
+```powershell
+Export-PASDiagnostics -RunId <id>
+```
+
+writes a ZIP of the run without passwords (in the window: **Save the logs as a ZIP**). Look through it before
+you share it: it holds the names and addresses of your servers. Attach it to an issue on
+[GitHub](https://github.com/bigbatmanorg/PASeasyInstall/issues).
