@@ -472,3 +472,38 @@ Describe 'Fast reachability check before an installation' {
         @($rows | Where-Object { $_.Check -like '*session*' -or $_.Check -like '*sign-in*' }).Count | Should -Be 0
     }
 }
+
+Describe 'Server check of a Linux server before its SSH key exists' {
+    BeforeAll {
+        $script:linuxCfg = New-PASLabConfiguration -Environment LinuxCheck -VaultMode Existing -ExistingVaultAddress 192.0.2.5 -ControllerAddress 198.51.100.250 `
+            -Media $script:selection -SecurityProfile Lab -AcceptEula -Instances @(@{ Type = 'PSMP'; Name = 'PSMP01'; Address = '192.0.2.36' })
+        $script:linuxPassword = ConvertTo-SecureString 'SYNTHETIC_PASSWORD_731' -AsPlainText -Force
+        Mock -ModuleName PASeasyInstall Test-PASTcpPort { $true }
+        # ssh-keygen -F: the server is not in a known_hosts file yet.
+        Mock -ModuleName PASeasyInstall Invoke-PASNativeQuiet { @{ ExitCode = 1; Output = '' } }
+    }
+    It 'reports a wrong root password' {
+        Mock -ModuleName PASeasyInstall Invoke-PASSshWithPassword { @{ ExitCode = 255; Output = 'root@192.0.2.36: Permission denied (publickey,password).' } }
+        $rows = @(Test-PASPreflight -Configuration $script:linuxCfg -LabPassword $script:linuxPassword)
+        $row = @($rows | Where-Object { $_.Check -eq 'SSH password sign-in' })
+        $row.Count | Should -Be 1
+        $row[0].Passed | Should -Be $false
+        $row[0].Detail | Should -Match 'Password sign-in as root failed.*Permission denied'
+        ($rows | Out-String) | Should -Not -Match 'SYNTHETIC_PASSWORD_731'
+    }
+    It 'passes with the right password, reads account and distribution, and authorises no key' {
+        Mock -ModuleName PASeasyInstall Invoke-PASSshWithPassword { @{ ExitCode = 0; Output = "0`nID=ubuntu`nVERSION_ID=`"24.04`"`nPRETTY_NAME=`"Ubuntu 24.04 LTS`"" } }
+        $rows = @(Test-PASPreflight -Configuration $script:linuxCfg -LabPassword $script:linuxPassword)
+        @($rows | Where-Object { $_.Check -in @('SSH password sign-in', 'Root account', 'Operating system') -and $_.Passed -eq $true }).Count | Should -Be 3
+        Should -Invoke -ModuleName PASeasyInstall Invoke-PASSshWithPassword -Times 1 -Exactly -ParameterFilter {
+            $Arguments[-1] -eq 'id -u; cat /etc/os-release' -and ($Arguments -join ' ') -notmatch 'authorized_keys'
+        }
+    }
+    It 'says "not checked" when no password was given' {
+        Mock -ModuleName PASeasyInstall Invoke-PASSshWithPassword { throw 'must not be called' }
+        $rows = @(Test-PASPreflight -Configuration $script:linuxCfg)
+        $row = @($rows | Where-Object { $_.Check -eq 'SSH password sign-in' })
+        $row.Count | Should -Be 1
+        $row[0].Passed | Should -BeNullOrEmpty
+    }
+}
