@@ -1,7 +1,7 @@
 # PASeasyInstall 2.0: state of things
 
 One page that says what can be used now, what is experimental and what comes later.
-Last updated 2026-11-22, after release 2.0.3. Rows marked *(not released)* are in the source after 2.0.3.
+Last updated 2026-11-22, after release 2.0.4. Rows marked *(2.0.4)* are new in 2.0.4.
 
 PASeasyInstall builds **labs**. Everything below was tested with the **Lab** security profile on
 Windows Server 2022 and Ubuntu 24.04, from a Windows Server 2022 controller.
@@ -20,17 +20,17 @@ Tested on real servers, from clean operating systems, without any manual step.
 | PSMP on Ubuntu 24.04 | 15.0 and 15.2 |
 | PSMP on Rocky Linux 9.9 (RHEL 9 package) | 15.2, once |
 | New Active Directory forest (`Install-PASDomainController`) | Windows Server 2022 |
-| Lab with a new domain *(not released)*: new forest, PVWA + CPM server and PSM server joined, Vault, PVWA, CPM, PSM, then the CyberArk hardening GPOs of the vendor packages imported, linked and applied (`New-PASLabConfiguration -DomainMode New`) | 15.2 on Windows Server 2022, 2026-11-22, once from clean servers in one run: 36 minutes, lab check Healthy; after a restart of the joined servers all services came up again and the check stayed Healthy |
+| Lab with a new domain *(2.0.4)*: new forest, PVWA + CPM server and PSM server joined, Vault, PVWA, CPM, PSM, then the CyberArk hardening GPOs of the vendor packages imported, linked and applied (`New-PASLabConfiguration -DomainMode New`) | 15.2 on Windows Server 2022, 2026-11-22, once from clean servers in one run: 36 minutes, lab check Healthy; after a restart of the joined servers all services came up again and the check stayed Healthy |
 | Whole lab in one run (`Install-PASLab`) | 15.0: 42 minutes; 15.2: 43 minutes; health check Healthy |
 | Two instances of each component in one run (2 x PVWA, CPM, PSM, PSMP) | 15.2, once: 62 minutes, health check Healthy with 2/2 PVWA, 2/2 CPM, 4/4 PSM and PSMP |
 | Media as single ZIPs or as the one full bundle ZIP | 15.0 single ZIPs, 15.2 bundle |
 | VC++ runtimes for the Vault taken from the CPM, PVWA or PSM package | 15.2 bundle (media check); the installs so far had the runtime files in the folder |
 | Run handling: follow, resume after a killed controller, retry one step, stop, second run blocked | 15.0 |
 | `Test-PASPreflight`, `Test-PASHealth`, `Export-PASDiagnostics`, `Get-PASRunLog` | 15.0 and 15.2 |
-| Server check names a wrong Linux root password, from the prompt and in the window *(not released)* | Ubuntu 24.04, 2026-11-22: right, wrong and no password; nothing is changed on the server |
-| Lab check without DNS record or hosts entry for the PVWA name *(not released)* | 15.2, 2026-11-22: `Test-PASHealth` from the prompt and *Check the lab* in the window, Healthy |
-| Retry of a CPM registration that failed after its Vault user was created *(not released)* | 15.2, 2026-11-22: registration ended by force right after the user was created, and again during the platform import; `Resume-PASRun -RetryStep cpm:register` ended both times with one CPM user, the CPM connected and all platforms imported |
-| "Who installs" values (`-InstallerName`, `-InstallerCompany`) *(not released)* | PVWA 15.2: the installed product shows them as registered owner and company. CPM, PSM and the Vault use the same values but were not installed with them yet |
+| Server check names a wrong Linux root password, from the prompt and in the window *(2.0.4)* | Ubuntu 24.04, 2026-11-22: right, wrong and no password; nothing is changed on the server |
+| Lab check without DNS record or hosts entry for the PVWA name *(2.0.4)* | 15.2, 2026-11-22: `Test-PASHealth` from the prompt and *Check the lab* in the window, Healthy |
+| Retry of a CPM registration that failed after its Vault user was created *(2.0.4)* | 15.2, 2026-11-22: registration ended by force right after the user was created, and again during the platform import; `Resume-PASRun -RetryStep cpm:register` ended both times with one CPM user, the CPM connected and all platforms imported |
+| "Who installs" values (`-InstallerName`, `-InstallerCompany`) *(2.0.4)* | PVWA 15.2: the installed product shows them as registered owner and company. CPM, PSM and the Vault use the same values but were not installed with them yet |
 
 ## 2. Experimental
 
@@ -38,9 +38,9 @@ Usable, but expect rough edges.
 
 | What | State |
 |---|---|
-| Desktop window (`Start-PASeasyInstall`) | Rewritten on 2026-11-21 directly on the NativeHTMLKit SDK: four steps, a page per installation, an Advanced switch. A real window installed a Full lab (15.2) on real servers, including a stop with an error, *Try again*, reopening the installation and the lab check. That run was driven by a script calling the same functions as the buttons; clicking through by hand was only done with the simulated installation. Drag and drop of media is not tested by hand. Since 2026-11-22 *(not released)* the installation is started in the background: with the real installer and a window without a display (scripted walk), the window was free at once and the installation of a PVWA and a PSMP (15.2) for an existing Vault had started 4 seconds later; it finished in 11 minutes and the lab check from the window was Healthy. Not yet seen in a visible window. |
-| PTA (component type `PTA`) *(not released)* | Installs with the vendor's `pta_installer.sh` and is configured with the vendor's `ptaAutomaticConfiguration.py`. 2026-11-22, once from clean servers in one run: Vault and PVWA 15.2 and PTA 15.2.2 on Rocky Linux 9.9 (8 GB, 4 cores) in 20 minutes; all PTA services run, the lab check lists PTA as connected (`PTAAppUser`, 15.2.2). Not done: Vault syslog forwarding to PTA, so PTA gets no Vault audit yet; the window with PTA was walked with the simulated installation only |
-| HTML5 Gateway (component type `HTML5GW`) *(not released)* | Installs with `html5_console.sh` from the 15.0 package on Ubuntu 24.04 (Docker), on the PSMP server, 4 GB. 2026-11-22, one lab from clean servers (15.2 Vault, PVWA, CPM, PSM, PSMP; gateway 15.0): the gateway step took about two minutes, its health page answers 200, PVWA has the gateway entry for the PSM server, lab check Healthy. The controller process of that run crashed once during the Vault upload (Windows PowerShell remoting exception on the shared controller VM); `Resume-PASRun` continued it without any other step by hand. Not done: a PSM session opened in a browser through the gateway |
+| Desktop window (`Start-PASeasyInstall`) | Rewritten on 2026-11-21 directly on the NativeHTMLKit SDK: four steps, a page per installation, an Advanced switch. A real window installed a Full lab (15.2) on real servers, including a stop with an error, *Try again*, reopening the installation and the lab check. That run was driven by a script calling the same functions as the buttons; clicking through by hand was only done with the simulated installation. Drag and drop of media is not tested by hand. Since 2026-11-22 *(2.0.4)* the installation is started in the background: with the real installer and a window without a display (scripted walk), the window was free at once and the installation of a PVWA and a PSMP (15.2) for an existing Vault had started 4 seconds later; it finished in 11 minutes and the lab check from the window was Healthy. Not yet seen in a visible window. |
+| PTA (component type `PTA`) *(2.0.4)* | Installs with the vendor's `pta_installer.sh` and is configured with the vendor's `ptaAutomaticConfiguration.py`. 2026-11-22, once from clean servers in one run: Vault and PVWA 15.2 and PTA 15.2.2 on Rocky Linux 9.9 (8 GB, 4 cores) in 20 minutes; all PTA services run, the lab check lists PTA as connected (`PTAAppUser`, 15.2.2). Not done: Vault syslog forwarding to PTA, so PTA gets no Vault audit yet; the window with PTA was walked with the simulated installation only |
+| HTML5 Gateway (component type `HTML5GW`) *(2.0.4)* | Installs with `html5_console.sh` from the 15.0 package on Ubuntu 24.04 (Docker), on the PSMP server, 4 GB. 2026-11-22, one lab from clean servers (15.2 Vault, PVWA, CPM, PSM, PSMP; gateway 15.0): the gateway step took about two minutes, its health page answers 200, PVWA has the gateway entry for the PSM server, lab check Healthy. The controller process of that run crashed once during the Vault upload (Windows PowerShell remoting exception on the shared controller VM); `Resume-PASRun` continued it without any other step by hand. Not done: a PSM session opened in a browser through the gateway |
 
 ## 3. Next (roadmap after 2.0.0)
 

@@ -52,7 +52,7 @@ owner says so.
 
 ## Part 1: small fixes (do these first)
 
-Done on 2026-11-22 (in the source, not released; see [STATUS.md](STATUS.md) for what was tested): the server
+Done on 2026-11-22 (released in 2.0.4; see [STATUS.md](STATUS.md) for what was tested): the server
 check verifies the Linux root password; the lab check works without name resolution; a retried CPM registration
 uses the existing CPM user; the two excluded tests run in CI again; the window starts an installation in the
 background; a reconciled step loses its old error text; a Vault on its own finds the VC++ runtimes in a package
@@ -87,7 +87,7 @@ Fix what does not work. Nothing to build if all pass.
       message of the step. Cutting the registration about one second after the credential file appears hits it.
 - [ ] Old versions: 2.0.0 (no window) and 2.0.1 (does not start from an interactive console) are still listed on
       the PowerShell Gallery. Ask the owner whether to unlist them.
-- [ ] Release these changes as 2.0.4 when the owner says so (the release notes have a "Not released yet" section).
+- [x] Release these changes as 2.0.4 (2026-11-22).
 
 ---
 
@@ -97,7 +97,7 @@ In this order. Each one: get it working from the prompt first, then add it to th
 
 ### 2.1 Active Directory and domain-joined components
 
-**Done on 2026-11-22** (in the source, not released): `New-PASLabConfiguration -DomainMode New|Existing`, the domain
+**Done on 2026-11-22** (released in 2.0.4): `New-PASLabConfiguration -DomainMode New|Existing`, the domain
 controller sets its own DNS, PVWA/CPM/PSM servers are joined before they are installed, the PSM install account
 becomes a local administrator of the PSM server, and a lab that creates its domain imports the vendor's hardening
 GPOs and applies them to the joined servers (owner's request of 2026-11-22). One lab with a new forest and joined
@@ -117,7 +117,7 @@ PVWA, CPM and PSM installed unattended and is healthy. The window has the choice
 
 ### 2.2 HTML5 Gateway
 
-**Done on 2026-11-22** (in the source, not released): component type `HTML5GW` (container with the vendor script,
+**Done on 2026-11-22** (released in 2.0.4): component type `HTML5GW` (container with the vendor script,
 Docker on Ubuntu), the lab PVWA certificate in its trust folder, registration in the PVWA configuration, the
 health page as verification, one more component in the window. Results and limits: [STATUS.md](STATUS.md) 3.4.
 
@@ -137,7 +137,7 @@ commands and stays untested; the window keeps using Lab. What it would need is l
 
 ### 2.4 PTA
 
-**Done on 2026-11-22** (in the source, not released): component type `PTA`. A lab with Vault, PVWA and PTA on a
+**Done on 2026-11-22** (released in 2.0.4): component type `PTA`. A lab with Vault, PVWA and PTA on a
 RHEL-family server with 8 GB installed unattended, PTA is connected to the Vault and the lab check reports it.
 How it works and what it needs: [STATUS.md](STATUS.md) 3.3 and [DESIGN.md](DESIGN.md).
 

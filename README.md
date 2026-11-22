@@ -160,7 +160,7 @@ More: [Troubleshooting](https://bigbatmanorg.github.io/PASeasyInstall/troublesho
 | Active Directory | A new forest with DNS |
 
 You can install up to four instances of each component and put components together on one server. Components
-are installed one after the other. PTA and the PSM HTML5 Gateway can be part of a lab from the next release on (see `Docs/STATUS.md`).
+are installed one after the other. PTA and the PSM HTML5 Gateway can be part of a lab from 2.0.4 on (see `Docs/STATUS.md`).
 
 ## How it works
 
