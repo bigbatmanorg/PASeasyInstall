@@ -6,6 +6,8 @@ function Test-PASHealth {
     Opens ONE authenticated PVWA REST session with the Vault Administrator credential and checks:
     - the PVWA API answers over HTTPS. The certificate is checked normally, or pinned when
       -PvwaCertificateFile is given or the configuration's CPM pins one (lab self-signed PVWA);
+      when the PVWA name does not resolve on this controller, the check connects to the PVWA address
+      of the configuration and sends the name, so no DNS record or hosts entry is needed;
     - which components the Vault reports as logged on (PVWA, CPM, PSM and PSMP);
     - "PASWS383E Vault is currently under maintenance mode". This usually means PVWA started before the
       Vault was up; recycle the PasswordVaultWebAccessPool app pool on the PVWA server.

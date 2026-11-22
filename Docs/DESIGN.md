@@ -113,8 +113,9 @@ target lock `~/.paeasyinstall/locks/<server id>/owner`; `/opt/paeasyinstall/medi
 - What was tested, what is experimental and what comes later is in [STATUS.md](STATUS.md).
 - The PSM service restart after the last reboot (`Start-PASeasyPsmStoppedService`) was tried on a server but
   never triggered inside a complete run: in the later runs the PSM service stayed up by itself.
-- Retrying a CPM registration that failed late creates a second CPM user in the Vault (see STATUS.md).
-- `Test-PASHealth` needs the PVWA server name to resolve on the controller (DNS or hosts file).
+- A retried CPM registration uses the vendor's upgrade mode when the credential file of an earlier attempt names
+  the CPM user (`Get-PASeasyCpmRegistrationMode` in `Recipes/WindowsComponent/Vendor.ps1`). One state cannot be
+  repaired that way and is reported instead (see STATUS.md 3.5).
 - Anti-tamper ACL code (owner/ACL checks of staging folders) is duplicated in about 8 places; not consolidated.
 - PTA shell branches still exist in `Recipes/LinuxComponent/Task.sh` and `Verify.sh`, although PTA was removed
   from the PowerShell code.

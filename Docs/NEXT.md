@@ -1,7 +1,7 @@
 # What is left to do
 
-Work list for the next sessions, written on 2026-11-22 after release 2.0.3.
-Start at the top. Part 1 is small fixes; Part 2 is the four big pieces.
+Work list for the next sessions, written on 2026-11-22 after release 2.0.3 and updated the same day after the
+small fixes. Start at the top. Part 1 is what is left of the small fixes; Part 2 is the four big pieces.
 
 Read first: [`AGENTS.md`](../AGENTS.md) (rules of this repository), [`STATUS.md`](STATUS.md) (what works, what
 was tested), [`DESIGN.md`](DESIGN.md) (how a run works).
@@ -38,6 +38,8 @@ readable by somebody who did not write it. When the vendor ships an automation s
 
 **Testing.** Unit tests need Windows PowerShell 5.1 and Pester 5. Lab servers, addresses, snapshots and the
 test harness are described in the private lab notes of the workstation, not in this repository.
+A stopped run cannot be continued after the module was changed (it pins its recipe files): when a lab run shows
+a defect, fix it, reset that server and start a new run.
 The window can be driven without a mouse: `App.ps1 -Backend Live -SelfTest <scenario.json>` walks the screens
 through the same functions the buttons call. That is how the real installs through the window were tested.
 
@@ -50,7 +52,11 @@ owner says so.
 
 ## Part 1: small fixes (do these first)
 
-Each is a short, separate change. Do them in this order.
+Done on 2026-11-22 (in the source, not released; see [STATUS.md](STATUS.md) for what was tested): the server
+check verifies the Linux root password; the lab check works without name resolution; a retried CPM registration
+uses the existing CPM user; the two excluded tests run in CI again; the window starts an installation in the
+background; a reconciled step loses its old error text; a Vault on its own finds the VC++ runtimes in a package
+of the media selection; "who installs" values. What is left:
 
 ### 1.1 Check by hand what was only tested by script
 
@@ -58,64 +64,30 @@ Needs a person at a Windows desktop, or a real interactive session.
 
 - [ ] `Start-PASeasyInstall` typed into an interactive Windows PowerShell console opens the window (2.0.2 fix).
 - [ ] The Servers form: a wrong address and a wrong password are named within seconds; correct entries lead to
-      the plan (2.0.3).
+      the plan (2.0.3). A wrong Linux root password is named too (2026-11-22, by script only).
 - [ ] Dropping a media folder, and single files, on the Media step.
 - [ ] The window at its smallest size (480 x 340) and in a remote desktop session.
+- [ ] Press *Install* and move the window while "Starting the installation..." is shown: it must stay usable
+      (2026-11-22, measured by script only).
+- [ ] Advanced view of the Servers step: the two "Who installs" fields.
 
-Fix what does not work. Nothing to build if all four pass.
+Fix what does not work. Nothing to build if all pass.
 
-### 1.2 The server check does not verify the Linux root password
+### 1.2 Left over from the small fixes
 
-`Test-PASPreflight` only checks that SSH answers when the controller's SSH key does not exist yet, so a wrong
-root password shows up only when PSMP is installed.
-
-- Do: in `PASeasyInstall/Public/Test-PASPreflight.ps1`, when a credential for the Linux server was given, try a
-  password sign-in the same way the first installation does (`Invoke-PASSshBootstrap` in `Private/Run/Bootstrap.ps1`
-  shows how) and report the result. Read-only: do not authorise the key in a check.
-- Done when: a wrong root password is reported by the check, in the window and from the prompt.
-
-### 1.3 The lab check needs the PVWA name to resolve
-
-`Test-PASHealth` fails with a clear message when the PVWA server name does not resolve on the controller. Every
-lab test so far needed a hosts entry. The address is known from the configuration.
-
-- Do: when the name does not resolve, connect to the PVWA address of the configuration and send the server name
-  in the TLS handshake and the Host header, so that IIS presents the right certificate. Do not fall back to the
-  bare IP address: IIS then presents another certificate (tried on 2026-11-21, it fails the pinned check).
-- Done when: `Test-PASHealth` and "Check the lab" pass on a lab without any hosts entry or DNS record.
-
-### 1.4 Retry of a CPM registration creates a second CPM user
-
-When the CPM registration fails late, the vendor tool has already created the Vault user. `Resume-PASRun
--RetryStep <cpm>:register` then creates `PasswordManager1` and can hit the licence limit (ITATS937E).
-
-- Do: before the register step runs again, find out whether the CPM user of this component exists in the Vault
-  (the recipe is `Recipes/WindowsComponent/Task.ps1`, stage `Register`; the option `registrationMode = Upgrade`
-  exists). Use the vendor's repair/upgrade path when it does. Try it on a server first: the behaviour of the
-  vendor tool in that mode is not known.
-- Done when: a registration that was made to fail late is retried and ends with one CPM user in the Vault.
-
-### 1.5 Two tests are excluded from CI
-
-`Tests/ci-exclude.txt` lists `ControllerLease.Tests.ps1` (one timing-dependent test) and
-`VaultPadrStandby.Tests.ps1` (one assertion out of date).
-
-- Do: fix or delete each of the two tests; empty the exclusion list.
-
-### 1.6 Smaller things
-
-- [ ] Starting an installation freezes the window for about half a minute. Run `Install-PASLab` the way the
-      server check runs (`Start-NativeHTMLKitTask`, see `Start-PASUIServerCheck` in `Desktop/App.ps1`).
-- [ ] A step that was reconciled after a resume keeps the earlier error text in its "Succeeded" message
-      (seen as `Succeeded: PAExecUnknown: ...`). Clear the message when the step succeeds.
-- [ ] A Vault on its own, chosen in the window, does not find the VC++ runtimes in packages that are in the media
-      folder but not part of the lab. Hand the CPM, PVWA and PSM items of the media selection to
-      `Resolve-PASMediaProfile -ComponentPackages` also when they are not installed.
-- [ ] "Who installs": the vendor installers take a user name and a company name. Add two optional values to the
-      configuration (defaults as today) and write them into `InstallationConfig.xml` of PVWA, CPM and PSM and
-      into the Vault response file. One Advanced field pair in the window.
+- [ ] The two tests that were excluded from CI (`ControllerLease.Tests.ps1`, `VaultPadrStandby.Tests.ps1`) pass
+      on the Windows Server controller, repeatedly; the exclusion list is empty. Whether they pass on a
+      GitHub-hosted runner shows with the first CI run of this branch. If `ControllerLease` fails there, move it
+      to `Tests/ci-exclude-hosted.txt`.
+- [ ] Install a Vault on its own from the bundle ZIP, without VC++ runtime files in the media folder, once on a
+      server (the lookup is unit-tested only).
+- [ ] Install CPM, PSM and a Vault once with `-InstallerName` / `-InstallerCompany` (only PVWA was installed
+      with them).
+- [ ] CPM retry, the one case that cannot be repaired (STATUS.md 3.5): provoke it once through a run, to see the
+      message of the step. Cutting the registration about one second after the credential file appears hits it.
 - [ ] Old versions: 2.0.0 (no window) and 2.0.1 (does not start from an interactive console) are still listed on
       the PowerShell Gallery. Ask the owner whether to unlist them.
+- [ ] Release these changes as 2.0.4 when the owner says so (the release notes have a "Not released yet" section).
 
 ---
 
