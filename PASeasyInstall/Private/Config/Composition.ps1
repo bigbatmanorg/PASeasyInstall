@@ -298,6 +298,25 @@ function New-PASDeploymentConfiguration {
         $overrides['WinRM.SkipCNCheck'] = $true
     }
     $c.components = @($components.ToArray())
+    # A new Vault needs the VC++ runtimes, which CyberArk ships inside the CPM, PVWA and PSM packages. When they
+    # are not files in the media folder and this lab installs none of those components, take them from such a
+    # package of the media selection (a package inside a bundle is extracted to the media cache once).
+    $bringsRuntimes = @($components | Where-Object { $_.type -in @('CPM', 'PVWA', 'PSM') }).Count
+    if ($c.mediaRoot -and -not $bringsRuntimes) {
+        $runtimeMode = 'Primary'
+        if ($VaultMode -eq 'PrimaryDR') {
+            $runtimeMode = 'PrimaryAndDR'
+        }
+        $given = @{}
+        foreach ($key in @($c.media.Keys)) {
+            $given[$key] = [string]$c.media[$key]
+        }
+        $missing = @(Find-PASMedia -Path $c.mediaRoot -Mode $runtimeMode -Overrides $given | Where-Object { $_.Key -in @('VCx86', 'VCx64') -and $_.Status -eq 'Missing' })
+        $package = @('CPM', 'PVWA', 'PSM' | Where-Object { $Media.ContainsKey($_) }) | Select-Object -First 1
+        if ($missing.Count -and $package) {
+            $c.options.vcRuntimePackage = Resolve-PASMediaItemPath $Media[$package] $DataRoot
+        }
+    }
     return $c
 }
 

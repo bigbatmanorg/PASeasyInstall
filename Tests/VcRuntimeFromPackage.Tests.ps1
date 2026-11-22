@@ -77,3 +77,42 @@ Describe 'VC++ runtimes from a component package' {
         $resolved.MediaOverrides.ContainsKey('VCx64') | Should -BeFalse
     }
 }
+
+Describe 'VC++ runtimes for a Vault that is installed on its own' {
+    It 'takes them from a package of the media selection that is not installed (here: CPM inside the bundle)' {
+        $saved = $env:PAS_EASY_DATA_ROOT
+        $env:PAS_EASY_DATA_ROOT = Join-Path $TestDrive 'alone-data'
+        try {
+            $media = Join-Path $TestDrive 'alone'
+            New-TestZip (Join-Path $media 'Server-Rls-v15.2.zip') @{ 'setup.exe' = 'x' }
+            New-TestZip (Join-Path $media 'PACLI-Rls-v15.2.zip') @{ 'pacli.exe' = 'x' }
+            $inner = Join-Path $TestDrive 'Central Policy Manager-Rls-v15.2.3.zip'
+            New-TestZip $inner @{
+                'ISSetupPrerequisites/{1}/VC_redist.x64.exe' = 'x64 from the bundled CPM'
+                'ISSetupPrerequisites/{2}/VC_redist.x86.exe' = 'x86 from the bundled CPM'
+            }
+            $bundle = [IO.Compression.ZipFile]::Open((Join-Path $media 'Privileged Access Manager Self-Hosted-15.2.zip'), [IO.Compression.ZipArchiveMode]::Create)
+            try {
+                $null = [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($bundle, $inner, 'Central Policy Manager (CPM)/Central Policy Manager-Rls-v15.2.3.zip')
+            } finally {
+                $bundle.Dispose()
+            }
+            $selection = Get-PASMediaSelection -Inventory (Get-PASMediaInventory -Path $media)
+            $selection.ContainsKey('CPM') | Should -BeTrue
+
+            $alone = New-PASLabConfiguration -Environment Alone -VaultMode Primary -PrimaryAddress 192.0.2.11 -ControllerAddress 192.0.2.10 -Media $selection -SecurityProfile Lab
+            [IO.Path]::GetFileName([string]$alone.options.vcRuntimePackage) | Should -Be 'Central Policy Manager-Rls-v15.2.3.zip'
+            $rows = @(& (Get-Module -Name PASeasyInstall) { param($c) Get-PASVaultMediaStatus -Configuration $c } $alone)
+            @($rows | Where-Object { $_.Key -in @('VCx86', 'VCx64') -and $_.Status -eq 'Ready' }).Count | Should -Be 2
+
+            # With a PVWA in the lab its package brings the runtimes: nothing extra is noted.
+            New-TestZip (Join-Path $media 'Password Vault Web Access-Rls-v15.2.3.zip') @{ 'x' = 'x' }
+            $selection = Get-PASMediaSelection -Inventory (Get-PASMediaInventory -Path $media)
+            $withPvwa = New-PASLabConfiguration -Environment Alone -VaultMode Primary -PrimaryAddress 192.0.2.11 -ControllerAddress 192.0.2.10 -Media $selection -SecurityProfile Lab `
+                -Instances @(@{ Type = 'PVWA'; Name = 'PVWA01'; Address = '192.0.2.21' })
+            $withPvwa.options.Contains('vcRuntimePackage') | Should -BeFalse
+        } finally {
+            $env:PAS_EASY_DATA_ROOT = $saved
+        }
+    }
+}
