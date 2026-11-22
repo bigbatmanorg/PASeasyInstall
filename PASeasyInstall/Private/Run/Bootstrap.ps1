@@ -58,6 +58,79 @@ function Invoke-PASNativeQuiet {
     }
 }
 
+function Invoke-PASSshWithPassword {
+    <# Runs ssh.exe once with a password sign-in and returns @{ExitCode;Output}. The password reaches ssh
+       through SSH_ASKPASS and an environment variable of this process only: it never appears on a command
+       line or in a file. -Arguments are the ssh options, the target and the remote command. #>
+    param([pscredential]$Credential, [string[]]$Arguments, [int]$TimeoutSeconds = 90)
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ('paseasy-askpass-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $tmp -Force |
+        Out-Null
+    $askpass = Join-Path $tmp 'askpass.cmd'
+    [IO.File]::WriteAllText($askpass, "@echo off`r`npowershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command `"[Console]::Out.Write(`$env:PASEASY_ASKPASS)`"`r`n")
+    $saved = @{}
+    foreach ($n in @('SSH_ASKPASS', 'SSH_ASKPASS_REQUIRE', 'DISPLAY', 'PASEASY_ASKPASS')) {
+        $saved[$n] = [Environment]::GetEnvironmentVariable($n, 'Process')
+    }
+    try {
+        [Environment]::SetEnvironmentVariable('SSH_ASKPASS', $askpass, 'Process')
+        [Environment]::SetEnvironmentVariable('SSH_ASKPASS_REQUIRE', 'force', 'Process')
+        [Environment]::SetEnvironmentVariable('DISPLAY', 'paseasyinstall:0', 'Process')
+        [Environment]::SetEnvironmentVariable('PASEASY_ASKPASS', $Credential.GetNetworkCredential().Password, 'Process')
+        $passwordOnly = @('-o', 'BatchMode=no', '-o', 'PubkeyAuthentication=no', '-o', 'PreferredAuthentications=password,keyboard-interactive', '-o', 'NumberOfPasswordPrompts=1')
+        return Invoke-PASNativeQuiet 'ssh.exe' ($passwordOnly + $Arguments) $TimeoutSeconds
+    } finally {
+        foreach ($n in $saved.Keys) {
+            [Environment]::SetEnvironmentVariable($n, $saved[$n], 'Process')
+        }
+        Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-PASSshPasswordSignIn {
+    <# Read-only check for Test-PASPreflight: signs in to a Linux server with the password, the way the
+       first installation does, and reads the user id and /etc/os-release. Authorises no key and writes
+       nothing on the server. Returns @{Checked;ExitCode;Output;Detail}.
+       Host key: the known_hosts file of the configuration when it knows the server; otherwise, Lab only,
+       the key is accepted for this one connection (a temporary file, deleted afterwards). #>
+    param($HostRecord, [pscredential]$Credential, [bool]$Lab)
+    $address = [string]$HostRecord.address
+    $port = ''
+    if ($HostRecord.Contains('port') -and $HostRecord.port) {
+        $port = [string][int]$HostRecord.port
+    }
+    $knownName = $address
+    if ($port -and $port -ne '22') {
+        $knownName = '[' + $address + ']:' + $port
+    }
+    $known = [string](Get-PASValue $HostRecord 'knownHostsFile' '')
+    $isKnown = $false
+    if ($known -and (Test-Path -LiteralPath $known -PathType Leaf)) {
+        $isKnown = ((Invoke-PASNativeQuiet 'ssh-keygen.exe' @('-F', $knownName, '-f', $known)).ExitCode -eq 0)
+    }
+    if (-not $isKnown -and -not $Lab) {
+        return @{ Checked = $false; Detail = "Not checked: the SSH host key of $address is not in the known_hosts file of the configuration, and the Secure profile sends no password to an unverified server." }
+    }
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ('paseasy-hostkey-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $tmp -Force |
+        Out-Null
+    try {
+        $hostKeyOptions = @('-o', 'StrictHostKeyChecking=yes', '-o', ('UserKnownHostsFile=' + $known))
+        if (-not $isKnown) {
+            $hostKeyOptions = @('-o', 'StrictHostKeyChecking=accept-new', '-o', ('UserKnownHostsFile=' + (Join-Path $tmp 'known_hosts')))
+        }
+        $arguments = $hostKeyOptions + @('-o', 'LogLevel=ERROR', '-o', 'ConnectTimeout=15', '-n')
+        if ($port) {
+            $arguments += @('-p', $port)
+        }
+        $arguments += @(([string]$HostRecord.user + '@' + $address), 'id -u; cat /etc/os-release')
+        $result = Invoke-PASSshWithPassword -Credential $Credential -Arguments $arguments -TimeoutSeconds 60
+        return @{ Checked = $true; ExitCode = $result.ExitCode; Output = [string]$result.Output }
+    } finally {
+        Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Assert-PASSshRoot {
     <# Linux stages install packages, write /opt/paeasyinstall and systemd units: they run as root. Checked
        right after key sign-in works, so a non-root account fails here with a clear message instead of
@@ -125,23 +198,8 @@ function Invoke-PASSshBootstrap {
     if (-not $Credential -or
         $Credential.Password.Length -eq 0) { throw "Key-based SSH to $user@$addr is not authorised and no password was given. Authorise this key for $user on the server: $pub" }
     if ($pub -notmatch '^ssh-ed25519 [A-Za-z0-9+/=]+ [A-Za-z0-9@._-]+$') { throw 'Unexpected controller public key format' }
-    $tmp = Join-Path ([IO.Path]::GetTempPath()) ('paseasy-askpass-' + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $tmp -Force | Out-Null
-    $askpass = Join-Path $tmp 'askpass.cmd'
-    [IO.File]::WriteAllText($askpass, "@echo off`r`npowershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command `"[Console]::Out.Write(`$env:PASEASY_ASKPASS)`"`r`n")
-    $saved = @{}
-    foreach ($n in @('SSH_ASKPASS', 'SSH_ASKPASS_REQUIRE', 'DISPLAY', 'PASEASY_ASKPASS')) { $saved[$n] = [Environment]::GetEnvironmentVariable($n, 'Process') }
-    try {
-        [Environment]::SetEnvironmentVariable('SSH_ASKPASS', $askpass, 'Process')
-        [Environment]::SetEnvironmentVariable('SSH_ASKPASS_REQUIRE', 'force', 'Process')
-        [Environment]::SetEnvironmentVariable('DISPLAY', 'paseasyinstall:0', 'Process')
-        [Environment]::SetEnvironmentVariable('PASEASY_ASKPASS', $Credential.GetNetworkCredential().Password, 'Process')
-        $cmd = "umask 077; mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys && (grep -qxF '$pub' ~/.ssh/authorized_keys || echo '$pub' >> ~/.ssh/authorized_keys)"
-        $r = Invoke-PASNativeQuiet 'ssh.exe' (@('-o', 'BatchMode=no', '-o', 'PubkeyAuthentication=no', '-o', 'PreferredAuthentications=password,keyboard-interactive', '-o', 'NumberOfPasswordPrompts=1') + $base + @(($user + '@' + $addr), $cmd))
-    } finally {
-        foreach ($n in $saved.Keys) { [Environment]::SetEnvironmentVariable($n, $saved[$n], 'Process') }
-        Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    $cmd = "umask 077; mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys && (grep -qxF '$pub' ~/.ssh/authorized_keys || echo '$pub' >> ~/.ssh/authorized_keys)"
+    $r = Invoke-PASSshWithPassword -Credential $Credential -Arguments ($base + @(($user + '@' + $addr), $cmd))
     if ($r.ExitCode -ne 0) { throw "Password sign-in to $user@$addr failed (the server may refuse password logins for $user). Authorise this key for $user on the server instead: $pub" }
     $probe = Invoke-PASNativeQuiet 'ssh.exe' (@('-i', $key, '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes') + $base + @(($user + '@' + $addr), 'true'))
     if ($probe.ExitCode -ne 0) { throw "The controller key was added for $user@$addr but key sign-in still fails: $($probe.Output)" }

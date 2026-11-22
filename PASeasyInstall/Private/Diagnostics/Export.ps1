@@ -39,6 +39,57 @@ function Get-PASHealthPvwaBaseUri {
     return [uri]$u
 }
 
+function Get-PASHealthPvwaConnection {
+    <# Where the health check connects, and the headers every request carries: @{Api;Headers;Problem}.
+       Normally the PVWA URL as it is. When its name does not resolve on this controller: the address of
+       that PVWA in the configuration, with the name in the Host header. Windows PowerShell then also sends
+       the name in the TLS handshake and checks the certificate against it, so IIS presents the certificate
+       of the name. (A request to the bare address gets another certificate and fails the pinned check.) #>
+    param($Configuration, [uri]$Base)
+    $connection = @{
+        Api = $Base.AbsoluteUri.TrimEnd('/')
+        Headers = @{}
+        Problem = ''
+    }
+    if (Test-PASNameResolves $Base.Host) {
+        return $connection
+    }
+    $pvwas = @($Configuration.components | Where-Object { $_ -and $_.type -eq 'PVWA' })
+    # The PVWA that has this name in its URL; otherwise the first one, which is the one the check asks by default.
+    $pvwa = $pvwas | Select-Object -First 1
+    foreach ($candidate in $pvwas) {
+        $url = [string](Get-PASValue (Get-PASValue $candidate 'options' @{}) 'pvwaUrl' '')
+        if ($url -and ([uri]$url).Host -eq $Base.Host) {
+            $pvwa = $candidate
+            break
+        }
+    }
+    $address = ''
+    if ($pvwa -and $Configuration.hosts.Contains([string]$pvwa.host)) {
+        $address = [string]$Configuration.hosts[[string]$pvwa.host].address
+    }
+    $parsed = $null
+    if (-not [Net.IPAddress]::TryParse($address, [ref]$parsed)) {
+        $connection.Problem = "The PVWA name '$($Base.Host)' does not resolve on this controller, and the configuration has no IP address for that PVWA. " +
+            "Add the name to DNS or to $env:SystemRoot\System32\drivers\etc\hosts, then run the check again."
+        return $connection
+    }
+    $builder = New-Object UriBuilder $Base
+    $builder.Host = $address
+    $connection.Api = $builder.Uri.AbsoluteUri.TrimEnd('/')
+    $connection.Headers = @{ Host = $Base.Authority }
+    return $connection
+}
+
+function Test-PASNameResolves {
+    param([string]$Name)
+    try {
+        return (@([Net.Dns]::GetHostAddresses($Name)).Count -gt 0)
+    } catch {
+        return $false
+    }
+}
+
 function Get-PASHealthPinnedCertificate {
     # A CPM that trusts the lab PVWA certificate records it in its options; reuse that pin.
     param($Configuration, [string]$CertificateFile)
@@ -198,21 +249,11 @@ function Test-PASDeploymentHealth {
         $pin = (New-Object Security.Cryptography.X509Certificates.X509Certificate2($pinFile)).Thumbprint
         $result.TlsValidation = 'PinnedCertificate+HostName'
     } else { $result.TlsValidation = 'SystemTrust+HostName' }
-    # The PVWA presents its certificate only under its server name (IIS binding with SNI), so the name of the
-    # URL must resolve on this controller. Say so before a confusing network error appears.
+    # The PVWA presents its certificate only under its server name (IIS binding with SNI). When that name does
+    # not resolve on this controller, the check connects to the PVWA address of the configuration and sends the name.
     $nameMustMatch = $true
-    $nameProblem = ''
-    try {
-        [void][Net.Dns]::GetHostAddresses($base.Host)
-    } catch {
-        $address = ''
-        $pvwa = @($c.components | Where-Object { $_ -and $_.type -eq 'PVWA' })[0]
-        if ($pvwa -and $c.hosts.Contains([string]$pvwa.host)) {
-            $address = [string]$c.hosts[[string]$pvwa.host].address
-        }
-        $nameProblem = "The PVWA name '$($base.Host)' does not resolve on this controller. Add it to DNS or to " +
-            "$env:SystemRoot\System32\drivers\etc\hosts (line: '$address $($base.Host)'), then run the check again."
-    }
+    $connection = Get-PASHealthPvwaConnection $c $base
+    $nameProblem = [string]$connection.Problem
     $vaultLock = $null
     $previousCallback = [Net.ServicePointManager]::ServerCertificateValidationCallback
     $previousProtocol = [Net.ServicePointManager]::SecurityProtocol
@@ -251,7 +292,7 @@ namespace PASeasyInstall {
             [Net.ServicePointManager]::ServerCertificateValidationCallback = $check.Callback
         }
         if ($nameProblem) { throw $nameProblem }
-        $api = $base.AbsoluteUri.TrimEnd('/')
+        $api = [string]$connection.Api
         $body = @{
             username = $VaultCredential.UserName
             password = $VaultCredential.GetNetworkCredential().Password
@@ -259,7 +300,7 @@ namespace PASeasyInstall {
         } |
             ConvertTo-Json -Compress
         try {
-            $token = Invoke-RestMethod -Method Post -Uri ($api + '/auth/CyberArk/Logon') -Body $body -ContentType 'application/json' -TimeoutSec $TimeoutSeconds -ErrorAction Stop
+            $token = Invoke-RestMethod -Method Post -Uri ($api + '/auth/CyberArk/Logon') -Headers $connection.Headers -Body $body -ContentType 'application/json' -TimeoutSec $TimeoutSeconds -ErrorAction Stop
         } catch {
             $details = if ($_.ErrorDetails) { [string]$_.ErrorDetails.Message }else { '' }
             $text = $details + ' ' + [string]$_.Exception.Message
@@ -273,7 +314,8 @@ namespace PASeasyInstall {
             throw 'PVWA login failed'
         } finally { $body = $null }
         $result.PvwaLogin = 'Succeeded'
-        $headers = @{Authorization = $token }
+        $headers = $connection.Headers.Clone()
+        $headers['Authorization'] = $token
         $summary = Invoke-RestMethod -Uri ($api + '/ComponentsMonitoringSummary') -Headers $headers -TimeoutSec $TimeoutSeconds -ErrorAction Stop
         # Component kinds the Vault knows but that are not installed (for example PTA: 0 of 0) are left out.
         $result.Summary = @($summary.Components | Where-Object { [int]$_.ComponentTotalCount -gt 0 } | ForEach-Object { [pscustomobject]@{
@@ -323,7 +365,9 @@ namespace PASeasyInstall {
     } finally {
         if ($token) {
             try {
-                Invoke-RestMethod -Method Post -Uri ($base.AbsoluteUri.TrimEnd('/') + '/auth/Logoff') -Headers @{Authorization = $token } -TimeoutSec $TimeoutSeconds -ErrorAction Stop |
+                $logoffHeaders = $connection.Headers.Clone()
+                $logoffHeaders['Authorization'] = $token
+                Invoke-RestMethod -Method Post -Uri ([string]$connection.Api + '/auth/Logoff') -Headers $logoffHeaders -TimeoutSec $TimeoutSeconds -ErrorAction Stop |
                     Out-Null
             } catch { [void]$issues.Add('PVWA logoff failed; the session expires on its own') }
         }

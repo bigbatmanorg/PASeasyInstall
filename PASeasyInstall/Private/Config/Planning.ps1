@@ -457,6 +457,8 @@ function New-PASRuntimeInventory {
             Domain = [string](Get-PASValue $Config.activeDirectory 'domain' ''); SecurityProfile = [string]$Config.security.profile;
             ApplyHardening = $true; ValidateTLS = $true; Options = @{}
         }
+        $componentSettings.InstallerName = [string](Get-PASValue (Get-PASValue $Config 'options' @{}) 'installerName' '')
+        $componentSettings.InstallerCompany = [string](Get-PASValue (Get-PASValue $Config 'options' @{}) 'installerCompany' '')
         $componentSettings.MediaSHA256 = ''
         if (-not $linux) {
             $managementCredential = Get-PASHostCredential $Config $CredentialMap $hostId $id

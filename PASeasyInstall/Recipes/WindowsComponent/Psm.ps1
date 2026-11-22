@@ -308,6 +308,13 @@ function Invoke-PASeasyPsmStage {
         foreach ($row in @(@('installDirectory', 'InstallationDirectory'), @('recordingDirectory', 'RecordingDirectory'))) {
             if ($options.Contains($row[0])) { $parameters[$row[1]] = [string]$options[$row[0]] }
         }
+        # "Who installs". Not given: the vendor values stay.
+        if ([string]$Settings.InstallerName) {
+            $parameters['Name'] = [string]$Settings.InstallerName
+        }
+        if ([string]$Settings.InstallerCompany) {
+            $parameters['Company'] = [string]$Settings.InstallerCompany
+        }
     }
     if ($Stage -eq 'Register') {
         if (-not $VaultPassword) { throw 'PSM registration requires the VaultAdmin secret' }

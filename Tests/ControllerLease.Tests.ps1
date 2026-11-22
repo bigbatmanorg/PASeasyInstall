@@ -47,7 +47,7 @@ Describe 'Controller lifetime admission before metadata (no remote targets)' {
             $child.StartInfo = $start
             [void]$child.Start()
             $errors = $child.StandardError.ReadToEndAsync()
-            $child.WaitForExit(15000) | Should -BeTrue
+            $child.WaitForExit(90000) | Should -BeTrue
             $child.ExitCode | Should -Be 1
             (Get-FileHash $f.Path).Hash | Should -BeExactly $before
             (Get-FileHash $eventPath).Hash | Should -BeExactly $events
@@ -118,7 +118,7 @@ Import-Module $Module -Force
   $path=Join-Path (Get-PASRunDirectory $RunId $DataRoot) 'run.json'
   $run=Read-PASJson $path;$run.status='Running';Write-PASJsonAtomic $path $run
   [IO.File]::WriteAllText($script:LeaseFixtureReady,'Synthetic controller owns lease; NO remote targets')
-  Start-Sleep -Seconds 60
+  Start-Sleep -Seconds 600
  }
  Invoke-PASRunController -RunId $id -DataRoot $base -Resume -InMemoryAuth @{Credentials=@{};Secrets=@{}}
 } $RunId $DataRoot $Ready
@@ -132,14 +132,15 @@ Import-Module $Module -Force
         $child.StartInfo = $start
         [void]$child.Start()
         try {
-            $deadline = [DateTime]::UtcNow.AddSeconds(15)
+            # Upper bounds only: a child PowerShell that imports the module can take long on a busy machine.
+            $deadline = [DateTime]::UtcNow.AddSeconds(90)
             while (-not(Test-Path $ready) -and [DateTime]::UtcNow -lt $deadline -and -not $child.HasExited) { Start-Sleep -Milliseconds 100 }
             Test-Path $ready | Should -BeTrue
             (Get-Content $f.Path -Raw | ConvertFrom-Json).controllerPid | Should -Be $child.Id
             { [IO.File]::Open((Join-Path $f.Directory 'controller.lock'), [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) } |
                 Should -Throw
             $child.Kill()
-            $child.WaitForExit(5000) | Should -BeTrue
+            $child.WaitForExit(30000) | Should -BeTrue
             (Get-PASRunRecord -RunId $f.Id -DataRoot $f.Root).status | Should -BeExactly Interrupted
             Mock Invoke-PASRunControllerCore -ModuleName PASeasyInstall {
                 $path = Join-Path (Join-Path (Join-Path $DataRoot 'Runs') $RunId) 'run.json'

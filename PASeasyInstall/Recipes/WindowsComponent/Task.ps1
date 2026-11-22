@@ -31,6 +31,15 @@ function Set-XmlParameter([string]$XmlPath, [string]$Name, [string]$Value) {
     if ($node.Attributes['Value']) { $node.SetAttribute('Value', $Value) }else { $node.Value = $Value }
     $xml.Save($XmlPath)
 }
+function Set-InstallerIdentity([string]$XmlPath, [string]$NameParameter) {
+    # "Who installs": user and company name of InstallationConfig.xml. Not given: the vendor values stay.
+    if ([string]$Settings.InstallerName) {
+        Set-XmlParameter $XmlPath $NameParameter ([string]$Settings.InstallerName)
+    }
+    if ([string]$Settings.InstallerCompany) {
+        Set-XmlParameter $XmlPath 'Company' ([string]$Settings.InstallerCompany)
+    }
+}
 function Write-Marker([string]$Name, [string]$Message) {
     New-Item -ItemType Directory -Path $markerRoot -Force | Out-Null
     [IO.File]::WriteAllText((Join-Path $markerRoot ($Name + '.json')),
@@ -114,11 +123,13 @@ try {
             if ($opts.Contains('installDirectory')) { Set-XmlParameter $xml 'PVWAInstallDirectory' ([string]$opts.installDirectory) }
             if ($opts.Contains('applicationDirectory')) { Set-XmlParameter $xml 'PVWAApplicationDirectory' ([string]$opts.applicationDirectory) }
             if ($opts.Contains('applicationName')) { Set-XmlParameter $xml 'PVWAApplicationName' ([string]$opts.applicationName) }
+            Set-InstallerIdentity $xml 'Username'
             $result = Invoke-VendorScript $cmd
         } elseif ($type -eq 'CPM') {
             $cmd = Get-VendorScript 'CPMInstallation.ps1'
             $xml = Join-Path (Split-Path -Parent $cmd) 'InstallationConfig.xml'
             if ($opts.Contains('installDirectory')) { Set-XmlParameter $xml 'CPMInstallDirectory' ([string]$opts.installDirectory) }
+            Set-InstallerIdentity $xml 'Username'
             $result = Invoke-VendorScript $cmd
         } else {
             $cmd = Get-VendorScript 'Execute-Stage.ps1'
@@ -157,16 +168,36 @@ try {
         } elseif ($type -eq 'CPM') {
             $cmd = Get-VendorScript 'CPMRegisterCommponent.ps1'
             $xml = Join-Path (Split-Path -Parent $cmd) 'CPMRegisterComponentConfig.xml'
-            $registrationMode = Get-Option 'registrationMode' 'Clean'
+            $cpmUser = Get-Option 'cpmUser' 'PasswordManager'
+            $cpmRoot = Get-Option 'installDirectory' 'C:\Program Files (x86)\CyberArk'
+            $registrationMode = Get-Option 'registrationMode' ''
+            $repeated = $false
+            if (-not $registrationMode) {
+                $registrationMode = Get-PASeasyCpmRegistrationMode -InstallRoot $cpmRoot -User $cpmUser
+                $repeated = ($registrationMode -eq 'Upgrade')
+            }
             if ($registrationMode -notin @('Clean', 'Upgrade')) { throw 'CPM registrationMode must be Clean or Upgrade' }
             Set-XmlParameter $xml 'isUpgrade' $(if ($registrationMode -eq 'Upgrade') { 'true' }else { 'false' })
-            Set-XmlParameter $xml 'installDirectory' (Get-Option 'installDirectory' 'C:\Program Files (x86)\CyberArk')
-            Set-XmlParameter $xml 'username' (Get-Option 'cpmUser' 'PasswordManager')
+            Set-XmlParameter $xml 'installDirectory' $cpmRoot
+            Set-XmlParameter $xml 'username' $cpmUser
             Set-XmlParameter $xml 'vaultip' ([string]$Settings.VaultAddress)
             Set-XmlParameter $xml 'vaultPort' (Get-Option 'vaultPort' '1858')
             Set-XmlParameter $xml 'vaultUser' ([string]$Settings.VaultUser)
             Set-XmlParameter $xml 'validatePVWASecureConnect' $(if ([bool]$Settings.ValidateTLS) { 'true' }else { 'false' })
+            $registrationStarted = Get-Date
             $result = Invoke-VendorScript -ScriptPath $cmd -Parameters @{spwdObj = $vaultSecure }
+            if ($repeated) {
+                $vendorLog = Join-Path (Split-Path -Parent $cmd) 'RegistrationTool\Log\RegisterComponent.log'
+                $reason = Get-PASeasyCpmRegistrationProblem -LogPath $vendorLog -Since $registrationStarted
+                if ($reason) {
+                    throw "CPM was registered again with its existing Vault user '$cpmUser' (no second user was created), but the vendor tool could not finish the CPM environment: $reason This CPM cannot be completed by another retry: delete the Vault user '$cpmUser' and the safes named after it in the Vault, then install this CPM again on a clean server."
+                }
+                Write-Marker $Stage "Registration repeated in the vendor upgrade mode with the existing Vault user $cpmUser"
+                return [pscustomobject]@{
+                    Changed = $true
+                    Message = "CPM registered again with its existing Vault user '$cpmUser' (vendor upgrade mode; no second user was created)"
+                }
+            }
         } else {
             $cmd = Get-VendorScript 'Execute-Stage.ps1'
             $xml = Get-VendorScript 'RegistrationConfig.xml'

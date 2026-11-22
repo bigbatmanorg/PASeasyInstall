@@ -255,9 +255,14 @@ function Get-PASCacheKey {
 }
 
 function Get-PASComponentPackagePaths {
-    # The installer ZIPs of the CPM, PVWA and PSM components of a configuration (they carry the VC++ runtimes).
+    # The installer ZIPs of the CPM, PVWA and PSM components of a configuration (they carry the VC++ runtimes),
+    # and the package the composer noted for a Vault that is installed without any of them.
     param($Configuration)
     $paths = @()
+    $noted = [string](Get-PASValue (Get-PASValue $Configuration 'options' @{}) 'vcRuntimePackage' '')
+    if ($noted) {
+        $paths += $noted
+    }
     foreach ($component in @($Configuration.components | Where-Object { $_ -and [string]$_.type -in @('CPM', 'PVWA', 'PSM') })) {
         $media = ''
         if ($component -is [System.Collections.IDictionary] -and $component.Contains('media')) {

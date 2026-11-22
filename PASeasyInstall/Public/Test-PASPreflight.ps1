@@ -3,8 +3,6 @@ function Test-PASPreflight {
     .SYNOPSIS
     Checks, without changing anything, that this controller and the servers of a configuration are ready for an installation.
     .DESCRIPTION
-    NEW in 2.0 and not yet verified in the lab: treat a surprising result as a hint and check by hand.
-
     Returns one object per check with Server, Address, Check, Passed and Detail. Passed is $true,
     $false, or empty ($null) when a check could not be made (for example no credential was given).
 
@@ -24,9 +22,11 @@ function Test-PASPreflight {
     - at least 20 GB free on the system drive;
     - no restart is pending.
 
-    For a Linux server, when the SSH key named in the configuration already exists:
-    - key sign-in works, the account is root, and the distribution is one PSMP supports.
-      (The key is created and authorised by the first installation; before that these checks are skipped.)
+    For a Linux server:
+    - sign-in works, the account is root, and the distribution is one PSMP supports. The sign-in uses
+      the SSH key named in the configuration when it exists and is authorised already. Otherwise it
+      uses the password of the account (-CredentialMap or -LabPassword), as the first installation
+      does, so a wrong root password is found here. The check authorises no key.
 
     This command never asks for a password and changes nothing on any server: it resolves names, opens
     connections and reads. It does not replace the preflight steps of the installation itself.
@@ -160,41 +160,64 @@ function Test-PASPreflight {
         }
 
         if ($isLinux) {
-            # 3a. Linux: sign in with the controller key, if it exists already. Reads only.
+            # 3a. Linux: sign in with the controller key if it exists already, otherwise with the password
+            # of the account, as the first installation does. Reads only: no key is authorised here.
             $keyFile = [string](Get-PASValue $server 'identityFile' '')
             $knownHosts = [string](Get-PASValue $server 'knownHostsFile' '')
             $keyReady = [bool]($keyFile -and
                 $knownHosts -and
                 (Test-Path -LiteralPath $keyFile -PathType Leaf) -and
                 (Test-Path -LiteralPath $knownHosts -PathType Leaf))
-            if (-not $keyReady) {
-                New-PASPreflightResult -Server $serverId -Address $address -Check 'SSH key sign-in' -Passed $null -Detail 'Not checked: the SSH key of the configuration does not exist yet. The first installation creates and authorises it.'
-                continue
-            }
-            $sshArguments = @(
-                '-i', $keyFile,
-                '-o', 'BatchMode=yes',
-                '-o', 'IdentitiesOnly=yes',
-                '-o', 'StrictHostKeyChecking=yes',
-                '-o', ('UserKnownHostsFile=' + $knownHosts),
-                '-o', 'ConnectTimeout=15',
-                '-n'
-            )
-            if ($server.Contains('port') -and $server.port) {
-                $sshArguments += @('-p', [string][int]$server.port)
-            }
-            $sshArguments += @(([string]$server.user + '@' + $address), 'id -u; cat /etc/os-release')
             $ssh = $null
-            try {
-                $ssh = Invoke-PASNativeQuiet 'ssh.exe' $sshArguments 60
-            } catch {
-                $ssh = @{ ExitCode = 1; Output = [string]$_.Exception.Message }
+            if ($keyReady) {
+                $sshArguments = @(
+                    '-i', $keyFile,
+                    '-o', 'BatchMode=yes',
+                    '-o', 'IdentitiesOnly=yes',
+                    '-o', 'StrictHostKeyChecking=yes',
+                    '-o', ('UserKnownHostsFile=' + $knownHosts),
+                    '-o', 'ConnectTimeout=15',
+                    '-n'
+                )
+                if ($server.Contains('port') -and $server.port) {
+                    $sshArguments += @('-p', [string][int]$server.port)
+                }
+                $sshArguments += @(([string]$server.user + '@' + $address), 'id -u; cat /etc/os-release')
+                try {
+                    $ssh = Invoke-PASNativeQuiet 'ssh.exe' $sshArguments 60
+                } catch {
+                    $ssh = @{ ExitCode = 1; Output = [string]$_.Exception.Message }
+                }
             }
-            if ($ssh.ExitCode -ne 0) {
-                New-PASPreflightResult -Server $serverId -Address $address -Check 'SSH key sign-in' -Passed $false -Detail ("Key sign-in as $($server.user) failed: " + ([string]$ssh.Output).Trim())
-                continue
+            if ($ssh -and $ssh.ExitCode -eq 0) {
+                New-PASPreflightResult -Server $serverId -Address $address -Check 'SSH key sign-in' -Passed $true -Detail "Signed in as $($server.user) with $keyFile"
+            } else {
+                # The key does not exist or is not authorised yet. The installation then needs the password.
+                $credential = Get-PASHostCredential $configuration $credentials $serverId
+                if (-not $credential -or $credential.Password.Length -eq 0) {
+                    if ($keyReady) {
+                        New-PASPreflightResult -Server $serverId -Address $address -Check 'SSH key sign-in' -Passed $false -Detail ("Key sign-in as $($server.user) failed and no password was given for '$serverId': " + ([string]$ssh.Output).Trim())
+                    } else {
+                        New-PASPreflightResult -Server $serverId -Address $address -Check 'SSH password sign-in' -Passed $null -Detail "Not checked: the SSH key of the configuration does not exist yet and no account for '$serverId' is in -CredentialMap. The first installation authorises the key with the password."
+                    }
+                    continue
+                }
+                try {
+                    $ssh = Test-PASSshPasswordSignIn -HostRecord $server -Credential $credential -Lab ([string]$configuration.security.profile -eq 'Lab')
+                } catch {
+                    $ssh = @{ Checked = $true; ExitCode = 1; Output = [string]$_.Exception.Message }
+                }
+                if (-not $ssh.Checked) {
+                    New-PASPreflightResult -Server $serverId -Address $address -Check 'SSH password sign-in' -Passed $null -Detail $ssh.Detail
+                    continue
+                }
+                if ($ssh.ExitCode -ne 0) {
+                    $reason = (@(([string]$ssh.Output) -split "`r?`n" | Where-Object { $_.Trim() }) | Select-Object -Last 1)
+                    New-PASPreflightResult -Server $serverId -Address $address -Check 'SSH password sign-in' -Passed $false -Detail "Password sign-in as $($server.user) failed. Check the password, and that the server lets $($server.user) sign in with a password over SSH. ($reason)"
+                    continue
+                }
+                New-PASPreflightResult -Server $serverId -Address $address -Check 'SSH password sign-in' -Passed $true -Detail "Signed in as $($server.user) with the password. The installation authorises the controller key."
             }
-            New-PASPreflightResult -Server $serverId -Address $address -Check 'SSH key sign-in' -Passed $true -Detail "Signed in as $($server.user) with $keyFile"
 
             # First output line: the numeric user id. The rest: /etc/os-release.
             $lines = @(([string]$ssh.Output) -split "`r?`n")

@@ -286,6 +286,8 @@ function Update-PASUIPlan {
             LinuxUsername = 'root'
             Media = $S.MediaSelection
             SecurityProfile = 'Lab'
+            InstallerName = ([string]$S.InstallerName).Trim()
+            InstallerCompany = ([string]$S.InstallerCompany).Trim()
         }
         foreach ($slot in Get-PASUIServerSlots $S) {
             if ($slot.Key -eq 'vault') {
@@ -401,12 +403,61 @@ function Complete-PASUIServerCheck {
 }
 
 function Start-PASUIInstall {
+    # Starts the installation in the background, the way the server check runs, so that the window stays
+    # usable for the half minute the installer needs to check the plan and start its own process.
+    if ($S.Starting) {
+        return
+    }
     $accounts = Get-PASUIFormAccounts
+    $S.Starting = $accounts
     Set-PASUINotice 'busy' 'Starting the installation...'
-    $id = Install-PASLab -Configuration $S.Configuration -CredentialMap $accounts.Credentials -SecretMap $accounts.Secrets -Confirm:$false
+    if ([string]$S.Backend -eq 'Mock') {
+        # The simulated installer keeps its runs in the memory of this window and starts at once.
+        Start-PASUIInstallHere
+        return
+    }
+    $contract = Join-Path (Join-Path $PSScriptRoot 'Backend') 'Backend.Contract.ps1'
+    try {
+        $null = Start-NativeHTMLKitTask -Application $app -ArgumentList @($contract, [string]$S.Backend, $S.Configuration, $accounts.Credentials, $accounts.Secrets) -ScriptBlock {
+            param([string]$ContractPath, [string]$Kind, $Configuration, [hashtable]$CredentialMap, [hashtable]$SecretMap)
+            . $ContractPath
+            $null = Import-PASUIBackend -Kind $Kind
+            Install-PASLab -Configuration $Configuration -CredentialMap $CredentialMap -SecretMap $SecretMap -Confirm:$false
+        } -OnCompleted {
+            param($result)
+            Invoke-PASUISafe { Complete-PASUIInstallStart ([string](@($result)[-1])) }
+        } -OnFailed {
+            param($failure)
+            $S.Starting = $null
+            Set-PASUINotice 'error' ('The installation was not started: ' + [string]$failure.Message)
+        }
+    } catch {
+        # No background task could be started. The window does not react until the installation is started.
+        Start-PASUIInstallHere
+    }
+}
+
+function Start-PASUIInstallHere {
+    # Starts the installation in the window's own thread, with the accounts in $S.Starting.
+    try {
+        $id = Install-PASLab -Configuration $S.Configuration -CredentialMap $S.Starting.Credentials -SecretMap $S.Starting.Secrets -Confirm:$false
+    } catch {
+        $S.Starting = $null
+        throw
+    }
+    Complete-PASUIInstallStart ([string]$id)
+}
+
+function Complete-PASUIInstallStart {
+    param([string]$RunId)
+    $accounts = $S.Starting
+    $S.Starting = $null
+    if ($RunId -notmatch '^[0-9a-fA-F]{32}$') {
+        throw "The installation was not started: the installer returned no run id ($RunId)."
+    }
     # The installer process has the passwords now. The window keeps them only as protected objects, for
     # "Try again" and "Check the lab", until it is closed. What was typed is forgotten.
-    $S.Kept = @{ RunId = [string]$id; Credentials = $accounts.Credentials; Secrets = $accounts.Secrets }
+    $S.Kept = @{ RunId = $RunId; Credentials = $accounts.Credentials; Secrets = $accounts.Secrets }
     foreach ($key in @($S.Slots.Keys)) {
         $S.Slots[$key].Remove('Password')
     }
@@ -417,7 +468,7 @@ function Start-PASUIInstall {
         $S.RunPlan[[string]$item.Id] = @{ Address = [string]$item.Address }
     }
     Set-PASUINotice
-    Open-PASUIRun ([string]$id)
+    Open-PASUIRun $RunId
 }
 
 function Open-PASUIRun {
@@ -786,6 +837,8 @@ function Set-PASUIField {
         '^f-existing$' { $S.ExistingVault = $Value; return }
         '^sec-(VaultAdmin|VaultMaster|DRPassword)$' { $S.Secrets[$Matches[1]] = $Value; return }
         '^f-controller$' { $S.Controller = $Value; return }
+        '^f-installer-name$' { $S.InstallerName = $Value; return }
+        '^f-installer-company$' { $S.InstallerCompany = $Value; return }
         '^srv-([a-z0-9]+)-name$' { Set-PASUISlotValue $S $Matches[1] 'Name' $Value; return }
         '^srv-([a-z0-9]+)-user$' { Set-PASUISlotValue $S $Matches[1] 'User' $Value; return }
         '^srv-([a-z0-9]+)-pass$' { Set-PASUISlotValue $S $Matches[1] 'Password' $Value; return }

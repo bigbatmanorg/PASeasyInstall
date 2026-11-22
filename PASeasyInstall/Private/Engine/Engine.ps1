@@ -452,6 +452,8 @@ function Invoke-PASWorkflow {
                     Add-PASEvent $context 'TaskRestarted' $id 'previous attempt never dispatched (read-only probe phase only); starting a new attempt'
                 } elseif ([bool](Get-PASValue $current 'actionAcknowledged' $false) -and (Get-PASValue $step 'Verify' '')) {
                     $reconciled = $true
+                    # The error text of the earlier attempt must not end up in this attempt's "Succeeded" message.
+                    $current.message = ''
                     Add-PASEvent $context 'TaskReconciling' $id 'Action acknowledged; reconciling or repeating only its independent verification'
                 } elseif ($kind -in @('Wait', 'Verify') -or ($kind -in @('Transfer', 'Relay') -and $status -ne 'Failed')) {
                     Add-PASEvent $context 'TaskRestarted' $id "idempotent $kind step was $status; repeating with content verification"
@@ -462,6 +464,7 @@ function Invoke-PASWorkflow {
                         $boot = Invoke-PASReboot -Target $plan.Target -Credentials $Credentials -TimeoutSeconds $timeout -Context $context -TaskId $id -BootBefore ([string]$current.bootBefore) -AlreadyRequested
                         $current.bootAfter = $boot
                         $current.status = 'Verifying'
+                        $current.message = ''
                         Save-PASState $context
                         $reconciled = $true
                     } catch { throw "Unknown: $id :: reboot not reconciled: $($_.Exception.Message)" }
@@ -507,6 +510,7 @@ function Invoke-PASWorkflow {
                     }
                 } elseif ($status -eq 'Verifying' -and (Get-PASValue $step 'Verify' '')) {
                     Add-PASEvent $context 'TaskReconciling' $id 'action acknowledged before interruption; repeating read-only verification'
+                    $current.message = ''
                     $reconciled = $true
                 } else {
                     # Not repeated automatically: the step may have changed the server. The operator decides.

@@ -472,3 +472,74 @@ Describe 'Fast reachability check before an installation' {
         @($rows | Where-Object { $_.Check -like '*session*' -or $_.Check -like '*sign-in*' }).Count | Should -Be 0
     }
 }
+
+Describe 'Server check of a Linux server before its SSH key exists' {
+    BeforeAll {
+        $script:linuxCfg = New-PASLabConfiguration -Environment LinuxCheck -VaultMode Existing -ExistingVaultAddress 192.0.2.5 -ControllerAddress 198.51.100.250 `
+            -Media $script:selection -SecurityProfile Lab -AcceptEula -Instances @(@{ Type = 'PSMP'; Name = 'PSMP01'; Address = '192.0.2.36' })
+        $script:linuxPassword = ConvertTo-SecureString 'SYNTHETIC_PASSWORD_731' -AsPlainText -Force
+        Mock -ModuleName PASeasyInstall Test-PASTcpPort { $true }
+        # ssh-keygen -F: the server is not in a known_hosts file yet.
+        Mock -ModuleName PASeasyInstall Invoke-PASNativeQuiet { @{ ExitCode = 1; Output = '' } }
+    }
+    It 'reports a wrong root password' {
+        Mock -ModuleName PASeasyInstall Invoke-PASSshWithPassword { @{ ExitCode = 255; Output = 'root@192.0.2.36: Permission denied (publickey,password).' } }
+        $rows = @(Test-PASPreflight -Configuration $script:linuxCfg -LabPassword $script:linuxPassword)
+        $row = @($rows | Where-Object { $_.Check -eq 'SSH password sign-in' })
+        $row.Count | Should -Be 1
+        $row[0].Passed | Should -Be $false
+        $row[0].Detail | Should -Match 'Password sign-in as root failed.*Permission denied'
+        ($rows | Out-String) | Should -Not -Match 'SYNTHETIC_PASSWORD_731'
+    }
+    It 'passes with the right password, reads account and distribution, and authorises no key' {
+        Mock -ModuleName PASeasyInstall Invoke-PASSshWithPassword { @{ ExitCode = 0; Output = "0`nID=ubuntu`nVERSION_ID=`"24.04`"`nPRETTY_NAME=`"Ubuntu 24.04 LTS`"" } }
+        $rows = @(Test-PASPreflight -Configuration $script:linuxCfg -LabPassword $script:linuxPassword)
+        @($rows | Where-Object { $_.Check -in @('SSH password sign-in', 'Root account', 'Operating system') -and $_.Passed -eq $true }).Count | Should -Be 3
+        Should -Invoke -ModuleName PASeasyInstall Invoke-PASSshWithPassword -Times 1 -Exactly -ParameterFilter {
+            $Arguments[-1] -eq 'id -u; cat /etc/os-release' -and ($Arguments -join ' ') -notmatch 'authorized_keys'
+        }
+    }
+    It 'says "not checked" when no password was given' {
+        Mock -ModuleName PASeasyInstall Invoke-PASSshWithPassword { throw 'must not be called' }
+        $rows = @(Test-PASPreflight -Configuration $script:linuxCfg)
+        $row = @($rows | Where-Object { $_.Check -eq 'SSH password sign-in' })
+        $row.Count | Should -Be 1
+        $row[0].Passed | Should -BeNullOrEmpty
+    }
+}
+
+Describe '"Who installs": user and company name for the vendor installers' {
+    BeforeAll {
+        . (Join-Path $uiRoot 'Model.ps1')
+        . (Join-Path $uiRoot 'Views.ps1')
+    }
+    It 'is optional, is kept in the configuration and reaches every Windows component' {
+        $plain = New-LabConfig
+        $plain.options.Contains('installerName') | Should -BeFalse
+        $cfg = New-PASLabConfiguration -Environment WhoLab -VaultMode Existing -ExistingVaultAddress 192.0.2.5 -Media $script:selection -SecurityProfile Lab `
+            -InstallerName ' Lab Admin ' -InstallerCompany 'Example & Co. (Lab)' -Instances @(@{ Type = 'PVWA'; Name = 'PVWA01'; Address = '192.0.2.33' })
+        $cfg.options.installerName | Should -Be 'Lab Admin'
+        $cfg.options.installerCompany | Should -Be 'Example & Co. (Lab)'
+        (Test-PASLabConfiguration -Configuration $cfg).Valid | Should -BeTrue
+        $inventory = & (Get-Module -Name PASeasyInstall) { param($c) New-PASRuntimeInventory -Config $c -CredentialMap @{} -SkipMediaHash } $cfg
+        $inventory.Values.Components['pvwa01'].InstallerName | Should -Be 'Lab Admin'
+        $inventory.Values.Components['pvwa01'].InstallerCompany | Should -Be 'Example & Co. (Lab)'
+    }
+    It 'refuses characters that do not belong into an installer answer file' {
+        $cfg = New-PASLabConfiguration -Environment WhoLab -VaultMode Existing -ExistingVaultAddress 192.0.2.5 -Media $script:selection -SecurityProfile Lab `
+            -InstallerName "Lab`"Admin" -Instances @(@{ Type = 'PVWA'; Name = 'PVWA01'; Address = '192.0.2.33' })
+        $check = Test-PASLabConfiguration -Configuration $cfg
+        $check.Valid | Should -BeFalse
+        ($check.Issues -join ' ') | Should -Match 'options\.installerName'
+    }
+    It 'has a field pair in the Advanced view of the Servers step' {
+        $state = New-PASUIState
+        Set-PASUIPreset $state 'starter'
+        Get-PASUIServersHtml $state | Should -Not -Match 'f-installer-name'
+        $state.Advanced = $true
+        $state.InstallerCompany = 'Example Corp'
+        $html = Get-PASUIServersHtml $state
+        $html | Should -Match 'id="f-installer-name"'
+        $html | Should -Match 'id="f-installer-company" value="Example Corp"'
+    }
+}

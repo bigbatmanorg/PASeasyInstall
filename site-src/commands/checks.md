@@ -15,8 +15,6 @@ Generated from the command help.
 
 Checks, without changing anything, that this controller and the servers of a configuration are ready for an installation.
 
-NEW in 2.0 and not yet verified in the lab: treat a surprising result as a hint and check by hand.
-
 Returns one object per check with Server, Address, Check, Passed and Detail. Passed is $true,
 $false, or empty ($null) when a check could not be made (for example no credential was given).
 
@@ -36,9 +34,11 @@ For a Windows server, when its account is in -CredentialMap or -LabPassword is g
 - at least 20 GB free on the system drive;
 - no restart is pending.
 
-For a Linux server, when the SSH key named in the configuration already exists:
-- key sign-in works, the account is root, and the distribution is one PSMP supports.
-(The key is created and authorised by the first installation; before that these checks are skipped.)
+For a Linux server:
+- sign-in works, the account is root, and the distribution is one PSMP supports. The sign-in uses
+the SSH key named in the configuration when it exists and is authorised already. Otherwise it
+uses the password of the account (-CredentialMap or -LabPassword), as the first installation
+does, so a wrong root password is found here. The check authorises no key.
 
 This command never asks for a password and changes nothing on any server: it resolves names, opens
 connections and reads. It does not replace the preflight steps of the installation itself.
@@ -70,6 +70,8 @@ Checks that an installed lab works: PVWA login, the components the Vault sees as
 Opens ONE authenticated PVWA REST session with the Vault Administrator credential and checks:
 - the PVWA API answers over HTTPS. The certificate is checked normally, or pinned when
 -PvwaCertificateFile is given or the configuration's CPM pins one (lab self-signed PVWA);
+when the PVWA name does not resolve on this controller, the check connects to the PVWA address
+of the configuration and sends the name, so no DNS record or hosts entry is needed;
 - which components the Vault reports as logged on (PVWA, CPM, PSM and PSMP);
 - "PASWS383E Vault is currently under maintenance mode". This usually means PVWA started before the
 Vault was up; recycle the PasswordVaultWebAccessPool app pool on the PVWA server.

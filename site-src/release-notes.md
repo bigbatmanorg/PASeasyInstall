@@ -1,5 +1,26 @@
 # Release notes
 
+## Not released yet (after 2.0.3)
+
+- **The server check verifies the root password of a Linux server.** `Test-PASPreflight` (and **Next** on the
+  Servers step of the window) signs in with the password the way the first installation does, so a wrong
+  password is named before anything is installed. The check still changes nothing: no key is authorised.
+- **The lab check needs no DNS record or hosts entry.** When the PVWA name does not resolve on the controller,
+  `Test-PASHealth` and *Check the lab* connect to the PVWA address of the configuration and send the server
+  name, so the PVWA presents the certificate of that name.
+- **Retrying a CPM registration no longer creates a second CPM user.** When an earlier attempt on that server
+  already created the CPM user, `Resume-PASRun -RetryStep <cpm>:register` registers again with the existing
+  user (the vendor's upgrade mode). If the vendor tool then reports that it could not finish the CPM
+  environment, the step fails and says so.
+- **"Who installs".** `New-PASLabConfiguration -InstallerName -InstallerCompany` (and two fields in the
+  Advanced view of the window) set the user and company name the CyberArk installers record. Default: the
+  CyberArk values, as before.
+- **Window:** pressing *Install* no longer freezes the window while the installation starts. A Vault that is
+  installed on its own takes the VC++ runtimes from a CPM, PVWA or PSM package of the media folder.
+- A step that succeeded after a resume no longer shows the error text of its first try.
+- The PVWA lab certificate step waits until Windows uses the new certificate (it could fail with *certificate
+  chain is not trusted on the target* directly after creating it).
+
 ## 2.0.3
 
 - **A wrong address no longer leaves an installation waiting.** Every `Install-*` command first checks, within

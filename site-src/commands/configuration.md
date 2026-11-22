@@ -42,6 +42,8 @@ bundle: it is extracted once into the media cache under the data folder of this 
 | `-DRUsername` | Windows account name for the DR Vault server, if it differs from the Primary. |
 | `-SecurityProfile` | Secure (default) or Lab. Lab adds the explicit, audited deviations a template-built lab needs: self-signed WinRM certificates, RDP to the Vault from the controller, a self-signed PVWA certificate that CPM pins. |
 | `-AcceptEula` | Confirms that you read and accept the CyberArk end user license agreement of the PSMP installer. Required when the lab contains a PSMP. |
+| `-InstallerName` | User name the CyberArk installers record ("who installs"). Default: what the vendor files contain ("Windows User"; "CyberArk Vault Image" for the Vault). Letters, digits, spaces and simple punctuation. |
+| `-InstallerCompany` | Company name the CyberArk installers record. Default: what the vendor files contain ("My Company"; "CyberArk" for the Vault). |
 | `-DataRoot` | Data folder of this controller (media cache, SSH keys). Default: %LOCALAPPDATA%\PASeasyInstall. |
 
 ```powershell

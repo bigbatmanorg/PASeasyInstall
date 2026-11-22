@@ -277,3 +277,29 @@ param($configFilePath)
             Should -Be 0
     }
 }
+
+Describe 'Repeated CPM registration' {
+    It 'registers clean on a server without a CPM credential file' {
+        $root = Join-Path $TestDrive 'fresh'
+        New-Item -ItemType Directory -Path (Join-Path $root 'Password Manager\Vault') -Force | Out-Null
+        Get-PASeasyCpmRegistrationMode -InstallRoot $root -User 'PasswordManager' | Should -Be 'Clean'
+    }
+    It 'uses the vendor upgrade mode when an earlier attempt created this CPM user' {
+        $root = Join-Path $TestDrive 'retried'
+        New-Item -ItemType Directory -Path (Join-Path $root 'Password Manager\Vault') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $root 'Password Manager\Vault\user.ini') -Value @('Password=SYNTHETIC', 'Username=PasswordManager', 'ClientApp=CPM')
+        Get-PASeasyCpmRegistrationMode -InstallRoot $root -User 'PasswordManager' | Should -Be 'Upgrade'
+        # The file of another user (for example PasswordManager1) is not ours.
+        Get-PASeasyCpmRegistrationMode -InstallRoot $root -User 'PasswordManager2' | Should -Be 'Clean'
+        Get-PASeasyCpmRegistrationMode -InstallRoot $root -User 'PasswordManage' | Should -Be 'Clean'
+    }
+    It 'reads the vendor verdict of this attempt only' {
+        $log = Join-Path $TestDrive 'RegisterComponent.log'
+        Set-Content -LiteralPath $log -Value @(
+            '2026-11-22 01:36:08,603 WARN - CPMEM041I CPMEnvMgr ended with errors. Reason:CPMEM038E Error while trying to import platforms. Import the platforms manually.'
+            '2026-11-22 01:50:20,225 INFO - CPMEM034I End method ImportPlatforms.')
+        Get-PASeasyCpmRegistrationProblem -LogPath $log -Since ([datetime]'2026-11-22 01:36:00') | Should -Match '^CPMEM038E Error while trying to import platforms'
+        Get-PASeasyCpmRegistrationProblem -LogPath $log -Since ([datetime]'2026-11-22 01:49:00') | Should -Be ''
+        Get-PASeasyCpmRegistrationProblem -LogPath (Join-Path $TestDrive 'no-such.log') -Since (Get-Date) | Should -Be ''
+    }
+}
