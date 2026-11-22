@@ -396,7 +396,8 @@ function Invoke-PASeasyPsmStage {
     # The RDP listener gets TLS once hardening has raised its encryption level; post-installation runs
     # before hardening (the vendor's order), registration after it.
     if ($Stage -eq 'Harden' -or ($Stage -eq 'Register' -and [bool]$Settings.ApplyHardening)) { Set-PASeasyPsmRdpTls }
-    if ($Stage -in @('Harden', 'PostInstall')) { Assert-PASeasyPsmTlsRestored }
+    # The TLS protocol settings are written by the vendor hardening: they exist from then on.
+    if ($Stage -eq 'Harden') { Assert-PASeasyPsmTlsRestored }
     New-Item -Path $markers -ItemType Directory -Force | Out-Null
     $record = @{
         schemaVersion = 2
@@ -473,7 +474,17 @@ function Invoke-PASeasyPsmVerify {
         }
         $evidence += @($services | ForEach-Object { $_.Name + '=' + $_.Status })
     }
-    if ($Stage -in @('Harden', 'PostInstall', 'Verify')) {
+    $tlsChecked = ($Stage -eq 'Harden' -or ($Stage -in @('Register', 'Verify') -and $hardened))
+    $hardenMarker = Join-Path (Join-Path $root 'stage') 'Harden.json'
+    if ($Stage -eq 'Harden' -and (Test-Path -LiteralPath $hardenMarker -PathType Leaf)) {
+        # Hardening skipped on request (SkipHardening): the vendor never wrote the TLS settings.
+        $hardenRecord = Get-Content -LiteralPath $hardenMarker -Raw | ConvertFrom-Json
+        if ($hardenRecord.PSObject.Properties['skipped'] -and [bool]$hardenRecord.skipped) {
+            $tlsChecked = $false
+            $evidence += 'Hardening skipped by the lab configuration (SkipHardening); vendor controls NotTested'
+        }
+    }
+    if ($tlsChecked) {
         try {
             Assert-PASeasyPsmTlsRestored
             $evidence += 'TLS registry: legacy protocols disabled; TLS 1.2 enabled; reboot state checked separately'
