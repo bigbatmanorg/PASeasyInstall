@@ -1,49 +1,54 @@
 # Portable ZIP
 
-The portable release contains the PASeasyInstall module (the commands and the desktop). It needs nothing else:
-the window is drawn with WPF, which is part of Windows. Unzip it and run it. Nothing is installed on the controller, and
-the controller needs no internet access.
+The portable release is the same module in a folder with two launchers. Nothing is installed on the controller
+and the controller needs no internet access. The ZIP is under one megabyte: the window uses WPF, which is part of
+Windows, so nothing is bundled.
 
 ## Download and run
 
-1. Download `PASeasyInstall-<version>-portable.zip` from the
-   [GitHub Releases](https://github.com/bigbatmanorg/PASeasyInstall/releases) page.
-2. Unblock the ZIP **before** extracting it, so Windows does not flag every file inside as downloaded:
+1. Download `PASeasyInstall-<version>-portable.zip` from
+   [GitHub Releases](https://github.com/bigbatmanorg/PASeasyInstall/releases). A `SHA256SUMS` file lies next to it.
+2. Unblock the ZIP **before** you extract it, so that Windows does not mark every file inside as downloaded:
 
     ```powershell
-    Unblock-File -Path .\PASeasyInstall-2.0.0-portable.zip
+    Unblock-File -Path .\PASeasyInstall-*-portable.zip
     ```
 
-3. Extract it, for example to `C:\PASeasyInstall`.
-4. Double-click **`Start-PASeasyInstall.cmd`**. The desktop opens in a fresh Windows PowerShell 5.1 process
-   that uses the modules bundled in the folder.
+3. Extract it anywhere, for example to `C:\PASeasyInstall`.
+4. Double-click **`Start-PASeasyInstall.cmd`**. The window opens.
 
 ```text
 C:\PASeasyInstall\
-  Start-PASeasyInstall.cmd / .ps1     the desktop (double-click the .cmd)
+  Start-PASeasyInstall.cmd / .ps1     the window (double-click the .cmd)
   PASeasyInstall-Shell.cmd / .ps1     a PowerShell window with every PASeasyInstall command loaded
-  README-PORTABLE.txt, LICENSE.txt, THIRD_PARTY_*.txt
-  PASeasyInstall\                     the module: commands and desktop window
+  README-PORTABLE.txt, LICENSE.txt
+  PASeasyInstall\                     the module
 ```
 
-The launchers unblock the extracted files, put the folder first on `PSModulePath` for their own
-process only, and start Windows PowerShell 5.1 with `-ExecutionPolicy Bypass`. A `SHA256SUMS` file is published next
-to the ZIP on the release page.
+The launchers clear the "downloaded from the internet" mark inside the folder, put the folder first on
+`PSModulePath` for their own process only, and start Windows PowerShell 5.1 with `-ExecutionPolicy Bypass`. They
+change nothing on the computer and need no administrator rights to start.
 
-## Command line from the portable folder
+## Options of the launcher
 
-Double-click `PASeasyInstall-Shell.cmd` for a PowerShell window with every command from the
+```text
+Start-PASeasyInstall.cmd -Backend Mock          the same window with a simulated installer
+Start-PASeasyInstall.cmd -Config MyLab.json     opens a saved lab file
+```
+
+## The commands from the portable folder
+
+Double-click `PASeasyInstall-Shell.cmd`. It opens a PowerShell window with every command of the
 [command reference](../commands/index.md) loaded:
 
 ```powershell
-(Get-PASLabPlan -Path C:\Labs\Lab01.json).Items | Format-Table Id, Type, Address, Media
-Install-PASLab -Path C:\Labs\Lab01.json -Wait
-Resume-PASRun -RunId <run id> -Wait
+(Get-PASLabPlan -Path C:\Labs\MyLab.json).Items | Format-Table Id, Type, Address, Media
+Install-PASLab -Path C:\Labs\MyLab.json -Wait
 ```
-
-`Start-PASeasyInstall.cmd -Config C:\Labs\Lab01.json` reopens a saved project in the desktop.
 
 ## Updating
 
-Download the newer ZIP and extract it to a new folder. Your projects are separate JSON files, and run journals live in
-`%LOCALAPPDATA%\PASeasyInstall`, so they carry over.
+Download the newer ZIP and extract it to a new folder. Your lab files are separate JSON files, and the journals
+of your installations are in `%LOCALAPPDATA%\PASeasyInstall`, so both carry over.
+
+Next: [Your first lab](first-lab.md).

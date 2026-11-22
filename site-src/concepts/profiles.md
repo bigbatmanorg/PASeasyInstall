@@ -1,19 +1,56 @@
 # Lab and Secure profiles
 
-Every configuration has a security profile. **Lab** applies explicit, audited deviations that a lab built from
-templates needs. Each one appears on the Review plan step as `SECURITY DEVIATION: <name> = True`.
+Every configuration has a security profile.
 
-| Override | Lab | Why a lab needs it |
+- **Secure** is the default of the commands. It uses none of the shortcuts below: WinRM certificates must be
+  trusted and match the name, PVWA needs a certificate you provide, CPM checks the certificate chain of PVWA,
+  SSH host keys must be known already. **It has never been run.**
+- **Lab** is what a lab built from virtual machine templates needs, and what everything was tested with. The
+  window always uses it. From the prompt: `-SecurityProfile Lab`.
+
+## The lab shortcuts
+
+Each one is listed before you install: in the window under *Lab shortcuts in use*, from the prompt as a warning
+that starts with `SECURITY DEVIATION` (`Test-PASLabConfiguration`, `Get-PASLabPlan`).
+
+| Shortcut | What it means | Why a lab needs it |
 |---|---|---|
-| `WinRM.SkipCACheck`, `WinRM.SkipCNCheck` | on | Lab servers usually carry a self-signed WinRM certificate whose name does not match the address you enter. |
-| `Vault.AllowRDP` | on | Lets you RDP to the hardened Vault, from the controller only. |
-| `CPM.AllowPinnedLeafTrust` | on with CPM | CPM trusts the PVWA's self-signed certificate by its exact SHA-256 fingerprint instead of a CA chain. |
-| PVWA `createLabCertificate` | on | PVWA gets a self-signed certificate for its server name. |
-| Linux host key trust on first use | on | The PSMP server's SSH host key is accepted on first connection and logged. |
-| One universal password | desktop Lab mode | Convenience; never for production. |
+| `WinRM.SkipCACheck`, `WinRM.SkipCNCheck` | The WinRM certificate of a Windows server is not checked | Lab servers have a self-signed certificate whose name does not match the address |
+| `Vault.AllowRDP` | Remote desktop to the hardened Vault, from the controller only | To look at the Vault server |
+| A self-signed PVWA certificate | PVWA creates its own HTTPS certificate for its computer name | No certificate authority in a lab |
+| `CPM.AllowPinnedLeafTrust` | CPM (and the gateway and PTA) trust exactly that PVWA certificate | Same |
+| SSH host key trusted on first use | The host key of a Linux server is accepted at the first connection and logged | No list of known keys in a lab |
+| PVWA trusts the certificate PTA presents | With PTA in the lab | PTA creates its own certificate |
 
-The **Secure** profile applies none of these. WinRM certificates must be trusted and match, PVWA needs a real
-certificate, CPM validates the PVWA chain, and SSH host keys must already be in `known_hosts`.
+With the Lab profile you may also give **one password for everything**: `-LabPassword`, for every server account
+and every Vault password that is not passed otherwise.
 
-Other overrides exist for advanced scenarios and are always listed as deviations: `PVWA.ValidateTLS`,
-`CPM.ValidatePVWA`, `WinRM.RequireHTTPS`, and `<Component>.ApplyHardening` (setting it to `False` skips hardening).
+## Installing without hardening
+
+Sometimes a test needs servers without the security settings. Then:
+
+- **Window:** on the Servers step, switch **Advanced** on and *Apply the vendor hardening* off.
+- **Prompt:** `New-PASLabConfiguration ... -SecurityProfile Lab -SkipHardening`.
+
+Everything is installed and registered. What is left out:
+
+- the vendor hardening of the Vault and DR Vault servers (firewall, services);
+- the vendor hardening of PVWA, CPM, PSM and PSM for SSH;
+- the CyberArk hardening GPOs of a new domain.
+
+It is listed as `SECURITY DEVIATION: <Component>.ApplyHardening = False` for each component, and the window says
+**The servers will NOT be hardened** on the Install step and in the question before the installation.
+
+It is possible only with the Lab profile, and it is for tests only. To get a hardened lab afterwards, reset the
+servers and install again.
+
+!!! note "State"
+    Installing without hardening is new. Whether every component was installed this way in the test lab is in
+    the [release notes](../release-notes.md) and in
+    [STATUS.md](https://github.com/bigbatmanorg/PASeasyInstall/blob/main/Docs/STATUS.md).
+
+## Other switches
+
+A configuration file can carry more lab overrides, each listed as a deviation: `PVWA.ValidateTLS`,
+`CPM.ValidatePVWA`, `WinRM.RequireHTTPS`, and `<Component>.ApplyHardening` for a single component. They exist for
+special cases and were not tested one by one.

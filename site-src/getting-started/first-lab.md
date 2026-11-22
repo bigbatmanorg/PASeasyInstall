@@ -1,96 +1,139 @@
 # Your first lab
 
-This walkthrough builds the lab PASeasyInstall was developed and exercised against: a **Primary + DR** Vault pair,
-**PVWA**, **CPM**, **PSM** and **PSMP**, each on its own server. The example addresses below are placeholders;
-use your own.
+This page builds the **Full** lab: a Vault with a DR Vault, PVWA and CPM on one server, PSM, and PSM for SSH. It
+needs five servers. For a smaller start take **Starter** (Vault, PVWA and CPM: two servers); every step is the same.
 
-| Server | Example hostname | Example address | OS |
+The addresses below are examples. Use your own.
+
+| Server | Computer name | Address | Operating system |
 |---|---|---|---|
-| Controller | CONTROLLER01 | 10.10.0.10 | Windows Server 2022 |
-| Primary Vault | PAS-VAULT | 10.10.0.11 | Windows Server 2022 |
-| DR Vault | PAS-DR | 10.10.0.12 | Windows Server 2022 |
-| PVWA | PAS-PVWA | 10.10.0.21 | Windows Server 2022 |
-| CPM | PAS-CPM | 10.10.0.22 | Windows Server 2022 |
-| PSM | PAS-PSM | 10.10.0.23 | Windows Server 2022 |
-| PSMP | PAS-PSMP | 10.10.0.31 | Ubuntu 24.04 |
+| Controller | (this computer) | 10.0.0.10 | Windows with Windows PowerShell 5.1 |
+| Vault | any | 10.0.0.11 | Windows Server 2022, not in a domain |
+| DR Vault | any | 10.0.0.12 | Windows Server 2022, not in a domain |
+| PVWA and CPM | PVWA01 | 10.0.0.21 | Windows Server 2022 |
+| PSM | PSM01 | 10.0.0.31 | Windows Server 2022 |
+| PSM for SSH | psmp01 | 10.0.0.41 | Ubuntu 24.04 |
 
 ## 1. Prepare the servers
 
-Install Windows Server 2022 on the Windows servers with WinRM over HTTPS enabled, and Ubuntu 24.04 on the PSMP
-server. Give each one a unique hostname and a static address. See [Server prerequisites](../servers/prerequisites.md).
+Install the operating systems, give every server its computer name and a fixed address.
 
-On the PSMP server, install `unzip` and allow root password login once (or authorise the controller key yourself):
+On every **Windows** server, make WinRM answer over HTTPS. A self-signed certificate is fine for a lab:
+
+```powershell
+$cert = New-SelfSignedCertificate -DnsName $env:COMPUTERNAME -CertStoreLocation Cert:\LocalMachine\My
+winrm create winrm/config/Listener?Address=*+Transport=HTTPS "@{Hostname=`"$env:COMPUTERNAME`";CertificateThumbprint=`"$($cert.Thumbprint)`"}"
+New-NetFirewallRule -DisplayName 'WinRM HTTPS' -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow
+```
+
+On the **Linux** server, root must be able to sign in over SSH with its password once. On a cloud image that
+usually means: set a root password and allow it while you install.
 
 ```bash
-sudo apt-get update && sudo apt-get install -y unzip
+sudo passwd root
+echo 'PermitRootLogin yes' | sudo tee /etc/ssh/sshd_config.d/01-install.conf
+echo 'PasswordAuthentication yes' | sudo tee -a /etc/ssh/sshd_config.d/01-install.conf
+sudo systemctl restart ssh
 ```
+
+More, and how to test a server by hand: [Server prerequisites](../servers/prerequisites.md).
 
 ## 2. Put the media on the controller
 
-Copy the CyberArk bundle ZIP (or the single component ZIPs), `license.xml` and `recpub.key`
-into one folder, for example `C:\CyberArk\media`. The VC++ runtimes come from the component packages.
+Copy your CyberArk download, `license.xml` and `recpub.key` to the controller. They can lie in different folders,
+for example `D:\CyberArk` for the download and `D:\Licenses` for the license and the key.
 
-## 3. Open the desktop and follow the four steps
+## 3. Open the window
 
-=== "Portable ZIP"
+```powershell
+Start-PASeasyInstall
+```
 
-    Extract the ZIP and double-click `Start-PASeasyInstall.cmd`.
+From the portable ZIP: double-click `Start-PASeasyInstall.cmd`. Press **Start a new lab**.
 
-=== "PowerShell Gallery"
+### Media
 
-    ```powershell
-    Install-Module PASeasyInstall -Scope CurrentUser
-    Start-PASeasyInstall
-    ```
+Type the path of the folder with your download and press **Add**, or use **Choose a folder...**. Add the folder
+with the license and the key the same way. The window lists every place with what it found there, and below it
+every installer with its version.
 
-1. **Project & media:** name `Lab01`; add `C:\CyberArk\media`. All components show green chips.
-2. **What to install:** *Primary + DR Vault*; one each of PVWA, CPM, PSM and PSMP; accept the PSMP EULA.
-3. **Servers:** check the controller address (`10.10.0.10`); enter the Vault, DR and component addresses.
-4. **Credentials:** keep `Administrator` / `root`; tick **Lab mode** and enter one password.
-5. **Review plan:** six servers. The Lab-mode deviations are listed. There must be no issues.
-6. **Install.**
+![Media step with three places added](../assets/window/04-media-sources.png)
+
+### Lab
+
+Choose **Full**. Leave *Install CPM on the PVWA server* switched on and *No domain* selected. Give the lab a name,
+for example `PamLab`.
+
+![Lab step with the Full lab chosen](../assets/window/06-lab.png)
+
+### Servers
+
+Enter the computer name (where the window asks for one), the address and the password of every server. The
+account is `Administrator` on Windows and `root` on Linux unless you change it. Below, type the passwords to set
+for the Vault users Administrator and Master and for the DR user, and accept the license agreement of the Linux
+installers.
+
+![Servers step, filled in](../assets/window/09-servers.png)
+
+Press **Next: check the servers**. The window first looks whether every server answers, then signs in to each
+one. A server that does not answer, or a password that is wrong, is named with the reason. Nothing is installed.
+
+### Install
+
+Read the plan. *Lab shortcuts in use* lists what the Lab profile relaxes. Press **Install the lab** and confirm.
+
+![Review step](../assets/window/12-review.png)
 
 ## 4. Watch it run
 
-The Vault installs first, then the DR Vault, then PVWA, CPM, PSM and PSMP, one after the other. PSM reboots several
-times; that is expected. The run id is shown above the progress cards. Times measured in the 1.0 test labs (PAM 15.0
-and 15.2, 2–4 vCPU servers); 2.0.0 has not been timed yet:
+Every server starts at once. The Vault is installed while PVWA, PSM and PSM for SSH are installed and hardened
+on their servers. A component that is ready to register shows *Waiting for its turn at the Vault* until the
+Vault, and with a DR Vault its replication, is ready. Then they register one at a time.
 
-| Step | Time |
-|---|---|
-| Vault alone | about 7 minutes |
-| Vault + DR pair | about 17 minutes |
-| PVWA | about 8 minutes |
-| CPM | about 4 minutes |
-| PSM (several reboots) | 13–15 minutes |
-| PSMP | 3–6 minutes |
+![The installation page while it runs](../assets/window/15-run-installing.png)
 
-A full lab (Vault + DR, PVWA, CPM, PSM, PSMP) takes about an hour plus media upload.
+PSM restarts its server several times. That is expected. You can close the window; the installation goes on and
+the start page lists it when you open the window again.
 
-## 5. Check the result
+In the test lab this lab took 23 minutes (CyberArk 15.2, servers with 2 CPUs and 4 GB).
 
-```powershell
-$h = Test-PASHealth -Path .\PASeasyInstall-Lab01.json -VaultCredential (Get-Credential Administrator)
-$h.Healthy
-$h.Components | Format-Table Component,User,Address,LoggedOn,Version
-```
+## 5. Check the lab
 
-Then sign in to PVWA at `https://PAS-PVWA/PasswordVault` as `Administrator`. In Lab mode the PVWA uses a
-self-signed certificate, so accept it in the browser or import it.
+When the page says **The lab is installed**, press **Check the lab**. It signs in to the Vault through PVWA and
+lists the components the Vault sees as connected.
+
+![The lab check: every component is connected](../assets/window/19-lab-check.png)
+
+Then open the web portal: `https://PVWA01/PasswordVault`. Sign in as `Administrator` with the Vault Administrator
+password you set. Two things to know in a lab:
+
+- The computer with the browser must resolve the PVWA name. A line in its hosts file is enough:
+  `10.0.0.21 PVWA01`.
+- The PVWA certificate is self-signed, so the browser warns. Accept it, or import the certificate.
+
+## If it stops
+
+The page shows the step that stopped and the installer's own error text. Correct the cause on the server, then
+press **Try this step again**. See [The installation page](../gui/run.md#stopped) and
+[Troubleshooting](../troubleshooting/index.md).
 
 ## The same lab from the prompt
 
 ```powershell
-$media = Get-PASMediaSelection -Inventory (Get-PASMediaInventory -Path C:\CyberArk\media)
-$cfg = New-PASLabConfiguration -Environment Lab01 -VaultMode PrimaryDR `
-        -PrimaryAddress 10.10.0.11 -DRAddress 10.10.0.12 -ControllerAddress 10.10.0.10 `
-        -Instances @(@{ Type = 'PVWA'; Name = 'PAS-PVWA'; Address = '10.10.0.21' },
-                     @{ Type = 'CPM';  Name = 'PAS-CPM';  Address = '10.10.0.22' },
-                     @{ Type = 'PSM';  Name = 'PAS-PSM';  Address = '10.10.0.23' },
-                     @{ Type = 'PSMP'; Name = 'PAS-PSMP'; Address = '10.10.0.31' }) `
+$media = Get-PASMediaInventory -Path D:\CyberArk, D:\Licenses | Get-PASMediaSelection
+$cfg = New-PASLabConfiguration -Environment PamLab -VaultMode PrimaryDR `
+        -PrimaryAddress 10.0.0.11 -DRAddress 10.0.0.12 -ControllerAddress 10.0.0.10 `
+        -Instances @(@{ Type = 'PVWA'; Name = 'PVWA01'; Address = '10.0.0.21' },
+                     @{ Type = 'CPM';  Name = 'CPM01';  Address = '10.0.0.21' },
+                     @{ Type = 'PSM';  Name = 'PSM01';  Address = '10.0.0.31' },
+                     @{ Type = 'PSMP'; Name = 'psmp01'; Address = '10.0.0.41' }) `
         -Media $media -SecurityProfile Lab -AcceptEula
-Export-PASLabConfiguration -Configuration $cfg -Path .\Lab01.json
-Install-PASLab -Path .\Lab01.json -Wait
+Export-PASLabConfiguration -Configuration $cfg -Path .\PamLab.json
+
+Test-PASPreflight -Path .\PamLab.json          # do the servers answer?
+Install-PASLab -Path .\PamLab.json -Wait       # asks for the accounts and passwords, then installs
+Test-PASHealth -Path .\PamLab.json -VaultCredential (Get-Credential Administrator)
 ```
 
-If a step fails, see [Troubleshooting](../troubleshooting/index.md).
+Two instances with the same address share one server, as PVWA and CPM do here. Each command is explained in
+[Commands](../commands/index.md).

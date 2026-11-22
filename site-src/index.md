@@ -6,74 +6,74 @@ hide:
 
 # PASeasyInstall
 
-**Build a complete CyberArk PAM self-hosted lab from one Windows controller, in one sitting.** Use plain
-PowerShell commands, or point the desktop at your installer media, name your servers, choose a password, and click
-**Install**. You get a Vault (or a
-replicated Primary + DR pair), PVWA, CPM, PSM, PSMP and an optional Active Directory forest. Each component is
-installed, registered, hardened and verified on its own server.
+**Builds a CyberArk PAM self-hosted lab on servers you provide, from one Windows computer.** Point it at your
+CyberArk installer media, name the servers and press **Install**. It installs, registers, hardens and checks a
+Vault (or a Primary and DR pair), PVWA, CPM, PSM, PSM for SSH, and optionally the HTML5 Gateway, PTA and an Active
+Directory domain. Use the window, or one PowerShell command per step.
 
-!!! note "Version 2.0.0"
-    2.0.0 has a new, simpler command set and module layout. It was tested once end to end in a lab (CyberArk 15.0, Windows Server 2022,
-    Ubuntu 24.04); the desktop has not been clicked through yet.
-    The 1.0 command names are gone: see the [release notes](release-notes.md).
+![The installation page: every server is installed at the same time](assets/window/15-run-installing.png)
 
 !!! warning "Made for labs"
-    PASeasyInstall is built to stand up **CyberArk PAM labs** quickly: training, demos, proof-of-concepts,
-    testing upgrades and integrations. You may point it at anything you like, but **production use is entirely at your
-    own risk and responsibility**. PASeasyInstall is a community project and is **not affiliated with, endorsed by or
-    supported by CyberArk**. You supply your own licensed CyberArk media. [Why lab first?](lab-first.md)
+    Training, demos, proofs of concept, testing upgrades and integrations. Production use is at your own risk.
+    PASeasyInstall is a community project. It is **not affiliated with, endorsed by or supported by CyberArk**.
+    You supply your own licensed CyberArk media and license. [What "lab" means here](lab-first.md)
 
-## Choose how you start
+## Start here
 
 <div class="grid cards" markdown>
 
--   **[Portable ZIP](getting-started/portable.md)**
+-   **[What you need](getting-started/requirements.md)**
 
-    Download one ZIP from GitHub Releases, unzip it on the controller and double-click
-    `Start-PASeasyInstall.cmd`. Everything it needs is inside.
+    One Windows computer, empty servers it can reach, and your CyberArk download.
 
--   **[PowerShell Gallery](getting-started/gallery.md)**
+-   **[Install PASeasyInstall](getting-started/index.md)**
 
-    One module: `Install-Module PASeasyInstall`. Then `Start-PASeasyInstall` opens the desktop, or use the
-    commands. Updates come with `Update-Module`.
+    `Install-Module PASeasyInstall`, or a portable ZIP that installs nothing.
 
--   **[Command line](commands/index.md)**
+-   **[Your first lab](getting-started/first-lab.md)**
 
-    One command per component, for example `Install-PASVault -ComputerName 10.10.0.11 -MediaPath C:\CyberArk\media -Wait`.
-    Or save a lab configuration once and rebuild the same lab with `Install-PASLab -Path .\Lab01.json -Wait`.
+    From five empty servers to a running lab, step by step, with the window or from the prompt.
+
+-   **[The window, page by page](gui/index.md)**
+
+    Every screen with a picture: what to enter and what happens when you press Next.
 
 </div>
 
-## What it looks like
+## What it installs
 
-![The Review plan step: six servers, their stages and the lab-mode security deviations listed](assets/screenshots/5-review.png)
+| Component | Server | |
+|---|---|---|
+| [Vault](components/vault.md) | Windows Server 2022, not in a domain | A new Primary Vault, hardened |
+| [DR Vault](components/dr.md) | Windows Server 2022, not in a domain | Together with a new Primary Vault; replication verified with a test safe |
+| [PVWA](components/pvwa.md) | Windows Server 2022 | The web portal, with HTTPS |
+| [CPM](components/cpm.md) | Windows Server 2022 | On the PVWA server or on its own |
+| [PSM](components/psm.md) | Windows Server 2022 | The vendor's restarts are handled for you |
+| [PSM for SSH](components/psmp.md) | Ubuntu 22.04/24.04, RHEL/Rocky 8/9 | |
+| [HTML5 Gateway](components/html5gw.md) | Linux with Docker or Podman | Experimental |
+| [PTA](components/pta.md) | RHEL/Rocky 8/9 with 8 GB | Experimental |
+| [Active Directory](components/ad.md) | Windows Server 2022 | A new domain, or joining one you have |
 
-*Review plan: everything that will happen, in order, before anything is sent to a server.*
+## How an installation runs
 
-## What you get
+- **Nothing happens before Install.** Finding media, planning and checking the servers change nothing.
+- **The servers are installed at the same time.** Only the steps that sign in to the Vault wait: until the Vault
+  is installed, and then one at a time. A Full lab with a DR Vault took 23 minutes in the test lab.
+  [Servers at the same time](concepts/parallel.md)
+- **An installation survives.** It runs in its own process and every step is recorded on the server. Close the
+  window, restart the controller: the run goes on or is continued. A failed step is never repeated on its own.
+  [Runs and resume](concepts/durable-runs.md)
+- **Passwords stay in memory.** They are never written to a lab file, a log or a command line.
+  [Security](concepts/security.md)
+- **One module, nothing else.** Windows PowerShell 5.1 is enough. The window is drawn with WPF, which is part of
+  Windows.
 
-| | |
-|---|---|
-| **Vault** | Primary Vault, or a new **Primary + DR** pair with replication verified by a test Safe. Hardened; in Lab mode RDP is allowed from the controller only. |
-| **PVWA** | IIS/.NET prerequisites, installation, a TLS certificate (a self-signed lab certificate in Lab mode), registration, hardening and verification. |
-| **CPM** | Installation, registration (with a pinned PVWA certificate in Lab mode) and hardening. The services run as the dedicated CPM user. |
-| **PSM** | Workgroup (out-of-domain) PSM with the vendor's required reboots handled for you. No plaintext autologon. |
-| **PSMP** | PSM for SSH on Ubuntu 22.04/24.04 or RHEL/Rocky 8/9 (lab-tested on Ubuntu 24.04 and Rocky 9). The SSH key setup comes from a password you type once. |
-| **Active Directory** | A new forest with DNS on its own domain controller, for domain-joined lab scenarios. |
+## What was tested
 
-Several instances of each component (up to four) and co-located components are chosen in the desktop or in the
-configuration. The servers are installed at the same time; the registrations with the Vault run one at a time.
-[Components in detail](components/index.md)
+CyberArk PAM Self-Hosted 15.0 and 15.2 on Windows Server 2022, Ubuntu 24.04 and Rocky Linux 9, always with the
+**Lab** security profile. The Secure profile has never been run. The window was tested by script, also with real
+installations, but not tried by hand on a real desktop for every screen. The list of what was tested, and how, is
+in the repository: [Docs/STATUS.md](https://github.com/bigbatmanorg/PASeasyInstall/blob/main/Docs/STATUS.md).
 
-## Built to be trusted with your lab
-
-- **Nothing happens until Install.** Planning, validation and media checks are read-only.
-- **Durable runs.** Every step is a recorded attempt on the target. If the controller closes, reboots or loses the
-  network, the run resumes from the last confirmed step and never blindly reruns an installer.
-  [How it works](concepts/durable-runs.md)
-- **No secrets on disk.** Passwords live only in memory. They never go into project files, logs or journals.
-  [Security model](concepts/security.md)
-- **Native desktop, no browser.** The UI is a native Windows window (WPF). There is no web server, browser
-  engine or JavaScript, and no module besides PASeasyInstall.
-
-**Next:** [Requirements](getting-started/requirements.md) · [Your first lab](getting-started/first-lab.md) · [Desktop UI tour](gui/index.md)
+**Next:** [What you need](getting-started/requirements.md) · [Your first lab](getting-started/first-lab.md) ·
+[Commands](commands/index.md) · [Troubleshooting](troubleshooting/index.md) · [Release notes](release-notes.md)

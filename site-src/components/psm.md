@@ -1,23 +1,58 @@
 # PSM
 
-Installs PSM on a **workgroup** (out-of-domain) Windows Server. That is the vendor's supported non-domain path.
+Installs the Privileged Session Manager on a Windows Server 2022 and registers it with the Vault. The server can
+stay in its workgroup or be member of the lab domain.
 
-| Stage | What it does |
+```powershell
+Install-PASPSM -ComputerName 192.0.2.31 -VaultAddress 192.0.2.11 -MediaPath D:\CyberArk -SecurityProfile Lab -Wait
+```
+
+In a lab configuration: `@{ Type = 'PSM'; Name = 'PSM01'; Address = '192.0.2.31' }`.
+
+## What it needs
+
+- The PSM package (`Privileged Session Manager-Rls-...zip`, or the big ZIP).
+- The password of the Vault user Administrator, to register.
+- A PVWA that is registered with the Vault: PSM writes into the PVWA configuration. In a lab that is taken care
+  of by the order of the registrations.
+
+## Steps
+
+PSM is installed with the vendor's own stage script (`Execute-Stage.ps1`), in the order CyberArk documents:
+
+| Step | What it does |
 |---|---|
-| `management`, `media-upload`, `preflight`, `extract` | As for PVWA; locates the vendor's `Execute-Stage.ps1` automation |
-| `prerequisites` | Remote Desktop Session Host and other prerequisites. **Reboots** and continues the same stage. |
-| `install` | Vendor installation, followed by a **reboot** and continuation |
-| `register` | Registers PSM in the Vault |
-| `harden` | CyberArk PSM hardening (legacy TLS off, TLS 1.2 on), followed by a **reboot** |
-| `postinstall` | Vendor post-installation tasks |
-| `verify` | The *CyberArk Privileged Session Manager* service runs |
+| `management`, `media-upload`, `preflight`, `extract` | As for [PVWA](pvwa.md) |
+| `prerequisites` | The vendor's prerequisites stage: Remote Desktop Session Host and others |
+| `install` | The vendor's installation stage |
+| `postinstall` | The vendor's post-installation stage |
+| `harden` | The vendor's hardening stage. On a server that is member of a domain, its out-of-domain part is left out |
+| `register` | The vendor's registration stage. Waits for the Vault, the first PVWA and every CPM |
+| `verify` | The PSM service runs and the users `PSMConnect` and `PSMAdminConnect` exist |
 
-Each vendor stage is run in passes until it reports that no further reboot is needed. Reboots happen **without**
-writing a plaintext autologon password.
+**Restarts.** The vendor stages ask for restarts. After each stage the server is restarted when the stage asked
+for it, and the same stage is run again until it reports that no restart is needed. In the window the restart
+and the continuation count as part of the step. No autologon password is stored for these restarts.
 
-PSM restricts untrusted creation at the Windows Temp root to protect its TLS backup, and existing child
-permissions are preserved. The [Review plan](../gui/review.md) step shows this as a warning.
+After the registration the PSM service is started if it stopped: after a restart it ends itself when it cannot
+reach the Vault at once.
 
-!!! note "Session recordings"
-    The Vault creates the `PSMRecordings` safe at the first recorded session. Only Vault **Auditors** members see it:
-    review recordings as the built-in `Auditor` user, or add your reviewer to Auditors.
+## In a domain
+
+On a server that was joined to the lab domain, PSM is installed with the domain account of the lab, which the
+join makes a local administrator. PSM itself is registered with its local users `PSMConnect` and
+`PSMAdminConnect`, as in a workgroup; domain users for PSM are not set up.
+
+## Good to know
+
+- PSM limits who may create files in the root of the Windows Temp folder, to protect a backup the vendor script
+  keeps there. The plan lists this as a note.
+- **Session recordings:** the Vault creates the safe `PSMRecordings` at the first recorded session. Only members
+  of the Vault group **Auditors** see it: look at recordings as the built-in user `Auditor`, or add your user to
+  Auditors.
+- Options for `Install-PASPSM -Options`: `installDirectory`, `vaultPort`.
+
+!!! note "State of the step order"
+    Until release 2.0.5 PSM registered before its hardening. The order above (the vendor's) is new and was
+    being proven in the test lab when this page was written; see the
+    [release notes](../release-notes.md) for the result.

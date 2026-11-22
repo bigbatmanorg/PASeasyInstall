@@ -1,6 +1,6 @@
 [project]
 site_name = "PASeasyInstall"
-site_description = "Build CyberArk PAM self-hosted labs from one PowerShell controller, with plain commands or a native desktop UI. For labs; production use at your own risk."
+site_description = "Builds CyberArk PAM self-hosted labs on servers you provide, from one Windows computer, with a window or PowerShell commands. For labs; production use at your own risk."
 site_url = "https://bigbatmanorg.github.io/PASeasyInstall/"
 docs_dir = "site-src"
 site_dir = "site"
@@ -11,25 +11,37 @@ repo_url = "https://github.com/bigbatmanorg/PASeasyInstall"
 edit_uri = "edit/main/site-src/"
 copyright = "PASeasyInstall contributors · MIT License · For lab use; production use at your own risk · Not affiliated with CyberArk"
 
-# Diataxis: getting started (learning), GUI guide and lab guide (how-to), concepts (explanation),
-# commands and components (reference).
+# Learn (get started, the window), look up (commands, components, servers), understand (how it works).
 nav = [
   { "Home" = [
     "index.md",
-    { "Lab first" = "lab-first.md" },
-    { "Videos" = "videos.md" },
+    { "Made for labs" = "lab-first.md" },
     { "Release notes" = "release-notes.md" },
   ] },
   { "Get started" = [
     "getting-started/index.md",
     { "Requirements" = "getting-started/requirements.md" },
-    { "Portable ZIP" = "getting-started/portable.md" },
     { "PowerShell Gallery" = "getting-started/gallery.md" },
+    { "Portable ZIP" = "getting-started/portable.md" },
     { "Execution policy" = "getting-started/execution-policy.md" },
     { "Your first lab" = "getting-started/first-lab.md" },
   ] },
-  { "Desktop UI" = [
+  { "The window" = [
     "gui/index.md",
+    { "1. Media" = "gui/media.md" },
+    { "2. Lab" = "gui/lab.md" },
+    { "3. Servers" = "gui/servers.md" },
+    { "4. Install" = "gui/review.md" },
+    { "The installation page" = "gui/run.md" },
+  ] },
+  { "Commands" = [
+    "commands/index.md",
+    { "Install" = "commands/install.md" },
+    { "Lab configuration" = "commands/configuration.md" },
+    { "Media" = "commands/media.md" },
+    { "Runs" = "commands/runs.md" },
+    { "Checks and diagnostics" = "commands/checks.md" },
+    { "Start-PASeasyInstall" = "commands/start-paseasyinstall.md" },
   ] },
   { "Components" = [
     "components/index.md",
@@ -38,30 +50,24 @@ nav = [
     { "PVWA" = "components/pvwa.md" },
     { "CPM" = "components/cpm.md" },
     { "PSM" = "components/psm.md" },
-    { "PSMP" = "components/psmp.md" },
+    { "PSM for SSH" = "components/psmp.md" },
+    { "HTML5 Gateway" = "components/html5gw.md" },
+    { "PTA" = "components/pta.md" },
     { "Active Directory" = "components/ad.md" },
   ] },
-  { "Commands" = [
-    "commands/index.md",
-    { "Install: Install-PAS*" = "commands/install.md" },
-    { "Lab configuration" = "commands/configuration.md" },
-    { "Media" = "commands/media.md" },
-    { "Runs: Get, Wait, Resume, Stop" = "commands/runs.md" },
-    { "Checks and diagnostics" = "commands/checks.md" },
-    { "Desktop: Start-PASeasyInstall" = "commands/start-paseasyinstall.md" },
-  ] },
-  { "Concepts" = [
-    "concepts/index.md",
-    { "Architecture" = "concepts/architecture.md" },
-    { "Durable runs and resume" = "concepts/durable-runs.md" },
-    { "Security model" = "concepts/security.md" },
-    { "Lab and Secure profiles" = "concepts/profiles.md" },
-    { "Coordination and locks" = "concepts/coordination.md" },
-  ] },
-  { "Preparing servers" = [
+  { "Servers" = [
     "servers/index.md",
-    { "Roles and sizing" = "servers/roles.md" },
+    { "Which servers a lab needs" = "servers/roles.md" },
     { "Server prerequisites" = "servers/prerequisites.md" },
+  ] },
+  { "How it works" = [
+    "concepts/index.md",
+    { "The parts" = "concepts/architecture.md" },
+    { "Servers at the same time" = "concepts/parallel.md" },
+    { "Runs and resume" = "concepts/durable-runs.md" },
+    { "Locks" = "concepts/coordination.md" },
+    { "Security" = "concepts/security.md" },
+    { "Lab and Secure profiles" = "concepts/profiles.md" },
   ] },
   { "Troubleshooting" = [
     "troubleshooting/index.md",

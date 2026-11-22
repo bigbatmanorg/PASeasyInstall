@@ -1,21 +1,39 @@
-# Security model
+# Security
 
-- **Passwords live only in memory.** The desktop keeps them in password fields and converts them to
-  `SecureString` only when you click Install. They never appear in the project file, logs, journals or the rendered
-  UI.
-- **Hand-off to the detached controller.** Credentials are passed as a DPAPI-protected envelope readable only by the
-  same Windows user on the same machine. It is deleted as soon as the controller has read it.
-- **On the targets**, stage inputs that contain secrets are encrypted with the target machine's DPAPI and deleted after
-  use. Vault passwords reach PACLI through a private pipe, never on a command line.
-- **WinRM over HTTPS only** by default (`WinRM.RequireHTTPS`). Each target gets a restricted endpoint usable only by the
-  configured local administrator account.
-- **Hardening** uses CyberArk's own hardening for every component. The Vault firewall allows management only from
-  the controller address.
-- **Linux:** the controller uses its own SSH key per environment. The server password is used once, through
-  `SSH_ASKPASS`, to authorise that key. Secure mode requires a known host key; Lab mode trusts the key on first use
-  and logs it.
-- **Unsigned module:** every PowerShell process the toolkit starts uses an explicit `-ExecutionPolicy Bypass`. See
-  [Execution policy](../getting-started/execution-policy.md).
+## Passwords
 
-Nothing in PASeasyInstall collects telemetry or contacts any service other than your servers. The PowerShell Gallery
-is contacted only if you install from it.
+- **Passwords live in memory only.** The window keeps them in its password fields as protected strings. They
+  never appear in a lab file, a log, a journal, a command line or anything the window shows.
+- **Handing them to the installation.** The controller process of a run gets the accounts in a file that is
+  protected with Windows DPAPI, readable only by the same Windows user on the same computer. The file is deleted
+  as soon as the process has read it. This is why an installation must be started from a local session.
+- **On the servers**, the inputs of a step that hold a secret are protected and deleted after use. Vault
+  passwords reach the vendor's tools through a private pipe, never on a command line.
+- **Nothing is stored for later.** To continue a run, the accounts and passwords are entered again.
+
+## Connections
+
+- **Windows servers:** WinRM over HTTPS. Each server gets a restricted endpoint that only the configured
+  administrator may use.
+- **Linux servers:** SSH with a key the controller creates for the lab. The password of root is used once, to
+  authorise that key. With the Lab profile the host key of the server is trusted on first use and written to the
+  log; the Secure profile requires a host key that is known already.
+- **The hardened Vault** accepts management connections only from the address of the controller.
+
+## Hardening
+
+Every component is hardened with CyberArk's own hardening scripts, and the result is checked. In a lab that
+creates its domain, the CyberArk hardening GPOs from the vendor packages are applied to the joined servers.
+A lab can be installed [without hardening](profiles.md#installing-without-hardening) for tests.
+
+## What it does not do
+
+- It collects no telemetry and contacts no service besides your servers. The PowerShell Gallery is contacted
+  only when you install from it.
+- It ships no CyberArk file, license or key.
+- It is not code-signed; see [Execution policy](../getting-started/execution-policy.md).
+
+## What is not proven
+
+Only the **Lab** profile was tested. It relaxes several checks on purpose; they are listed on
+[Lab and Secure profiles](profiles.md). Do not take a lab built this way as a model for production.
