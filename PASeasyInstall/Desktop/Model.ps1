@@ -49,6 +49,9 @@ $script:PASUIStageNames = @{
     'dns' = 'Pointing the server at the domain'
     'join' = 'Joining the domain'
     'local-admin' = 'Giving the domain account administrator rights'
+    'gpo-firewall' = 'Allowing the management port in the firewall'
+    'gpo-import' = 'Importing the CyberArk hardening GPOs'
+    'gpo-apply' = 'Applying the CyberArk hardening GPO'
 }
 
 function New-PASUIState {
