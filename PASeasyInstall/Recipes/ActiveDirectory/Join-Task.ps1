@@ -1,6 +1,6 @@
 # Windows remote domain join for eligible component hosts (never Vault, DR, or DC).
 [CmdletBinding()]
-param([ValidateSet('Check', 'Join', 'Verify')][string]$Stage, [hashtable]$Settings, [string]$DomainPassword = '')
+param([ValidateSet('Check', 'Join', 'Admin', 'Verify')][string]$Stage, [hashtable]$Settings, [string]$DomainPassword = '')
 $ErrorActionPreference = 'Stop'
 $domain = [string]$Settings.Domain
 . (Join-Path $PSScriptRoot 'Join-State.ps1')
@@ -19,6 +19,34 @@ if ($cs.PartOfDomain) {
             Message = "Joined $domain with verified machine secure channel and LDAP SRV"
         }
     }
+    if ($Stage -eq 'Admin') {
+        # PSM is installed on a domain member by a domain account, and that account must itself be a member of
+        # the local Administrators group (membership through Domain Admins is not enough for the installer task).
+        $account = [string]$Settings.LocalAdministrator
+        if (-not $account) {
+            return [pscustomobject]@{Changed = $false; Message = 'No domain account needs local administrator rights on this server' }
+        }
+        # Right after the restart the domain may not answer yet.
+        $sid = ''
+        $deadline = [DateTime]::UtcNow.AddMinutes(3)
+        while (-not $sid) {
+            try {
+                $sid = ([Security.Principal.NTAccount]::new($account)).Translate([Security.Principal.SecurityIdentifier]).Value
+            } catch {
+                if ([DateTime]::UtcNow -ge $deadline) {
+                    throw "The domain account $account cannot be resolved on this server: $($_.Exception.Message)"
+                }
+                Start-Sleep -Seconds 5
+            }
+        }
+        $administrators = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+        $members = @(Get-LocalGroupMember -SID $administrators -ErrorAction Stop | ForEach-Object { [string]$_.SID })
+        if ($sid -in $members) {
+            return [pscustomobject]@{Changed = $false; Message = "$account is a local administrator already" }
+        }
+        Add-LocalGroupMember -SID $administrators -Member $account -ErrorAction Stop
+        return [pscustomobject]@{Changed = $true; Message = "Added $account to the local Administrators group" }
+    }
     return [pscustomobject]@{Changed = $false; Message = "Already joined to $domain" }
 }
 if ($Stage -eq 'Check') {
@@ -28,7 +56,7 @@ if ($Stage -eq 'Check') {
     if (-not $srv.Count) { throw 'Domain LDAP SRV records unavailable before join' }
     return [pscustomobject]@{Changed = $false; Message = 'Domain DNS resolves' }
 }
-if ($Stage -eq 'Verify') { throw "Domain join not complete: $domain" }
+if ($Stage -in @('Admin', 'Verify')) { throw "Domain join not complete: $domain" }
 if (Test-PASeasyJoinPending $Settings) {
     return [pscustomobject]@{
         Changed = $false

@@ -538,6 +538,16 @@ function New-PASDomainJoinWorkflow {
             },
             @{Id = 'reboot'; Kind = 'Reboot'; TimeoutSeconds = 1800 },
             @{
+                Id = 'local-admin'
+                Script = 'Join-Task.ps1'
+                Inputs = @{
+                    Stage = 'Admin'
+                    Settings = @{ConfigRef = ('Values.Components.' + $id) }
+                }
+                Verify = 'Join-Verify.ps1'
+                TimeoutSeconds = 600
+            },
+            @{
                 Id = 'verify'
                 Script = 'Join-Task.ps1'
                 Inputs = @{
@@ -575,6 +585,11 @@ function New-PASDomainJoinWorkflow {
         Domain = [string]$Config.activeDirectory.domain
         JoinUser = [string]$Config.activeDirectory.joinUser
         StageRoot = ('C:\ProgramData\PASeasyInstall\components\' + $id)
+        LocalAdministrator = ''
+    }
+    # The domain account that installs PSM on this server (credential PSMDomainInstaller) is made a local administrator.
+    if (@($Config.components | Where-Object { $_ -and $_.type -eq 'PSM' -and [string]$_.host -eq $HostId }).Count) {
+        $inv.Values.Components[$id].LocalAdministrator = [string]$Config.activeDirectory.joinUser
     }
     $dns = @(Get-PASValue $Config.activeDirectory 'dnsServers' @())
     if (-not $dns.Count -and $Config.activeDirectory.mode -eq 'Create') {

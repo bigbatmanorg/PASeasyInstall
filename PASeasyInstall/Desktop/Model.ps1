@@ -48,6 +48,7 @@ $script:PASUIStageNames = @{
     'ad-verify' = 'Verifying the domain'
     'dns' = 'Pointing the server at the domain'
     'join' = 'Joining the domain'
+    'local-admin' = 'Giving the domain account administrator rights'
 }
 
 function New-PASUIState {
