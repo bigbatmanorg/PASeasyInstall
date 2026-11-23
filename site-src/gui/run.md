@@ -31,8 +31,13 @@ depends on it: every other server is installed to the end, and a server that cou
 continued: a server it depends on failed* (see [Servers at the same time](../concepts/parallel.md#when-a-server-fails)).
 Nothing is undone.
 
-After **Try this step again** or **Continue**, every server first shows *Checking what is already installed*:
-the finished steps are looked at again, not repeated.
+The buttons appear when the run has ended: the other servers finish first, and the line of the failed server
+says so meanwhile. **Try this step again** and **Continue** leave every server that is installed and verified
+as it is. Only the server that stopped is started again: its finished steps are looked at once (*Checking what
+is already installed*), then the failed step runs.
+
+An HTML5 Gateway is installed early, because it needs no Vault. Its line says *Installed. It is entered into
+PVWA when PVWA and PSM are finished*: that entry is the last thing the installation does.
 
 Look at the server and correct the cause. Then:
 

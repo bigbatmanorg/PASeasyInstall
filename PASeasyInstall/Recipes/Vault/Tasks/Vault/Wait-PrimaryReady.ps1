@@ -10,6 +10,12 @@ $last = ''
 while ((Get-Date) -lt $deadline) {
     $down = @(foreach ($n in @('PrivateArk Database', 'PrivateArk Server', 'CyberArk Logic Container', 'Cyber-Ark Event Notification Engine')) {
             $s = Get-Service -DisplayName $n -ErrorAction SilentlyContinue
+            if ($s -and $s.Status -eq 'Stopped' -and $s.StartType -ne 'Disabled') {
+                # Two of the Vault services are "automatic (delayed start)": Windows starts them about two
+                # minutes after the restart. Nothing has to wait for that: start them now.
+                try { Start-Service -InputObject $s -ErrorAction Stop } catch { Write-Verbose "not started yet: $n" }
+                $s = Get-Service -DisplayName $n -ErrorAction SilentlyContinue
+            }
             if (-not $s -or
                 $s.Status -ne 'Running') { $n }
         })
@@ -31,6 +37,6 @@ while ((Get-Date) -lt $deadline) {
         return
     }
     $last = "waiting: down=[$($down -join ',')] upAfterBoot=$([bool]$up)"
-    Start-Sleep -Seconds 10
+    Start-Sleep -Seconds 5
 }
 throw "Primary Vault not ready within $Minutes minutes ($last)"

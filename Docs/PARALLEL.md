@@ -110,6 +110,23 @@ name), the Primary Vault was ready after 8.0 minutes, PVWA registered three seco
 replicating after 10.7 minutes and its test safe had arrived after 11.5; Vault, DR Vault, PVWA and PSM were
 finished after 17.3 minutes.
 
+## Fourth round (2026-11-23, afternoon): owner's second test, 2.0.7
+
+The run was scheduled as designed (Primary ready after 8 minutes, everything but CPM finished after 21). What
+was wrong or looked wrong:
+
+- **The Vault line stayed on "Verify primary"** although the Vault was ready: the test safe belonged to the
+  Vault component and was created after the DR Vault replicated. Now the Vault lane creates it right after the
+  Primary is ready, and the DR Vault waits for it.
+- **Two minutes in `verify-primary`:** two Vault services are delayed-start services. The step starts them.
+- **Retry looked like a new installation:** every lane was started again and revalidated. Finished lanes are
+  now skipped.
+- **CPM registration failed twice** with "Receive object failed" and "failed to decompress data file" while the
+  Vault's own log shows no error at those moments: data damaged on the way between a Windows guest on one
+  Proxmox node and the Vault on the other. The same NICs stalled iSCSI writes earlier. The lab kit now switches
+  LSO, RSC and checksum offload off on the Windows guests. Not proven to be the cause; nothing in the product
+  was changed for it.
+
 ## Open
 
 - **A step stopped with "SSH observation timed out"** once: the HTML5 Gateway step that followed PSMP on the

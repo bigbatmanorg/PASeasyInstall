@@ -1,5 +1,19 @@
 # Release notes
 
+## 2.0.8
+
+- **The Primary Vault is finished when it is ready.** Its replication test safe is created right after it is
+  installed, not after the DR Vault; before, the Vault line stayed on *Verify primary* until the DR Vault
+  replicated. The DR Vault is finished when the safe has arrived there.
+- **The Primary is ready about two minutes earlier.** After the restart that follows hardening, the
+  installation starts the two "delayed start" Vault services itself instead of waiting for Windows to do it.
+  Everything that registers with the Vault starts that much earlier.
+- **Trying a failed step again leaves the finished servers alone.** A continued run starts only the servers
+  that are not installed and verified yet. Before, every server and the Vault were looked at again, which took
+  about a minute and looked like a new installation.
+- **Window:** the line of a failed server says that it can be tried again when the other servers are finished.
+  The line of an HTML5 Gateway says that its entry in PVWA comes after PVWA and PSM.
+
 ## 2.0.7
 
 - **A server that fails stops only what depends on it.** Before, one failed server made every server that was

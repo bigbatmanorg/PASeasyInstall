@@ -61,8 +61,12 @@ The DR Vault uploads its media, installs its prerequisites and unpacks while the
 It installs its server when the Primary has created the keys, and sets up replication when the Primary is
 ready. The other servers register with the Primary meanwhile.
 
-At the end the installation proves that replication works: it creates a small test safe on the Primary (one
-short sign-in, in the queue like every other) and waits until that safe has arrived on the DR Vault.
+The installation proves that replication works with a small test safe. The Primary creates it as soon as it is
+ready (one short sign-in, in the queue like every other); with that the Primary Vault is finished. The DR Vault
+is finished when that safe has arrived there.
+
+The Primary is ready as soon as its services run after the restart that follows hardening. Two of them are
+"delayed start" services that Windows would start two minutes later; the installation starts them itself.
 
 ## When a server fails
 
@@ -83,9 +87,12 @@ A server that fails stops **only what depends on it**. Every other server is ins
 - The run ends as Failed and names the step that failed first, the other servers that failed and those that
   were not installed because of it.
 
-Nothing is undone. Correct the cause and continue: [`Resume-PASRun`](../commands/runs.md#resume-pasrun) starts
-every lane again. Steps that finished are only checked; the window shows that as *Checking what is already
-installed*.
+Nothing is undone. Correct the cause and continue with [`Resume-PASRun`](../commands/runs.md#resume-pasrun) or
+the buttons of the window. Servers that are installed and verified are left as they are: only the servers that
+are not finished are started again. On those, the steps that finished are checked (the window shows *Checking
+what is already installed*), then the rest is installed.
+
+A server can be tried again when the run has ended, that is when every other server is finished or has stopped.
 
 ## What it saves
 

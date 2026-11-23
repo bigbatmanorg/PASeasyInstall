@@ -88,8 +88,9 @@ side by side. `Sequential`, or a configuration without the key, installs one com
 
 - **Lane**: the work of one server, in plan order. Each lane is a runspace of the controller process with its
   own copy of the module, so remoting sessions are not shared. The Vault is one lane, its DR Vault another
-  (`Invoke-PASVaultSequence -Part Primary | DR`; the DR workflow waits for the milestones `primary-keys` and
-  `primary-ready` by itself, then runs the replication test), the new forest is one lane. Components on the
+  (`Invoke-PASVaultSequence -Part Primary | PrimaryTest | DR`: the Vault lane installs the Primary, sets
+  `Vault`, then creates the test safe; the DR workflow waits for the milestones `primary-keys`, `primary-ready`
+  and `test-safe-created` by itself), the new forest is one lane. Components on the
   same server stay one after the other.
 - **Signals** (wait handles inside the controller, set once): `Domain` (forest installed), `Vault` (the
   Primary Vault is installed, hardened and verified), `Cert:<pvwa>` (PVWA created its certificate, its first
@@ -109,7 +110,9 @@ side by side. `Sequential`, or a configuration without the key, installs one com
   is set and who waits for it gives up (target journalled as `Stopped`). All other lanes work to the end.
   Then the controller does what can still be done after the lanes (gateway registration and PTA trust when
   their components are installed, never the GPOs) and the run ends Failed with the step that failed first.
-  `Resume-PASRun` starts every lane again; finished steps are only revalidated.
+  `Resume-PASRun` starts only the lanes that are not finished (`Test-PASLaneFinished`: every engine target of
+  the lane has a journal that says Succeeded); what a finished lane owes counts as set. In the lanes that
+  run, finished steps are only revalidated.
 - Gateway registration, PTA trust and the GPOs follow the lanes, in order, as in a sequential run.
 - While preparing a component, the lanes of one run share the SSH known-hosts file and the PVWA certificate
   bundle; that short part is guarded by a mutex of the run (`prepare-<run id>`).

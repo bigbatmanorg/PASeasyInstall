@@ -59,15 +59,82 @@ Describe 'Lanes of a parallel run' {
 }
 
 Describe 'The Vault workflows of a lane' {
-    It 'gives the Vault lane the Primary and the DR lane everything after it' {
+    It 'gives the Vault lane the Primary and its test safe, and the DR lane the DR Vault' {
         InModuleScope PASeasyInstall {
             (@(Get-PASVaultWorkflowNames -WithDR $false -Part Primary) -join ',') | Should -Be 'VaultPrimaryOnly.psd1'
+            @(Get-PASVaultWorkflowNames -WithDR $false -Part PrimaryTest).Count | Should -Be 0
             @(Get-PASVaultWorkflowNames -WithDR $false -Part DR).Count | Should -Be 0
             (@(Get-PASVaultWorkflowNames -WithDR $false) -join ',') | Should -Be 'VaultPrimaryOnly.psd1'
             (@(Get-PASVaultWorkflowNames -WithDR $true -Part Primary) -join ',') | Should -Be 'VaultPrimary-Phase1.psd1'
-            (@(Get-PASVaultWorkflowNames -WithDR $true -Part DR) -join ',') | Should -Be 'VaultDR-Phase1.psd1,VaultPrimary-Phase2.psd1,VaultDR-Phase2.psd1'
-            @(Get-PASVaultWorkflowNames -WithDR $true).Count | Should -Be 4
+            (@(Get-PASVaultWorkflowNames -WithDR $true -Part PrimaryTest) -join ',') | Should -Be 'VaultPrimary-Phase2.psd1'
+            (@(Get-PASVaultWorkflowNames -WithDR $true -Part DR) -join ',') | Should -Be 'VaultDR-Phase1.psd1,VaultDR-Phase2.psd1'
+            (@(Get-PASVaultWorkflowNames -WithDR $true) -join ',') | Should -Be 'VaultPrimary-Phase1.psd1,VaultDR-Phase1.psd1,VaultPrimary-Phase2.psd1,VaultDR-Phase2.psd1'
             @(Get-PASVaultWorkflowNames -WithDR $true -Part Prepare).Count | Should -Be 0
+        }
+    }
+    It 'creates the test safe without waiting for the DR Vault, and the DR Vault waits for the test safe' {
+        $root = Join-Path (Split-Path -Parent $PSScriptRoot) 'PASeasyInstall/Recipes/Vault/Workflows'
+        $primary = Import-PowerShellDataFile -Path (Join-Path $root 'VaultPrimary-Phase2.psd1')
+        $dr = Import-PowerShellDataFile -Path (Join-Path $root 'VaultDR-Phase2.psd1')
+        $primary.Steps[0].Id | Should -Be 'create-test-safe'
+        $primary.Steps[0].ContainsKey('DependsOn') | Should -BeFalse
+        $primary.Steps[0].RequiresVaultSession | Should -BeTrue
+        ($primary.Steps[0].Publishes -join ',') | Should -Be 'test-safe-created'
+        ($dr.Steps[0].DependsOn -join ',') | Should -Be 'test-safe-created'
+    }
+}
+
+Describe 'A continued run leaves finished servers alone' {
+    BeforeAll {
+        $script:runDir = Join-Path ([IO.Path]::GetTempPath()) ('pas-lanes-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $script:runDir
+        function Set-TargetState([string]$Target, [string]$Status) {
+            $dir = Join-Path $script:runDir $Target
+            $null = New-Item -ItemType Directory -Path $dir -Force
+            Set-Content -LiteralPath (Join-Path $dir 'state.json') -Value (@{ status = $Status } | ConvertTo-Json) -Encoding UTF8
+        }
+        $script:laneConfig = New-LaneConfig @(
+            @('vault', 'Vault', 'h-vault'), @('dr', 'DRVault', 'h-dr'), @('pvwa01', 'PVWA', 'h-web'), @('cpm01', 'CPM', 'h-cpm'), @('psm01', 'PSM', 'h-psm'))
+        function Test-Finished([string]$Name) {
+            $lane = @(Get-Lanes $script:laneConfig | Where-Object { $_.Name -eq $Name })[0]
+            return InModuleScope PASeasyInstall -Parameters @{ Lane = $lane; Config = $script:laneConfig; Directory = $script:runDir } {
+                param($Lane, $Config, $Directory)
+                Test-PASLaneFinished -Lane $Lane -Config $Config -Directory $Directory
+            }
+        }
+    }
+    AfterAll {
+        Remove-Item -LiteralPath $script:runDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    It 'runs every lane of a new run' {
+        foreach ($name in 'vault', 'dr', 'h-web', 'h-cpm', 'h-psm') {
+            Test-Finished $name | Should -BeFalse -Because $name
+        }
+    }
+    It 'skips a server whose journal says Succeeded and runs the one that failed' {
+        Set-TargetState 'pvwa01' 'Succeeded'
+        Set-TargetState 'cpm01' 'Failed'
+        Set-TargetState 'psm01' 'Stopped'
+        Test-Finished 'h-web' | Should -BeTrue
+        Test-Finished 'h-cpm' | Should -BeFalse
+        Test-Finished 'h-psm' | Should -BeFalse
+    }
+    It 'counts the Primary as finished only with its test safe, and the DR Vault only with its replication test' {
+        Set-TargetState 'primary' 'Succeeded'
+        Test-Finished 'vault' | Should -BeFalse
+        Set-TargetState 'primary_final' 'Succeeded'
+        Test-Finished 'vault' | Should -BeTrue
+        Set-TargetState 'dr' 'Succeeded'
+        Test-Finished 'dr' | Should -BeFalse
+        Set-TargetState 'dr_final' 'Succeeded'
+        Test-Finished 'dr' | Should -BeTrue
+    }
+    It 'always runs a server that is joined to a domain' {
+        $joined = New-LaneConfig -DomainMode Existing -Join @('h-web') -Components @(, @('pvwa01', 'PVWA', 'h-web'))
+        $lane = @(Get-Lanes $joined)[0]
+        InModuleScope PASeasyInstall -Parameters @{ Lane = $lane; Config = $joined; Directory = $script:runDir } {
+            param($Lane, $Config, $Directory)
+            Test-PASLaneFinished -Lane $Lane -Config $Config -Directory $Directory | Should -BeFalse
         }
     }
 }
