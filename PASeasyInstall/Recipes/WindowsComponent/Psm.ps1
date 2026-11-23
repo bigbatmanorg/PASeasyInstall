@@ -103,8 +103,21 @@ function Set-PASeasyPsmRdpTls {
     # RDS/native setup can reset the listener to Negotiate after prerequisites.
     # Require TLS after the last native stage; keep the vendor ticket NLA prerequisite intact.
     $listener = @(Get-CimInstance -Namespace 'root/cimv2/terminalservices' -ClassName Win32_TSGeneralSetting -Filter "TerminalName='RDP-tcp'" -ErrorAction Stop)
-    if ($listener.Count -ne 1 -or
-        $listener[0].UserAuthenticationRequired -ne 0) { throw 'PSM ticket NLA prerequisite must complete before securing the RDP listener' }
+    if ($listener.Count -ne 1) { throw 'PSM ticket NLA prerequisite must complete before securing the RDP listener' }
+    if ($listener[0].UserAuthenticationRequired -ne 0) {
+        # The vendor prerequisite DisableNLA ran, but Windows can switch NLA on again about a minute after the
+        # first start with the Remote Desktop Session Host role, after the vendor step has checked it (lab,
+        # 15.2, 2026-11-23: NLA 0 -> 1 after the prerequisites restart). Re-apply the vendor's prerequisite with
+        # the native method; the read-back below and Assert-PASeasyPsmRdpTransport decide.
+        $result = Invoke-CimMethod -InputObject $listener[0] -MethodName SetUserAuthenticationRequired -Arguments @{UserAuthenticationRequired = [uint32]0 } -ErrorAction Stop
+        if ($null -eq $result -or
+            -not $result.PSObject.Properties['ReturnValue'] -or
+            ($null -ne $result.ReturnValue -and [int]$result.ReturnValue -ne 0)) { throw 'PSM ticket NLA prerequisite could not be re-applied: native method did not return success' }
+        $listener = @(Get-CimInstance -Namespace 'root/cimv2/terminalservices' -ClassName Win32_TSGeneralSetting -Filter "TerminalName='RDP-tcp'" -ErrorAction Stop)
+        if ($listener.Count -ne 1 -or
+            $listener[0].UserAuthenticationRequired -ne 0) { throw 'PSM ticket NLA prerequisite must complete before securing the RDP listener' }
+        Write-Information -MessageData 'PASeasyInstall INFO: Windows had re-enabled NLA on the PSM RDP listener after the Remote Desktop Session Host restart; the vendor DisableNLA prerequisite was re-applied and read back' -InformationAction Continue
+    }
     if ($listener[0].MinEncryptionLevel -notin @(3, 4)) { throw 'PSM RDP listener requires high or FIPS encryption before TLS configuration' }
     if ($listener[0].SecurityLayer -ne 2) {
         $result = Invoke-CimMethod -InputObject $listener[0] -MethodName SetSecurityLayer -Arguments @{SecurityLayer = [uint32]2 } -ErrorAction Stop
