@@ -111,4 +111,22 @@ Describe 'Lab stability: dependency compilation and finalization' {
             $source | Should -Match "Id = 'prepare-tools'(?s).{0,400}TimeoutSeconds = 1800"
         }
     }
+    It 'accepts two PVWAs with a CPM next to the first one (lane-level cycle, no component deadlock)' {
+        InModuleScope PASeasyInstall {
+            $cfg = @{
+                activeDirectory = @{mode = 'None'; join = @()}
+                components = @(
+                    @{id = 'vault'; type = 'Vault'; host = 'v'; options = @{}},
+                    @{id = 'pvwa01'; type = 'PVWA'; host = 'w1'; options = @{}},
+                    @{id = 'cpm01'; type = 'CPM'; host = 'w1'; options = @{}},
+                    @{id = 'pvwa02'; type = 'PVWA'; host = 'w2'; options = @{}},
+                    @{id = 'cpm02'; type = 'CPM'; host = 'c2'; options = @{}},
+                    @{id = 'psm01'; type = 'PSM'; host = 'p'; options = @{}}
+                )
+            }
+            $plan = @($cfg.components | ForEach-Object { @{Id = $_.id; Type = $_.type} })
+            $lanes = @(Get-PASRunLanes -Config $cfg -PlanItems $plan)
+            { Assert-PASLaneSignalPlan -Config $cfg -Lanes $lanes } | Should -Not -Throw
+        }
+    }
 }

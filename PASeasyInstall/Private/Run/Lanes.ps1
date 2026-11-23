@@ -244,36 +244,44 @@ function Assert-PASLaneSignalPlan {
                 if ($signal) { $producerComponent[[string]$signal] = [string]$component.id }
             }
         }
+        # Deadlock check per component, not per server lane: a lane is a sequence, and a lane-level cycle is
+        # often harmless (lane A = PVWA1 then CPM1, lane B = PVWA2: PVWA2 waits for PVWA1's registration and CPM1
+        # for PVWA2's; nothing waits for something that comes later). Nodes are components; an edge goes from a
+        # component to the producer of every signal it waits for, and to the component before it in its lane.
         $edges = @{}
-        foreach ($lane in $Lanes) { $edges[[string]$lane.Name] = @() }
+        foreach ($component in @($Config.components | Where-Object { $_.type -notin @('AD','Vault','DRVault') })) {
+            $edges[[string]$component.id] = @()
+        }
+        foreach ($lane in $Lanes) {
+            $previous = ''
+            foreach ($id in @(@($lane.Components) + @(Get-PASValue $lane 'After' @()))) {
+                if (-not $edges.ContainsKey([string]$id)) { continue }
+                if ($previous) { $edges[[string]$id] += $previous }
+                $previous = [string]$id
+            }
+        }
         foreach ($component in @($Config.components | Where-Object { $_.type -notin @('AD','Vault','DRVault') })) {
             $gate = Get-PASLaneComponentGate -Config $Config -Component $component
             foreach ($name in @(@($gate.StartAfter) + @($gate.VaultAfter))) {
                 if (-not $signals[$name].WaitOne(0) -and -not $producers.ContainsKey($name)) {
                     throw "Dependency '$name' for '$($component.id)' cannot be published by any lane"
                 }
-                $owner = [string]$laneByComponent[[string]$component.id]
-                if ($owner -and $producers.ContainsKey($name)) {
-                    $provider = [string]$producers[$name]
-                    if ($provider -ne $owner) {
-                        $edges[$owner] += $provider
-                    } elseif ($producerComponent.ContainsKey($name)) {
-                        $sourceId = [string]$producerComponent[$name]
-                        $consumerId = [string]$component.id
-                        if ([int]$componentIndex[$sourceId] -ge [int]$componentIndex[$consumerId]) {
-                            throw "Cyclic or forward dependency '$name': $consumerId waits for $sourceId in the same server lane"
-                        }
-                    }
+                $consumerId = [string]$component.id
+                if (-not $producerComponent.ContainsKey($name)) { continue }
+                $sourceId = [string]$producerComponent[$name]
+                $owner = [string]$laneByComponent[$consumerId]
+                if ($owner -and $producers.ContainsKey($name) -and [string]$producers[$name] -eq $owner -and
+                    [int]$componentIndex[$sourceId] -ge [int]$componentIndex[$consumerId]) {
+                    throw "Cyclic or forward dependency '$name': $consumerId waits for $sourceId in the same server lane"
                 }
+                if ($sourceId -ne $consumerId) { $edges[$consumerId] += $sourceId }
             }
         }
-        # A cycle among server lanes can never finish, even if all individual
-        # names are valid. Detect it before dispatching any mutating work.
         $visiting = @{}
         $visited = @{}
         function Assert-PASLaneAcyclicVisit {
             param([string]$Name, [hashtable]$Edges, [hashtable]$Visiting, [hashtable]$Visited)
-            if ($Visiting.ContainsKey($Name)) { throw "Cyclic deployment dependency involving lane '$Name'" }
+            if ($Visiting.ContainsKey($Name)) { throw "Cyclic deployment dependency involving component '$Name'" }
             if ($Visited.ContainsKey($Name)) { return }
             $Visiting[$Name] = $true
             foreach ($provider in @($Edges[$Name] | Select-Object -Unique)) {
@@ -282,8 +290,8 @@ function Assert-PASLaneSignalPlan {
             $Visiting.Remove($Name)
             $Visited[$Name] = $true
         }
-        foreach ($lane in $Lanes) {
-            Assert-PASLaneAcyclicVisit -Name ([string]$lane.Name) -Edges $edges -Visiting $visiting -Visited $visited
+        foreach ($node in @($edges.Keys)) {
+            Assert-PASLaneAcyclicVisit -Name ([string]$node) -Edges $edges -Visiting $visiting -Visited $visited
         }
     } finally {
         foreach ($handle in @($signals.Values)) { $handle.Dispose() }
