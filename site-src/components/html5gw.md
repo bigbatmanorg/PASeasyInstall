@@ -19,7 +19,7 @@ $cfg = New-PASLabConfiguration -Environment MyLab -VaultMode Primary -PrimaryAdd
                  @{ Type = 'HTML5GW'; Name = 'psmp01'; Address = '192.0.2.41' })
 ```
 
-In the window: *HTML5 Gateway* in the Custom lab.
+In the window: the *HTML5 Gateway* counter on the Lab step.
 
 ## What it needs
 
