@@ -1,4 +1,4 @@
-# The screens of the desktop window, built from the controls of Controls.ps1. Every function reads the state
+﻿# The screens of the desktop window, built from the controls of Controls.ps1. Every function reads the state
 # ($S, see Model.ps1) and fills a part of the window; none of them calls the installer.
 #
 #   $ui   the named parts of the shell (Window.xaml)
@@ -361,27 +361,11 @@ function Show-PASUIMediaResult {
 
 function Add-PASUILabPage {
     param($Page)
-    $presets = New-Object Windows.Controls.WrapPanel
-    foreach ($preset in Get-PASUIPresets) {
-        $note = ''
-        if ($preset.Counts) {
-            $copy = @{ VaultMode = $preset.VaultMode; Counts = $preset.Counts; Colocate = [bool]$S.Colocate; Domain = 'None' }
-            $note = [string]@(Get-PASUIServerSlots $copy).Count + ' servers'
-        }
-        $badge = ''
-        if ($preset.ContainsKey('Recommended')) {
-            $badge = 'recommended'
-        }
-        Add-PASUIChild $presets @((New-PASUIChoice ('preset-' + $preset.Id) $preset.Title $preset.What ($S.Preset -eq $preset.Id) $note $badge))
-    }
     Add-PASUIChild $Page @(
-        (New-PASUIText 'What do you want to build?' 'H1'),
-        (New-PASUIText 'Pick a ready-made lab. You can change every part with Custom.' 'Lead' -Margin '0,0,0,18'),
-        $presets
+        (New-PASUIText 'Choose the lab components' 'H1'),
+        (New-PASUIText 'Select a Primary Vault, optionally with Disaster Recovery, and set the number of each component. There are no predefined deployment workflows.' 'Lead' -Margin '0,0,0,18'),
+        (New-PASUICustomLabCard)
     )
-    if ($S.Preset -eq 'custom') {
-        Add-PASUIChild $Page @((New-PASUICustomLabCard))
-    }
     if ([int]$S.Counts.PVWA -gt 0 -and [int]$S.Counts.CPM -gt 0) {
         # In every lab that has both: CPM next to PVWA, or on a server of its own.
         Add-PASUIChild $Page @((New-PASUICard 'Server for CPM' @(
@@ -396,22 +380,25 @@ function Add-PASUILabPage {
                     (New-PASUIText 'Switch it off to give the gateway a Linux server of its own. The Servers step then has one more line.' 'Hint' -Margin '0,6,0,0'))))
     }
 
-    $domains = New-Object Windows.Controls.WrapPanel
-    $options = @(
-        @{ Id = 'None'; Title = 'No domain'; What = 'The servers stay as they are.' }
-        @{ Id = 'New'; Title = 'New domain'; What = 'One more server becomes the domain controller. PVWA, CPM and PSM servers join it and get the CyberArk hardening GPOs.' }
-        @{ Id = 'Existing'; Title = 'A domain I already have'; What = 'PVWA, CPM and PSM servers join it. Its GPOs are not touched.' }
-    )
-    foreach ($option in $options) {
-        Add-PASUIChild $domains @((New-PASUIChoice ('domain-' + $option.Id) $option.Title $option.What ($S.Domain -eq $option.Id) -Width 250))
+    $domainCard = $null
+    if ($S.Advanced) {
+        $domains = New-Object Windows.Controls.WrapPanel
+        $options = @(
+            @{ Id = 'None'; Title = 'No domain'; What = 'The servers stay as they are.' }
+            @{ Id = 'New'; Title = 'New domain'; What = 'One more server becomes the domain controller. PVWA, CPM and PSM servers join it and get the CyberArk hardening GPOs.' }
+            @{ Id = 'Existing'; Title = 'A domain I already have'; What = 'PVWA, CPM and PSM servers join it. Its GPOs are not touched.' }
+        )
+        foreach ($option in $options) {
+            Add-PASUIChild $domains @((New-PASUIChoice ('domain-' + $option.Id) $option.Title $option.What ($S.Domain -eq $option.Id) -Width 250))
+        }
+        $domainCard = New-PASUICard 'Active Directory' @($domains)
+        if ($S.Domain -ne 'None') {
+            Add-PASUIChild $domainCard.Child @((New-PASUIField 'DNS name of the domain' (New-PASUITextBox 'f-domainname' ([string]$S.DomainName) 'DNS name of the domain' 260) `
+                        'For example pam.lab. The servers restart once when they join. Vault servers are never joined.' -Margin '0,4,0,0'))
+        }
     }
-    $domainCard = New-PASUICard 'Active Directory' @($domains)
-    if ($S.Domain -ne 'None') {
-        Add-PASUIChild $domainCard.Child @((New-PASUIField 'DNS name of the domain' (New-PASUITextBox 'f-domainname' ([string]$S.DomainName) 'DNS name of the domain' 260) `
-                    'For example pam.lab. The servers restart once when they join. Vault servers are never joined.' -Margin '0,4,0,0'))
-    }
+    if ($S.Advanced -and $null -ne $domainCard) { Add-PASUIChild $Page @($domainCard) }
     Add-PASUIChild $Page @(
-        $domainCard,
         (New-PASUICard -Content @((New-PASUIField 'Name of the lab' (New-PASUITextBox 'f-labname' ([string]$S.LabName) 'Name of the lab' 260) `
                         'Installations are listed under this name. Letters, digits, dot, dash, underscore.' -Margin '0'))),
         (New-PASUIRegion 'LabIssues' @((New-PASUIIssueBox (Get-PASUIInputIssues $S 'lab'))))
@@ -419,14 +406,15 @@ function Add-PASUILabPage {
 }
 
 function New-PASUICustomLabCard {
-    # The Custom lab: the Vault option and how many of each component.
+    # The only normal deployment selector: Vault topology and number of each component.
     $modes = New-Object Windows.Controls.WrapPanel
     $options = @(
         @{ Id = 'Primary'; Title = 'New Vault'; What = 'One Vault server.' }
         @{ Id = 'PrimaryDR'; Title = 'New Vault with DR'; What = 'A Vault and a DR Vault that replicates it.' }
-        @{ Id = 'Existing'; Title = 'A Vault I already have'; What = 'Only add components to it.' }
+        @{ Id = 'Existing'; Title = 'Use existing Vault (advanced)'; What = 'Only add components to it.' }
     )
     foreach ($option in $options) {
+        if ($option.Id -eq 'Existing' -and -not $S.Advanced -and $S.VaultMode -ne 'Existing') { continue }
         Add-PASUIChild $modes @((New-PASUIChoice ('vault-' + $option.Id) $option.Title $option.What ($S.VaultMode -eq $option.Id) -Width 250))
     }
     $grid = New-PASUIGrid @('*', 'Auto')
@@ -456,7 +444,7 @@ function New-PASUICustomLabCard {
         Add-PASUICell $grid $counter $number 1
         $number++
     }
-    return New-PASUICard 'Vault' @(
+    return New-PASUICard 'Vault and components' @(
         $modes,
         (New-PASUIText 'Components' 'H2' -Margin '0,6,0,6'),
         $grid,
@@ -678,7 +666,7 @@ function Add-PASUIReviewPage {
     }
     $warnings = @($check.Warnings | Where-Object { $_ })
     if ($warnings.Count) {
-        Add-PASUIChild $Page @((New-PASUIBox 'warn' "Lab shortcuts in use ($($warnings.Count))." 'Fine for a lab, not for production.' $warnings))
+        Add-PASUIChild $Page @((New-PASUIBox 'warn' "Lab shortcuts in use ($($warnings.Count))." 'Documented shortcuts for a disposable lab.' $warnings))
     }
     if ($S.Advanced) {
         $save = New-PASUIButton 'act-save' 'Save the lab file' 'Btn' -Margin '0,10,0,0'

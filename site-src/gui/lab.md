@@ -1,38 +1,30 @@
 # Step 2: Lab
 
-Choose what to build.
+Choose your lab topology and component counts directly. **There are no Starter, Standard, Full or
+other deployment workflow presets.**
 
-![The Lab step: ready-made labs, the server for CPM, the domain choice](../assets/window/06-lab.png)
+## Vault topology
 
-## Ready-made labs
+Select **New Vault** (one Primary) or **New Vault with DR** (Primary + Disaster Recovery). Both
+choices use fresh, disposable lab servers. The **Advanced** toggle also makes **Use existing Vault**
+available for experienced lab operators; the normal path is a new Primary.
 
-| Lab | Installs | Servers |
-|---|---|---|
-| **Starter** | Vault, PVWA, CPM | 2 |
-| **Standard** (recommended) | Starter plus PSM | 3 |
-| **Full** | Standard plus a DR Vault and PSM for SSH | 5 |
-| **Custom** | You choose every part | |
+## Component counts
 
-The number of servers on each card follows your choices below: CPM on its own server adds one.
+Use `+` and `−` to select how many PVWA, CPM, PSM, PSM for SSH (PSMP), HTML5 Gateway
+and PTA instances to install. Zero leaves that component out. The normal limit is two per component;
+Advanced raises the limit to four. Your Vault license and the available media can impose lower limits.
 
-## Custom
+- A gateway requires a PVWA; it may share a PSMP server, or use its own Linux server.
+- PTA requires a PVWA and a suitable RHEL-family server.
+- PVWA and CPM can share a Windows server, or use separate servers.
 
-![Custom: the Vault choice and how many of each component](../assets/window/07-lab-custom.png)
+There is a single path through the wizard: **Media → Lab → Servers → Install**.
+The media and component selection decide the resulting server topology automatically. No special
+workflow selector or CLI command entry is required.
 
-**Vault**
-
-- **New Vault**: one Vault server.
-- **New Vault with DR**: a Vault and a DR Vault that replicates it.
-- **A Vault I already have**: only components are installed and registered with it. You enter its address on
-  the Servers step.
-
-**Components**: how many of PVWA, CPM, PSM, PSM for SSH, HTML5 Gateway and PTA. Up to two of each; with
-**Advanced** switched on, up to four. Two of each were tested, and the Vault license decides how many can
-register. Set a component to 0 to leave it out.
-
-- An **HTML5 Gateway** shares the server of a PSM for SSH when there is one, unless you switch that off (see
-  below); otherwise it gets its own Linux server. It needs a PVWA in the same lab.
-- **PTA** needs its own RHEL-family server with 8 GB, and a PVWA in the same lab.
+The earlier screenshots of preset cards do not represent this version; new screenshots will be
+collected during the S01 real-WPF lab validation.
 
 ## Server for CPM
 
@@ -46,9 +38,7 @@ In a lab with PSM for SSH and an HTML5 Gateway, *Install the HTML5 Gateway on th
 less)* is switched on. Switch it off to give the gateway a Linux server of its own; the Servers step then has
 one more line.
 
-## Active Directory
-
-![CPM on its own server, a new domain, and the name of the lab](../assets/window/08-lab-domain.png)
+## Active Directory (Advanced only)
 
 - **No domain**: the servers stay as they are.
 - **New domain**: one more server becomes the domain controller of a new forest. The PVWA, CPM and PSM servers

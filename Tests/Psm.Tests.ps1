@@ -304,9 +304,24 @@ Describe 'PSM post-install TLS listener configuration' {
         Mock Invoke-CimMethod { [pscustomobject]@{ReturnValue = [uint32]0 } }
         { Set-PASeasyPsmRdpTls } | Should -Throw '*RDP transport*'
     }
-    It 'does not override an unmet NLA prerequisite or weak encryption' {
+    It 're-applies the vendor DisableNLA prerequisite that Windows switched on again, with read-back' {
         $script:listener.UserAuthenticationRequired = [uint32]1
+        $script:listener.SecurityLayer = [uint32]2
+        Mock Invoke-CimMethod {
+            if ($MethodName -eq 'SetUserAuthenticationRequired') { $script:listener.UserAuthenticationRequired = [uint32]0 }
+            [pscustomobject]@{ReturnValue = $null }
+        }
+        { Set-PASeasyPsmRdpTls } | Should -Not -Throw
+        Should -Invoke Invoke-CimMethod -Exactly 1 -ParameterFilter { $MethodName -eq 'SetUserAuthenticationRequired' -and $Arguments.UserAuthenticationRequired -eq 0 }
+    }
+    It 'fails when the re-applied NLA prerequisite does not hold' {
+        $script:listener.UserAuthenticationRequired = [uint32]1
+        Mock Invoke-CimMethod { [pscustomobject]@{ReturnValue = [uint32]0 } }
         { Set-PASeasyPsmRdpTls } | Should -Throw '*NLA prerequisite*'
+        Mock Invoke-CimMethod { [pscustomobject]@{ReturnValue = [uint32]5 } }
+        { Set-PASeasyPsmRdpTls } | Should -Throw '*could not be re-applied*'
+    }
+    It 'does not override weak encryption' {
         $script:listener.UserAuthenticationRequired = [uint32]0
         $script:listener.MinEncryptionLevel = [uint32]1
         { Set-PASeasyPsmRdpTls } | Should -Throw '*encryption*'

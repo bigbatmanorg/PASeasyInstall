@@ -221,8 +221,8 @@ Describe 'Signals and waiting of a parallel run' {
             $psm = @($Config.components | Where-Object { $_.id -eq 'psm01' })[0]
             $psmNeeds = (Get-PASLaneComponentGate -Config $Config -Component $psm).VaultAfter
 
-            # PTA and the DR Vault owe nothing: their failure stops nobody.
-            @(Get-PASLaneOwedSignals -Config $Config -Lane $lane['h-pta']).Count | Should -Be 0
+            # PTA publishes only its completion for PtaTrust; DR does not gate other lanes.
+            @(Get-PASLaneOwedSignals -Config $Config -Lane $lane['h-pta']) | Should -Contain 'Done:pta01'
             @(Get-PASLaneOwedSignals -Config $Config -Lane $lane['dr']).Count | Should -Be 0
 
             # CPM fails: its registration was only an order, so PSM goes on.
@@ -230,8 +230,11 @@ Describe 'Signals and waiting of a parallel run' {
             try {
                 [void]$signals.Vault.Set()
                 [void]$signals.PvwaRegistered.Set()
-                $needs = @(Set-PASLaneFailed -Signals $signals -Owed (Get-PASLaneOwedSignals -Config $Config -Lane $lane['h-cpm']))
+                $consumed = @(Get-PASLaneConsumedSignals -Config $Config)
+                $needs = @(Set-PASLaneFailed -Signals $signals -Owed (Get-PASLaneOwedSignals -Config $Config -Lane $lane['h-cpm']) -Consumed $consumed)
                 $needs.Count | Should -Be 0
+                # Nobody waits for Done:cpm01, but it is still marked as never coming.
+                $signals['Fail:Done:cpm01'].WaitOne(0) | Should -BeTrue
                 Wait-PASVaultGate (Get-PASLaneGate $signals $psmNeeds) | Should -BeFalse
             } finally {
                 foreach ($signal in @($signals.Values)) { $signal.Dispose() }

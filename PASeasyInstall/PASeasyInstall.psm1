@@ -1,5 +1,5 @@
 # PASeasyInstall: installs CyberArk PAM self-hosted labs from one Windows PowerShell 5.1 controller.
-# Not affiliated with CyberArk. Built for labs; production use is at your own risk.
+# Not affiliated with CyberArk. Lab deployments only; production-supported deployments are out of scope.
 #
 # Layout of this module:
 #   Public\    one file per exported command (the whole command line surface)

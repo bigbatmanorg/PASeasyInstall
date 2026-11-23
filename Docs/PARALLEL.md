@@ -24,7 +24,7 @@ and 39 minutes before their turn came.
 | First PVWA registered before any other component registers | PSM, PSMP, the gateway and PTA write into the PVWA configuration that the first PVWA creates in the Vault. |
 | Every PVWA has its certificate before CPM, gateway or PTA start | Their preparation copies the certificates of all PVWA servers. |
 | PTA is configured after every PVWA is finished | Its configuration names the PVWA. |
-| Gateway registration, PTA trust and GPOs last | They change the PVWA server; the GPOs close the servers down. |
+| Gateway registration and PTA trust after their own component prerequisites | They mutate the first PVWA one at a time, but do not wait for unrelated DR, PSMP or other servers. Domain GPO finalization remains at the end. |
 
 Everything else is free: upload, checks, unpacking, prerequisites, the installation itself, hardening and the
 final verification of a server need no other server.
@@ -138,3 +138,12 @@ was wrong or looked wrong:
 - **Two of each component, and three or four**, were not run in parallel yet.
 - **PSM in the vendor's order.** Find out why `Execute-Stage.ps1` reports the registration on a hardened PSM
   server as failed although it worked; then PSM could register last too.
+
+## Lab stabilization update (2026-11-23)
+
+The scheduler now launches one **integration lane** beside server lanes. `GatewayRegistration` waits for
+verified PVWA + PSM + HTML5 Gateway components; `PtaTrust` waits for verified PVWA + PTA.
+A failed dependency skips only the dependent integration. An unrelated ready integration still runs.
+Missing or cyclic cross-lane dependencies are rejected before remote dispatch; waits are cancellable
+and bounded. A resumed run rechecks successful component readiness instead of unconditionally skipping
+entire saved lanes. Details and qualification: [LAB-STABILIZATION.md](LAB-STABILIZATION.md).

@@ -15,13 +15,12 @@ and one button.
 
 - **Not a CyberArk product.** It is a community project, not reviewed, certified or supported by CyberArk. It
   drives the vendor's own installers, registration tools and hardening scripts; it does not replace them.
-- **Not tested for production.** Everything was tested with the **Lab** security profile. The Secure profile,
-  which keeps the vendor's security defaults and uses none of the lab shortcuts, exists in the commands but has
-  never been run.
+- **Lab deployments only.** A production-supported deployment is not planned. The legacy Secure CLI
+  configuration exists but is not a release goal.
 - **No media.** You supply your own licensed CyberArk download, license file and keys. No CyberArk file is part
   of this project.
 
-!!! danger "Production use is at your own risk"
+!!! danger "Only use disposable lab machines"
     PASeasyInstall comes under the MIT license **without warranty of any kind**. If you use it on systems that
     matter, you are responsible for checking the result against CyberArk's documentation, your own security
     requirements and your support agreements.

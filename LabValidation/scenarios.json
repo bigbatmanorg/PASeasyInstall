@@ -1,0 +1,336 @@
+{
+  "schemaVersion": 1,
+  "scope": "LAB_ONLY",
+  "requirements": {
+    "no_production_hosts": true,
+    "require_allowlist": true,
+    "require_snapshot_before_mutation": true,
+    "do_not_store_plaintext_secrets": true,
+    "run_serially_at_cluster_scale": true,
+    "documentation_version": "CyberArk 15.2 when media provided"
+  },
+  "scenarios": [
+    {
+      "id": "S01",
+      "name": "Primary baseline + real desktop UI",
+      "priority": "release-gate",
+      "topology": {
+        "Vault": 1,
+        "DRVault": 0,
+        "PVWA": 1,
+        "CPM": 1,
+        "PSM": 1,
+        "PSMP": 0,
+        "HTML5GW": 0,
+        "PTA": 0,
+        "AD": 0
+      },
+      "placement": "PVWA + CPM colocated; PSM separate",
+      "entrypoint": "WPF UI: media -> Primary -> counters -> server credentials -> Install",
+      "faults": [],
+      "acceptance": [
+        "Media scan identifies correct CyberArk 15.2 packages and keys before install",
+        "No Starter/Standard/Full preset tiles shown; counters and Primary/DR selector are visible",
+        "Primary installed, hardened and independently verified",
+        "PVWA registered before CPM and PSM Vault registrations; one Vault sign-in at a time",
+        "CPM service operational and PSM service registered/connected, lab check passes",
+        "Event timeline and redacted screenshots saved"
+      ],
+      "environment": "Disposable isolated Proxmox lab only; existing CyberArk media/license provided by operator; vendor OS prerequisites enforced",
+      "records_required": [
+        "run.json",
+        "controller events.jsonl",
+        "per-target state.json/events.jsonl",
+        "remote status.json (metadata only)",
+        "task attempt IDs and exact dispatch count",
+        "redacted service/health evidence",
+        "VM ID / baseline snapshot ID / guest boot identifiers",
+        "elapsed and blocked intervals",
+        "result PASS/FAIL/BLOCKED with factual RCA"
+      ]
+    },
+    {
+      "id": "S02",
+      "name": "Primary + DR with overlapping work",
+      "priority": "release-gate",
+      "topology": {
+        "Vault": 1,
+        "DRVault": 1,
+        "PVWA": 1,
+        "CPM": 1,
+        "PSM": 1,
+        "PSMP": 0,
+        "HTML5GW": 0,
+        "PTA": 0,
+        "AD": 0
+      },
+      "placement": "Primary and DR separate; PVWA+CPM colocated; PSM separate",
+      "entrypoint": "CLI or WPF Primary+DR",
+      "faults": [
+        "Artificially delay a replication cycle within the vendor-supported diagnostic window (no changes to PADR binaries or log content)"
+      ],
+      "acceptance": [
+        "DR starts preparing before Primary completes where permitted; only milestones gate it",
+        "PVWA/CPM/PSM proceed while DR waits; no global completion barrier",
+        "Fresh PADR cycle, metadata and replicated test Safe observed, not just service Running",
+        "DR wait emits phase/elapsed/max progress, including heartbeat during long waits",
+        "No false success for DR if its last acceptance check is still Running"
+      ],
+      "environment": "Disposable isolated Proxmox lab only; existing CyberArk media/license provided by operator; vendor OS prerequisites enforced",
+      "records_required": [
+        "run.json",
+        "controller events.jsonl",
+        "per-target state.json/events.jsonl",
+        "remote status.json (metadata only)",
+        "task attempt IDs and exact dispatch count",
+        "redacted service/health evidence",
+        "VM ID / baseline snapshot ID / guest boot identifiers",
+        "elapsed and blocked intervals",
+        "result PASS/FAIL/BLOCKED with factual RCA"
+      ]
+    },
+    {
+      "id": "S03",
+      "name": "Linux components and two independent integrations",
+      "priority": "release-gate-if-media-present",
+      "topology": {
+        "Vault": 1,
+        "DRVault": 0,
+        "PVWA": 1,
+        "CPM": 1,
+        "PSM": 1,
+        "PSMP": 1,
+        "HTML5GW": 1,
+        "PTA": 1,
+        "AD": 0
+      },
+      "placement": "PVWA+CPM colocated; PSMP+HTML5 Gateway colocated only if supported OS/container runtime; PTA separate supported EL8/9 host",
+      "entrypoint": "CLI Parallel",
+      "faults": [],
+      "acceptance": [
+        "PSMP preflight makes no OS package changes; prepare-tools installs missing archive tools only as its own durable action",
+        "PSMP SSH worker and hardening verification finish with typed status",
+        "HTML5 gateway registration begins after relevant PVWA+PSM+gateway Done signals, irrespective of PTA",
+        "PTA trust begins after relevant PVWA+PTA Done signals, irrespective of PSMP or DR",
+        "Gateway HTTP health and PVWA registration evidence recorded separately from browser session proof",
+        "PTA registration and service checks pass; Vault->PTA audit delivery marked NOT VERIFIED until actually proven"
+      ],
+      "environment": "Disposable isolated Proxmox lab only; existing CyberArk media/license provided by operator; vendor OS prerequisites enforced",
+      "records_required": [
+        "run.json",
+        "controller events.jsonl",
+        "per-target state.json/events.jsonl",
+        "remote status.json (metadata only)",
+        "task attempt IDs and exact dispatch count",
+        "redacted service/health evidence",
+        "VM ID / baseline snapshot ID / guest boot identifiers",
+        "elapsed and blocked intervals",
+        "result PASS/FAIL/BLOCKED with factual RCA"
+      ]
+    },
+    {
+      "id": "S04",
+      "name": "New Active Directory forest + domain joins/GPO",
+      "priority": "release-gate",
+      "topology": {
+        "Vault": 1,
+        "DRVault": 0,
+        "PVWA": 1,
+        "CPM": 1,
+        "PSM": 1,
+        "PSMP": 0,
+        "HTML5GW": 0,
+        "PTA": 0,
+        "AD": 1
+      },
+      "placement": "Dedicated DC; Vault workgroup; PVWA+CPM and PSM domain joined",
+      "entrypoint": "CLI or WPF Advanced: New domain",
+      "faults": [
+        "Normal join and hardening reboots, no synthetic failure"
+      ],
+      "acceptance": [
+        "Join tasks wait for forest Domain signal; Vault itself is not joined",
+        "Server DNS/name resolution and PVWA certificate trust survive reboots",
+        "GPO import and application sequenced after appropriate prerequisites",
+        "PSM domain installer account succeeds and services come back after hardening",
+        "Hardening GPOs only applied to the newly created lab domain, never an external domain"
+      ],
+      "environment": "Disposable isolated Proxmox lab only; existing CyberArk media/license provided by operator; vendor OS prerequisites enforced",
+      "records_required": [
+        "run.json",
+        "controller events.jsonl",
+        "per-target state.json/events.jsonl",
+        "remote status.json (metadata only)",
+        "task attempt IDs and exact dispatch count",
+        "redacted service/health evidence",
+        "VM ID / baseline snapshot ID / guest boot identifiers",
+        "elapsed and blocked intervals",
+        "result PASS/FAIL/BLOCKED with factual RCA"
+      ]
+    },
+    {
+      "id": "S05",
+      "name": "Multiple PVWA/CPM + cross-lane ordering",
+      "priority": "release-gate",
+      "topology": {
+        "Vault": 1,
+        "DRVault": 0,
+        "PVWA": 2,
+        "CPM": 2,
+        "PSM": 1,
+        "PSMP": 0,
+        "HTML5GW": 0,
+        "PTA": 0,
+        "AD": 0
+      },
+      "placement": "Two PVWAs on separate VMs; one CPM on a PVWA VM and one on its own VM; PSM separate",
+      "entrypoint": "CLI Parallel with component counts",
+      "faults": [],
+      "acceptance": [
+        "Every named Cert/Registered/Done signal exists before dispatch",
+        "First PVWA registration occurs before dependent registrations",
+        "Both CPM registrations await all PVWAs registered where configured",
+        "No concurrent Vault Administrator sign-in, even across runspaces",
+        "Both PVWA instances independently healthy; both CPM instances and PSM registered",
+        "No lane is skipped solely because its old journal says Succeeded; resume rechecks readiness"
+      ],
+      "environment": "Disposable isolated Proxmox lab only; existing CyberArk media/license provided by operator; vendor OS prerequisites enforced",
+      "records_required": [
+        "run.json",
+        "controller events.jsonl",
+        "per-target state.json/events.jsonl",
+        "remote status.json (metadata only)",
+        "task attempt IDs and exact dispatch count",
+        "redacted service/health evidence",
+        "VM ID / baseline snapshot ID / guest boot identifiers",
+        "elapsed and blocked intervals",
+        "result PASS/FAIL/BLOCKED with factual RCA"
+      ]
+    },
+    {
+      "id": "S06",
+      "name": "Verification interruption and exact-once action recovery",
+      "priority": "release-gate",
+      "topology": {
+        "Vault": 1,
+        "DRVault": 0,
+        "PVWA": 1,
+        "CPM": 0,
+        "PSM": 0,
+        "PSMP": 1,
+        "HTML5GW": 0,
+        "PTA": 0,
+        "AD": 0
+      },
+      "placement": "Vault, PVWA, PSMP separate",
+      "entrypoint": "CLI Parallel + controlled fault injection",
+      "faults": [
+        "After PSMP hardening action is durably Succeeded, interrupt only its read-only verification worker or controller observation",
+        "Separately interrupt staging BEFORE worker claim; never kill a worker just to test retry",
+        "Restore transport; Resume-PASRun without destructive RetryStep"
+      ],
+      "acceptance": [
+        "Action attempt ID remains unchanged after recovery",
+        "Verifier generation changes only after old verifier has a valid PID+boot identity and is provably inactive",
+        "No second hardening or installer action is dispatched",
+        "If initializer/claim provenance is missing, run stays Unknown and does not autonomously spawn another verifier",
+        "Read-only verifier completes and PSMP transitions to Succeeded with preserved attempt history"
+      ],
+      "environment": "Disposable isolated Proxmox lab only; existing CyberArk media/license provided by operator; vendor OS prerequisites enforced",
+      "records_required": [
+        "run.json",
+        "controller events.jsonl",
+        "per-target state.json/events.jsonl",
+        "remote status.json (metadata only)",
+        "task attempt IDs and exact dispatch count",
+        "redacted service/health evidence",
+        "VM ID / baseline snapshot ID / guest boot identifiers",
+        "elapsed and blocked intervals",
+        "result PASS/FAIL/BLOCKED with factual RCA"
+      ]
+    },
+    {
+      "id": "S07",
+      "name": "Unrelated failure isolation and later recovery",
+      "priority": "release-gate",
+      "topology": {
+        "Vault": 1,
+        "DRVault": 1,
+        "PVWA": 1,
+        "CPM": 1,
+        "PSM": 1,
+        "PSMP": 1,
+        "HTML5GW": 0,
+        "PTA": 1,
+        "AD": 0
+      },
+      "placement": "Independent Linux targets for PTA and PSMP; other roles separated or PVWA+CPM",
+      "entrypoint": "CLI Parallel + targeted bad credential",
+      "faults": [
+        "Use an invalid PTA root password (or deny PTA SSH) while all other hosts remain reachable",
+        "Fix only failed input; resume original run"
+      ],
+      "acceptance": [
+        "PTA failure is visible and does not stop Primary, DR, PVWA, CPM, PSM or PSMP",
+        "Integration blocked on PTA is marked explicitly; unrelated eligible work continues",
+        "No indefinite wait for a signal whose publisher failed",
+        "On resume, successful lanes are reverified, not replayed as mutations",
+        "PTA finishes after credential correction and its dependent trust integration completes"
+      ],
+      "environment": "Disposable isolated Proxmox lab only; existing CyberArk media/license provided by operator; vendor OS prerequisites enforced",
+      "records_required": [
+        "run.json",
+        "controller events.jsonl",
+        "per-target state.json/events.jsonl",
+        "remote status.json (metadata only)",
+        "task attempt IDs and exact dispatch count",
+        "redacted service/health evidence",
+        "VM ID / baseline snapshot ID / guest boot identifiers",
+        "elapsed and blocked intervals",
+        "result PASS/FAIL/BLOCKED with factual RCA"
+      ]
+    },
+    {
+      "id": "S08",
+      "name": "Forced controller stop and remote lock safety",
+      "priority": "release-gate",
+      "topology": {
+        "Vault": 1,
+        "DRVault": 0,
+        "PVWA": 1,
+        "CPM": 1,
+        "PSM": 0,
+        "PSMP": 1,
+        "HTML5GW": 0,
+        "PTA": 0,
+        "AD": 0
+      },
+      "placement": "Vault, PVWA+CPM and PSMP",
+      "entrypoint": "CLI Parallel; -Force controlled abort only after observing live remote worker",
+      "faults": [
+        "Stop-PASRun -Force during an executing detached action",
+        "Attempt a new run against the same target before reset",
+        "Restore all touched VMs to immutable golden snapshots, then explicitly release old locks with credentials"
+      ],
+      "acceptance": [
+        "Old run recorded Abandoned; no false claim that remote processes exited",
+        "New deployment blocked by retained target locks despite controller having stopped",
+        "No old detached worker remains after VM restoration",
+        "Locks are released only with explicit ReleaseLocksAfterReset after actual VM reset",
+        "Clean new deployment can start; evidence includes before/after VM snapshot identities and lock owner IDs"
+      ],
+      "environment": "Disposable isolated Proxmox lab only; existing CyberArk media/license provided by operator; vendor OS prerequisites enforced",
+      "records_required": [
+        "run.json",
+        "controller events.jsonl",
+        "per-target state.json/events.jsonl",
+        "remote status.json (metadata only)",
+        "task attempt IDs and exact dispatch count",
+        "redacted service/health evidence",
+        "VM ID / baseline snapshot ID / guest boot identifiers",
+        "elapsed and blocked intervals",
+        "result PASS/FAIL/BLOCKED with factual RCA"
+      ]
+    }
+  ]
+}

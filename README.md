@@ -15,8 +15,8 @@ Documentation: <https://bigbatmanorg.github.io/PASeasyInstall/>
 ![The installation page: every server is installed at the same time](Docs/images/window/15-run-installing.png)
 
 > [!WARNING]
-> **Made for labs.** Training, demos, proofs of concept, testing upgrades and integrations. Production use is at
-> your own risk. This is a community project. It is **not affiliated with, endorsed by or supported by CyberArk**.
+> **Disposable labs only.** Training, demos, proofs of concept and integration testing.
+> Production deployment support is not planned. This is a community project. It is **not affiliated with, endorsed by or supported by CyberArk**.
 > You supply your own licensed CyberArk installation media and license. No CyberArk file is part of this project.
 
 ## What you need
@@ -78,19 +78,13 @@ moved or changed.
 
 ![Media step: three places were added, and the window lists what each one holds](Docs/images/window/04-media-sources.png)
 
-**2. Lab.** Pick a ready-made lab or build your own with Custom.
+**2. Lab.** Choose **Primary Vault** or **Primary + DR Vault**, then use the `+`/`−`
+counters to select PVWA, CPM, PSM, PSM for SSH, HTML5 Gateway and PTA. There are no
+Starter/Standard/Full workflows: component counts are the normal path. CPM can share the PVWA
+server, and HTML5 Gateway can share a PSMP server. The **Advanced** switch optionally exposes
+Active Directory, an existing Vault, and specialized options. You can start with the defaults.
 
-| Lab | Installs | Servers |
-|---|---|---|
-| Starter | Vault, PVWA, CPM | 2 |
-| Standard | Starter plus PSM | 3 |
-| Full | Standard plus a DR Vault and PSM for SSH | 5 |
-| Custom | A new Vault, a Vault with DR or a Vault you already have, and up to two of each of PVWA, CPM, PSM, PSM for SSH, HTML5 Gateway and PTA | |
-
-In every lab CPM can share the PVWA server or get a server of its own, and the lab can stay without a domain, get
-a new Active Directory domain, or join a domain you already have.
-
-![Lab step: the ready-made labs, the server for CPM and the domain choice](Docs/images/window/06-lab.png)
+Updated desktop screenshots should be captured during S01 validation; older screenshots showing preset cards are obsolete.
 
 **3. Servers.** One line per server: its computer name, its address, the account and its password. Below it, the
 Vault passwords to set. **Next** checks that every server answers and that every account can sign in. Nothing is
@@ -182,7 +176,9 @@ Get-PASRun                                           # all runs, newest first
 Get-PASRunEvent -RunId <id> -Failed                  # what failed
 Resume-PASRun -RunId <id>                            # finished steps are checked again, the rest is installed
 Resume-PASRun -RunId <id> -RetryStep cpm01:install   # also run this failed step again
-Stop-PASRun -RunId <id> -CredentialMap $creds        # give the run up and release its locks on the servers
+Stop-PASRun -RunId <id>                            # abandon run; KEEP remote target locks
+# ONLY after restoring/rebuilding affected lab VMs:
+Stop-PASRun -RunId <id> -ReleaseLocksAfterReset -CredentialMap $creds
 Export-PASDiagnostics -RunId <id>                    # a ZIP without passwords for a bug report
 ```
 
@@ -207,8 +203,8 @@ Up to four instances of each component are accepted; two of each were tested.
 ## Limits
 
 - **Tested with** CyberArk PAM Self-Hosted 15.0 and 15.2, Windows Server 2022, Ubuntu 24.04 and Rocky Linux 9,
-  always with the **Lab** security profile. The Secure profile (trusted certificates, none of the lab shortcuts)
-  is the default of the commands but has never been run.
+  always with the **Lab** security profile. The legacy Secure CLI settings are unqualified;
+  implementing a production/Secure deployment mode is not planned.
 - **The window** was tested by script, also with real installations. It has not been tried by hand on a real
   desktop for every screen. It always uses the Lab profile.
 - **Not included:** Vault clusters and distributed Vaults, credential providers, upgrading or removing an
@@ -225,6 +221,18 @@ What exactly was tested, with which version and how: [Docs/STATUS.md](Docs/STATU
 - [Docs/STATUS.md](Docs/STATUS.md): what works, what is experimental, what comes later.
 - [Docs/DESIGN.md](Docs/DESIGN.md): how a run works inside and which files it leaves behind.
 - [Release notes](https://bigbatmanorg.github.io/PASeasyInstall/release-notes/).
+
+## Stability candidate and Proxmox lab validation
+
+This source ZIP contains a **lab-only stability candidate**, not a proven release. It adds
+readiness-driven parallel integrations, durable verification-only recovery, safer forced-stop
+lock retention, frozen Vault recipes, explicit Linux package preparation and DR progress events.
+The desktop now uses a single media → component counts → servers → install flow.
+
+Review [stabilization details](Docs/LAB-STABILIZATION.md) and the
+[autonomous Proxmox validation prompt](LabValidation/AGENT-PROMPT.md) with its eight focused
+[scenarios](LabValidation/scenarios.json). No CyberArk media, credentials or test VM images
+are distributed with this project.
 
 ## Development
 

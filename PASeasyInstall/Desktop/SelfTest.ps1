@@ -1,4 +1,4 @@
-# Scripted walk through the desktop window, for automated tests. Loaded by App.ps1 only with -SelfTest.
+﻿# Scripted walk through the desktop window, for automated tests. Loaded by App.ps1 only with -SelfTest.
 #
 # The walk does what a user does, in that order: it presses the buttons of the window through UI Automation
 # (so a button that is missing, hidden or disabled fails the walk), types into the fields, and checks what
@@ -17,10 +17,10 @@
 #   labFile          a saved lab file: it is opened first, as "Open a saved lab file" does, and the walk goes on
 #                    from the Media step with the choices of that file (preset, counts and domain are then left out)
 #   labName          name of the lab (Mock backend: a name with "fail" makes the first install step fail)
-#   preset           starter | standard | full | custom
-#   existingVault    address of an existing Vault (preset custom: components are added to it)
+#   preset           legacy mock fixture only; mapped to counter clicks (no preset tiles in the UI)
+#   existingVault    address of an existing Vault (Advanced option)
 #   domain           { "mode": "New" or "Existing", "name": "pam.lab" }; its form line is servers.dc or servers.domain
-#   counts           preset custom: { "PVWA": 1, "CPM": 0, "PSM": 0, "PSMP": 1, "HTML5GW": 0, "PTA": 0 }
+#   counts           desired component counters: { "PVWA": 1, "CPM": 0, "PSM": 0, "PSMP": 1, "HTML5GW": 0, "PTA": 0 }
 #   advanced         true: switch Advanced on at the Servers step and keep it on
 #   servers          { "<slot key>": { "name": "...", "address": "..." } }; slot keys as in Get-PASUIServerSlots.
 #                    Left out: made-up addresses 192.0.2.x (Mock backend only)
@@ -340,20 +340,32 @@ function Invoke-PASUITestWalk {
     Save-PASUISnapshot '2-media-found' -Region 'MediaResult'
 
     Invoke-PASUITestClick 'act-next'
-    Assert-PASUIShown 'view' 'What do you want to build' 'lab step'
-    if ($fromFile) {
-        Assert-PASUITest ([string]$S.Preset -eq 'custom') 'the lab of the file is shown as a Custom lab'
-    } else {
-        Invoke-PASUITestClick ('preset-' + [string]$Scenario.preset)
-        Assert-PASUITest (($ui.OptAdvanced.Visibility -eq 'Visible') -eq ([string]$Scenario.preset -eq 'custom')) 'the Advanced switch is on the Lab step only for the Custom lab'
+    Assert-PASUIShown 'view' 'Choose the lab components' 'lab step'
+    Assert-PASUITest ($ui.OptAdvanced.Visibility -eq 'Visible') 'Advanced options can always be opened from the lab step'
+    Assert-PASUITest ([string]$S.Preset -eq 'custom') 'the lab wizard always uses direct component selection'
+    if (-not $fromFile -and $Scenario.PSObject.Properties['preset']) {
+        # Older mock fixtures use a preset name to describe their desired topology;
+        # exercise the real user-facing counters instead of removed preset buttons.
+        $legacyPreset = @((Get-PASUIPresets) | Where-Object { $_.Id -eq [string]$Scenario.preset })
+        if ($legacyPreset.Count -and $legacyPreset[0].Counts) {
+            $legacy = $legacyPreset[0]
+            if ($S.VaultMode -ne $legacy.VaultMode) { Invoke-PASUITestClick ('vault-' + [string]$legacy.VaultMode) }
+            foreach ($type in $script:PASUIComponentTypes) {
+                $wanted = [int]$legacy.Counts[$type]
+                while ([int]$S.Counts[$type] -lt $wanted) { Invoke-PASUITestClick "cnt-$type-inc" }
+                while ([int]$S.Counts[$type] -gt $wanted) { Invoke-PASUITestClick "cnt-$type-dec" }
+            }
+        }
     }
+    if ($advanced -and -not $S.Advanced) { Invoke-PASUITestClick 'opt-advanced' }
     $existing = ''
     if ($Scenario.PSObject.Properties['existingVault']) {
         $existing = [string]$Scenario.existingVault
     }
     if ($existing) {
+        if (-not $S.Advanced) { Invoke-PASUITestClick 'opt-advanced' }
         Invoke-PASUITestClick 'vault-Existing'
-        Assert-PASUIShown 'view' 'A Vault I already have' 'custom lab'
+        Assert-PASUIShown 'view' 'Use existing Vault' 'advanced existing Vault topology'
     }
     if ($Scenario.PSObject.Properties['counts']) {
         foreach ($type in $script:PASUIComponentTypes) {
@@ -370,6 +382,7 @@ function Invoke-PASUITestWalk {
         }
     }
     if ($Scenario.PSObject.Properties['domain']) {
+        if (-not $S.Advanced) { Invoke-PASUITestClick 'opt-advanced' }
         Invoke-PASUITestClick ('domain-' + [string]$Scenario.domain.mode)
         Assert-PASUIShown 'view' 'DNS name of the domain' 'domain chosen'
         Set-PASUITestField 'f-domainname' ([string]$Scenario.domain.name)
@@ -396,7 +409,10 @@ function Invoke-PASUITestWalk {
     Invoke-PASUITestClick 'act-next'
     Assert-PASUIShown 'ServersIssues' 'Enter the (address|password)' 'missing entries are listed'
     if ($advanced) {
-        Invoke-PASUITestClick 'opt-advanced'
+        # Advanced may already be on from the Lab step (existing Vault, domain): pressing it again would switch it off.
+        if (-not $S.Advanced) {
+            Invoke-PASUITestClick 'opt-advanced'
+        }
         Assert-PASUIShown 'view' 'Address of this computer' 'the advanced view shows the network card'
         Assert-PASUIShown 'view' 'Apply the vendor hardening' 'the advanced view offers to install without hardening'
     }

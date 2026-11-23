@@ -326,6 +326,8 @@ function Invoke-PASWorkflow {
         Seq = 0
         Redactions = $redactions
         Echo = (-not $Quiet)
+        # Steps whose operator retry (-Retry) repeats only an unclaimed read-only verification (Get-PASDurableCheck).
+        VerifierRetry = @()
     }
     $runtimeValues = @{ RunId = $RunId; TargetName = $plan.TargetName }
     $remoteLock = $false
@@ -418,7 +420,20 @@ function Invoke-PASWorkflow {
                     (Get-PASValue $priorCheck 'consumed' $null) -isnot [bool] -or
                     -not $priorCheck.consumed -or
                     $priorCheck.status -ne 'Completed') {
-                    throw 'PAExecUnknown: an unconsumed durable verifier must be reconciled with ordinary Resume before retrying its action'
+                    # The action was acknowledged and only its read-only verifier is unresolved (for example its
+                    # staging was cut off before a worker claimed it). The operator's retry repeats that
+                    # verification only, never the action; Get-PASDurableCheck still requires the old verifier
+                    # to be provably not running.
+                    $verifierOnly = ([bool](Get-PASValue $current 'actionAcknowledged' $false) -and
+                        $priorCheck -is [Collections.IDictionary] -and
+                        $priorCheck.status -eq 'Dispatched' -and
+                        ([bool](Get-PASValue $step 'VerifyRetrySafe' $false) -or $durableBash))
+                    if (-not $verifierOnly) {
+                        throw 'PAExecUnknown: an unconsumed durable verifier must be reconciled with ordinary Resume before retrying its action'
+                    }
+                    $retrying = $false
+                    $context.VerifierRetry = @($context.VerifierRetry) + @($id)
+                    Add-PASEvent $context 'VerificationRetryRequested' $id "Operator retry: the action stays as it is; only its unresolved verifier $($priorCheck.attemptId) is checked and, if it never ran, replaced" 'Warning'
                 }
             }
             $reconciled = $false

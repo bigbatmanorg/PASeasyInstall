@@ -392,6 +392,19 @@ function New-PASComponentWorkflow {
             Verify = $verifyPath
             TimeoutSeconds = 600
         }
+        if ($type -eq 'PSMP') {
+            # Preflight is observational; package installation and needrestart policy
+            # are an explicit, durable, mutating action. Its own verifier is read-only.
+            $steps += @{
+                Id = 'prepare-tools'
+                Script = $scriptPath
+                Inputs = @{Stage = 'PrepareTools'; Settings = @{ConfigRef = ('Values.Components.' + $id) } }
+                Verify = $verifyPath
+                Mode = 'Detached'
+                # Two package manager calls of up to 600 seconds each, plus the rest.
+                TimeoutSeconds = 1800
+            }
+        }
         $stages = @(Get-PASComponentStageNames $type)
         foreach ($stage in $stages) {
             $step = @{

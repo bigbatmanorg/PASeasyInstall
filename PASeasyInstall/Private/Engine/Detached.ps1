@@ -475,6 +475,26 @@ function Get-PASDetachedStatus {
             $workerActive = ($null -ne $worker -and [string]$worker.CommandLine -like ('*' + (Split-Path $dir -Leaf) + '*'))
         }
         $data | Add-Member -NotePropertyName workerActive -NotePropertyValue ([bool]$workerActive) -Force
+        $progressPath = Join-Path $dir 'progress.json'
+        if (Test-Path -LiteralPath $progressPath -PathType Leaf) {
+            try {
+                $progressFile = Get-Item -LiteralPath $progressPath -ErrorAction Stop
+                if ($progressFile.Length -gt 0 -and $progressFile.Length -le 4096) {
+                    $progress = Get-Content -LiteralPath $progressPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+                    $allowed = @('WaitingForCycle','WaitingForMetadata','WaitingForTestSafe','WaitingForLog','Complete','TimedOut')
+                    if ($progress.schemaVersion -eq 1 -and $progress.kind -eq 'DRReplication' -and
+                        [string]$progress.phase -cin $allowed -and
+                        [int]$progress.elapsedSeconds -ge 0 -and [int]$progress.maxSeconds -gt 0) {
+                        $data | Add-Member -NotePropertyName progress -NotePropertyValue @{
+                            kind = 'DRReplication'
+                            phase = [string]$progress.phase
+                            elapsedSeconds = [int]$progress.elapsedSeconds
+                            maxSeconds = [int]$progress.maxSeconds
+                        } -Force
+                    }
+                }
+            } catch { } # Sideband is advisory; terminal state remains authoritative.
+        }
         return ($data | ConvertTo-Json -Compress -Depth 10)
     }
     return ConvertTo-PASHashtable (ConvertFrom-Json -InputObject ([string]$result))
@@ -504,6 +524,8 @@ function Wait-PASDetached {
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds + 120)
     $lastError = ''
     $lastState = ''
+    $lastProgressPhase = ''
+    $lastProgressEventUtc = [DateTime]::MinValue
     $failures = 0
     $kicked = $false
     while ([DateTime]::UtcNow -lt $deadline) {
@@ -514,6 +536,18 @@ function Wait-PASDetached {
                 $Context) {
                 Add-PASEvent $Context 'DetachedStatus' $TaskId ("remote attempt $AttemptId is $($status.state)")
                 $lastState = $status.state
+            }
+            $progress = Get-PASValue $status 'progress' $null
+            if ($Context -and $progress -and [string](Get-PASValue $progress 'kind' '') -eq 'DRReplication') {
+                $phase = [string](Get-PASValue $progress 'phase' '')
+                if ($phase -ne $lastProgressPhase -or
+                    [DateTime]::UtcNow - $lastProgressEventUtc -ge [timespan]::FromSeconds(60)) {
+                    $lastProgressPhase = $phase
+                    $lastProgressEventUtc = [DateTime]::UtcNow
+                    $elapsed = [int](Get-PASValue $progress 'elapsedSeconds' 0)
+                    $limit = [int](Get-PASValue $progress 'maxSeconds' 0)
+                    Add-PASEvent $Context 'DetachedProgress' $TaskId ("DR replication: $phase ($elapsed / $limit seconds)")
+                }
             }
             if ($status.state -in @('Succeeded', 'Failed', 'Interrupted', 'NotStarted', 'Missing')) { return $status }
             if ($AllowStart -and $status.state -eq 'Dispatched' -and (Get-PASValue $status 'taskState' '') -eq 'Ready' -and -not $kicked) {

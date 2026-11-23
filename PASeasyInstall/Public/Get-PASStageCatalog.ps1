@@ -51,6 +51,7 @@ function Get-PASStageCatalog {
                 }
                 $stages += 'media-upload'
                 $stages += 'preflight'
+                if ($type -eq 'PSMP') { $stages += 'prepare-tools' }
                 $stages += @(Get-PASComponentStageNames $type | ForEach-Object { $_.ToLowerInvariant() })
             }
 

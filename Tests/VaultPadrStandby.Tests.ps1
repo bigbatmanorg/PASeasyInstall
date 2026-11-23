@@ -120,6 +120,29 @@ Describe 'PADR manual standby guards (isolated service and real temporary INI fi
         Should -Invoke Restart-Service -Times 0
         Should -Invoke Start-Service -Times 0
     }
+    It 'Wait accepts a test Safe that the DR Vault replicated before this step started (fresh cycle after it)' {
+        [void](Set-PASeasyPadrIniValue $file EnableFailover No)
+        $script:PadrService.Status = 'Running'
+        $logdir = Join-Path $settings.InstallRoot 'PADR/Logs'
+        [void](New-Item $logdir -ItemType Directory -Force)
+        $ci = [Globalization.CultureInfo]::InvariantCulture
+        $old = (Get-Date).AddMinutes(-3).ToString('dd/MM/yyyy HH:mm:ss', $ci)
+        $now = (Get-Date).AddSeconds(5).ToString('dd/MM/yyyy HH:mm:ss', $ci)
+        $runId = '0123456789abcdef0123456789abcdef'
+        $safe = 'PAExecRepl' + $runId.Substring(0, 12)
+        $lines = @(
+            ('[{0}] PAREP0213I Safe [{1}(12)] Replicated [3] files' -f $old, $safe),
+            ('[{0}] PADR0010I Replication cycle completed' -f $old),
+            ('[{0}] PADR0010I Replication cycle completed' -f $now),
+            ('[{0}] PADR0099I Metadata replication' -f $now))
+        [IO.File]::WriteAllText((Join-Path $logdir 'padr.log'), ($lines -join "`n"))
+        $result = & ([scriptblock]::Create($wait)) -Settings $settings -Minutes 1 -RunId $runId -TestSafe
+        $result.Message | Should -Match ([regex]::Escape($safe) + ' replicated')
+        # Without any replication line for this run's Safe the step does not complete.
+        [IO.File]::WriteAllText((Join-Path $logdir 'padr.log'), (($lines | Select-Object -Skip 1) -join "`n"))
+        Mock Start-Sleep {}
+        { & ([scriptblock]::Create($wait)) -Settings $settings -Minutes 0 -RunId $runId -TestSafe } | Should -Throw '*No fresh PADR cycle*'
+    }
     It 'independent installed verification refuses the native automatic default' {
         $settings.PackagesRoot = Join-Path $TestDrive packages
         $result = & ([scriptblock]::Create($installed)) -Settings $settings

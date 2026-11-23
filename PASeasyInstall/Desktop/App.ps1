@@ -1143,11 +1143,6 @@ function Invoke-PASUIClick {
             Show-PASUIScreen $Matches[1]
             return
         }
-        '^preset-(\w+)$' {
-            Set-PASUIPreset $S $Matches[1]
-            Show-PASUIScreen 'lab'
-            return
-        }
         '^vault-(Primary|PrimaryDR|Existing)$' {
             $S.VaultMode = $Matches[1]
             Show-PASUIScreen 'lab'

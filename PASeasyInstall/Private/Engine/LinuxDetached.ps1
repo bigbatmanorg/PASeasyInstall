@@ -136,7 +136,7 @@ if [ "$state" = Running ] || [ "$state" = Succeeded ] || [ "$state" = Failed ]; 
 fi
 if [ "$state" = Running ]; then
  pid=$(jq -r .pid "$D/status.json"); boot=$(jq -r .bootId "$D/status.json")
- if [ "$boot" != "$(cat /proc/sys/kernel/random/boot_id)" ] || [ ! -r "/proc/$pid/cmdline" ] || ! tr '\0' ' ' <"/proc/$pid/cmdline" | grep -Fq -- "$D"; then jq '.state="Interrupted" | .message="Linux runner stopped without a terminal result" | .exitCode=null' "$D/status.json"; exit 0; fi
+ if [ "$boot" != "$(cat /proc/sys/kernel/random/boot_id)" ] || [ ! -r "/proc/$pid/cmdline" ] || ! tr '\0' ' ' <"/proc/$pid/cmdline" | grep -Fq -- "$D"; then state=Interrupted; fi
 fi
 if [ "$state" = Dispatched ]; then
  if ! jq -e --arg id "${D##*/}" --arg boot "$(cat /proc/sys/kernel/random/boot_id)" '.schemaVersion==2 and .attemptId==$id and .stagedBootId==$boot' "$D/status.json" >/dev/null; then jq '.state="Interrupted" | .reason="staged boot identity missing or changed"' "$D/status.json"; exit 0; fi
@@ -191,7 +191,7 @@ pid=$(jq -r '.pid // 0' "$D/status.json"); boot=$(jq -r '.bootId // ""' "$D/stat
 case "$pid" in ''|*[!0-9]*) pid=0;; esac
 if [ "$boot" = "$(cat /proc/sys/kernel/random/boot_id)" ] && [ -r "/proc/$pid/cmdline" ] && tr '\0' ' ' <"/proc/$pid/cmdline" | grep -Fq -- "$D"; then worker_active=true; fi
 if linux_worker_active;then worker_active=true;fi
-jq --argjson active "$worker_active" '.workerActive=$active' "$D/status.json"
+jq --arg state "$state" --argjson active "$worker_active" '.state=$state | .workerActive=$active | if $state=="Interrupted" then .message="Linux runner stopped without a terminal result" | .exitCode=null else . end' "$D/status.json"
 '@
     $raw = Invoke-PASLinuxControl $Target ((Get-PASLinuxAttemptGuard $AttemptId -ExistingOnly -Secrets) + $code.Replace('__DIR__', $dir).Replace('__UNIT__', $unit))
     $status = ConvertTo-PASHashtable (ConvertFrom-Json -InputObject $raw)
@@ -204,6 +204,15 @@ jq --argjson active "$worker_active" '.workerActive=$active' "$D/status.json"
             $contract -eq 'Object') { throw 'PAExecUnknown: successful Linux Object attempt has no terminal result marker; retain the claim and inspect evidence' }
         if ($marker.Found) {
             $terminal = $marker.Value
+            if ($terminal.Contains('Passed') -and $terminal.Passed -is [bool]) {
+                $status.check = @{
+                    schemaVersion = 1
+                    passed = [bool]$terminal.Passed
+                    message = [string](Get-PASValue $terminal 'Message' '')
+                    evidence = @(Get-PASValue $terminal 'Evidence' @())
+                    sessionClosed = $true
+                }
+            }
             if ($terminal.Contains('Data')) { $status.data = $terminal.Data }
             if ($terminal.Contains('Changed') -and $terminal.Changed -is [bool]) { $status.changed = $terminal.Changed }
             if ($terminal.Contains('Message')) { $status.message = Limit-PASText ([string]$terminal.Message) 2000 }

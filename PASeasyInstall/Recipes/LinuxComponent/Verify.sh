@@ -235,6 +235,7 @@ case "$stage" in
     if [[ $type = PTA ]]; then
       if [[ -f $media ]] && pta_os_preflight && pta_filesystem_preflight; then passed=true;fi
     else [[ -f "$media" ]] && passed=true;fi;;
+  PrepareTools) command -v unzip >/dev/null && command -v zipinfo >/dev/null && passed=true;;
   Extract) [[ -d "$root/payload" && -n "$(ls -A "$root/payload")" ]] && passed=true;;
   Install)
     if [[ $type = PSMP ]]; then [[ -x /opt/CARKpsmp/bin/envmanager ]] && passed=true

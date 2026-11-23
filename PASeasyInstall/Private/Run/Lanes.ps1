@@ -11,7 +11,7 @@
 #             PvwaRegistered  the first PVWA finished its step 'register'
 #             Registered:<id> PVWA or CPM <id> finished its step 'register'
 #             Cert:<id>       PVWA <id> has its HTTPS certificate (its first step, 'certificate')
-#             Done:<id>       PVWA <id> is installed and verified
+#             Done:<id>       component <id> is installed and verified
 #             Fail:<signal>   the lane that would have set <signal> failed: who waits for it gives up
 #             Cancel          the lanes are being taken down (set only when the run ends)
 #   What waits for what (see Docs\PARALLEL.md):
@@ -29,7 +29,7 @@
 #   A lane that fails stops only what depends on it. Registered:<id> is an order, not a need: when that server
 #   fails, those that waited for it go on. Everything else in the list is a need: who waits for it is not
 #   installed, and says so. The other servers are installed to the end, then the run ends Failed.
-# What follows the lanes stays in order in the controller: gateway registration, PTA trust, GPOs.
+# Gateway registration and PTA trust are dependency-ready integration work; domain GPOs remain at the end.
 
 function Get-PASRunLanes {
     <# The lanes of a configuration, in the order they are started. Each lane:
@@ -106,14 +106,14 @@ function Get-PASLaneComponentGate {
     $type = [string]$Component.type
     $pvwas = @($Config.components | Where-Object { $_.type -eq 'PVWA' } | ForEach-Object { [string]$_.id })
     $cpms = @($Config.components | Where-Object { $_.type -eq 'CPM' } | ForEach-Object { [string]$_.id })
-    $gate = @{ StartAfter = @(); VaultAfter = @('Vault'); StepSignals = @{}; DoneSignals = @() }
+    $gate = @{ StartAfter = @(); VaultAfter = @('Vault'); StepSignals = @{}; DoneSignals = @('Done:' + $id) }
     if ([string](Get-PASValue (Get-PASValue $Component 'options' $null) 'pvwaTrustFrom' '')) {
         $gate.StartAfter = @($pvwas | ForEach-Object { 'Cert:' + $_ })
     }
     if ($type -eq 'PVWA') {
         $gate.StepSignals['certificate'] = @('Cert:' + $id)
         $gate.StepSignals['register'] = @('Registered:' + $id)
-        $gate.DoneSignals = @(('Cert:' + $id), ('Registered:' + $id), ('Done:' + $id))
+        $gate.DoneSignals += @(('Cert:' + $id), ('Registered:' + $id))
         if ($pvwas.Count -and $pvwas[0] -eq $id) {
             $gate.StepSignals['register'] += 'PvwaRegistered'
             $gate.DoneSignals += 'PvwaRegistered'
@@ -127,7 +127,7 @@ function Get-PASLaneComponentGate {
         }
         $gate.VaultAfter += @($pvwas | ForEach-Object { 'Registered:' + $_ })
         $gate.StepSignals['register'] = @('Registered:' + $id)
-        $gate.DoneSignals = @('Registered:' + $id)
+        $gate.DoneSignals += 'Registered:' + $id
     } elseif ($type -eq 'PTA') {
         # The PTA configuration names the PVWA and signs in through it: the PVWA servers must be finished.
         $gate.VaultAfter += @($pvwas | ForEach-Object { 'Done:' + $_ })
@@ -162,10 +162,12 @@ function New-PASLaneSignals {
     foreach ($pvwa in $pvwas) {
         $signals['Registered:' + [string]$pvwa.id] = New-Object System.Threading.ManualResetEvent -ArgumentList $false
         $signals['Cert:' + [string]$pvwa.id] = New-Object System.Threading.ManualResetEvent -ArgumentList $false
-        $signals['Done:' + [string]$pvwa.id] = New-Object System.Threading.ManualResetEvent -ArgumentList $false
     }
     foreach ($cpm in @($components | Where-Object { $_.type -eq 'CPM' })) {
         $signals['Registered:' + [string]$cpm.id] = New-Object System.Threading.ManualResetEvent -ArgumentList $false
+    }
+    foreach ($component in @($components | Where-Object { $_.type -notin @('AD', 'Vault', 'DRVault') })) {
+        $signals['Done:' + [string]$component.id] = New-Object System.Threading.ManualResetEvent -ArgumentList $false
     }
     # Every signal that is a need has a second handle that says "this will never come".
     foreach ($name in @($signals.Keys | Where-Object { $_ -ne 'Cancel' -and $_ -notlike 'Registered:*' })) {
@@ -178,15 +180,122 @@ function Get-PASLaneGate {
     # The gate for the named signals: the handles to wait for, and those that end the wait (the run is being
     # taken down, or the lane that would have set one of the signals failed).
     param([hashtable]$Signals, [string[]]$Names)
-    $known = @($Names | Where-Object { $_ -and $Signals.ContainsKey($_) })
-    $cancel = @($Signals.Cancel) + @($known | Where-Object { $Signals.ContainsKey('Fail:' + $_) } | ForEach-Object { $Signals['Fail:' + $_] })
-    return @{ Wait = @($known | ForEach-Object { $Signals[$_] }); Cancel = $cancel }
+    $requested = @($Names | Where-Object { $_ } | Select-Object -Unique)
+    $missing = @($requested | Where-Object { -not $Signals.ContainsKey($_) })
+    if ($missing.Count) { throw ('Invalid workflow dependencies: ' + ($missing -join ', ')) }
+    $cancel = @($Signals.Cancel) + @($requested | Where-Object { $Signals.ContainsKey('Fail:' + $_) } | ForEach-Object { $Signals['Fail:' + $_] })
+    return @{ Wait = @($requested | ForEach-Object { $Signals[$_] }); Cancel = $cancel;
+        Names = $requested; TimeoutSeconds = 14400 }
 }
 
 function Wait-PASLaneSignal {
     # Waits until the named signals are set. Throws PASLaneStopped when one of them will never come.
     param([hashtable]$Signals, [string[]]$Names)
     [void](Wait-PASVaultGate (Get-PASLaneGate $Signals $Names))
+}
+
+
+function Assert-PASLaneSignalPlan {
+    # Fail before remote dispatch if a dependency references a signal with no producer.
+    # Per-host dependencies are enforced by the scheduler; this validates all named gates.
+    param([Parameter(Mandatory)]$Config, [Parameter(Mandatory)][object[]]$Lanes)
+    $signals = New-PASLaneSignals -Config $Config
+    try {
+        foreach ($component in @($Config.components | Where-Object { $_.type -notin @('AD','Vault','DRVault') })) {
+            $gate = Get-PASLaneComponentGate -Config $Config -Component $component
+            [void](Get-PASLaneGate -Signals $signals -Names @($gate.StartAfter))
+            [void](Get-PASLaneGate -Signals $signals -Names @($gate.VaultAfter))
+            foreach ($key in @($gate.StepSignals.Keys)) {
+                foreach ($name in @($gate.StepSignals[$key])) {
+                    if (-not $signals.ContainsKey([string]$name)) {
+                        throw "Signal '$name' published by $($component.id):$key has no declaration"
+                    }
+                }
+            }
+        }
+        $producers = @{}
+        foreach ($lane in $Lanes) {
+            foreach ($signal in @(Get-PASLaneOwedSignals -Config $Config -Lane $lane)) {
+                if ($producers.ContainsKey($signal)) { throw "Signal '$signal' has multiple producer lanes" }
+                $producers[$signal] = [string]$lane.Name
+            }
+        }
+        $laneByComponent = @{}
+        foreach ($lane in $Lanes) {
+            foreach ($id in @(@($lane.Components) + @(Get-PASValue $lane 'After' @()))) {
+                $laneByComponent[[string]$id] = [string]$lane.Name
+            }
+        }
+        # Inside a host lane execution is sequential. A gate published by a later
+        # component in that same lane (or by itself) cannot ever open in time.
+        # Cross-lane cycle checks alone cannot detect this deadlock.
+        $componentIndex = @{}
+        foreach ($lane in $Lanes) {
+            $index = 0
+            foreach ($id in @(@($lane.Components) + @(Get-PASValue $lane 'After' @()))) {
+                $componentIndex[[string]$id] = $index
+                $index++
+            }
+        }
+        $producerComponent = @{}
+        foreach ($component in @($Config.components | Where-Object { $_.type -notin @('AD', 'Vault', 'DRVault') })) {
+            $gate = Get-PASLaneComponentGate -Config $Config -Component $component
+            foreach ($signal in @(@($gate.DoneSignals) + @($gate.StepSignals.Values | ForEach-Object { $_ }))) {
+                if ($signal) { $producerComponent[[string]$signal] = [string]$component.id }
+            }
+        }
+        # Deadlock check per component, not per server lane: a lane is a sequence, and a lane-level cycle is
+        # often harmless (lane A = PVWA1 then CPM1, lane B = PVWA2: PVWA2 waits for PVWA1's registration and CPM1
+        # for PVWA2's; nothing waits for something that comes later). Nodes are components; an edge goes from a
+        # component to the producer of every signal it waits for, and to the component before it in its lane.
+        $edges = @{}
+        foreach ($component in @($Config.components | Where-Object { $_.type -notin @('AD','Vault','DRVault') })) {
+            $edges[[string]$component.id] = @()
+        }
+        foreach ($lane in $Lanes) {
+            $previous = ''
+            foreach ($id in @(@($lane.Components) + @(Get-PASValue $lane 'After' @()))) {
+                if (-not $edges.ContainsKey([string]$id)) { continue }
+                if ($previous) { $edges[[string]$id] += $previous }
+                $previous = [string]$id
+            }
+        }
+        foreach ($component in @($Config.components | Where-Object { $_.type -notin @('AD','Vault','DRVault') })) {
+            $gate = Get-PASLaneComponentGate -Config $Config -Component $component
+            foreach ($name in @(@($gate.StartAfter) + @($gate.VaultAfter))) {
+                if (-not $signals[$name].WaitOne(0) -and -not $producers.ContainsKey($name)) {
+                    throw "Dependency '$name' for '$($component.id)' cannot be published by any lane"
+                }
+                $consumerId = [string]$component.id
+                if (-not $producerComponent.ContainsKey($name)) { continue }
+                $sourceId = [string]$producerComponent[$name]
+                $owner = [string]$laneByComponent[$consumerId]
+                if ($owner -and $producers.ContainsKey($name) -and [string]$producers[$name] -eq $owner -and
+                    [int]$componentIndex[$sourceId] -ge [int]$componentIndex[$consumerId]) {
+                    throw "Cyclic or forward dependency '$name': $consumerId waits for $sourceId in the same server lane"
+                }
+                if ($sourceId -ne $consumerId) { $edges[$consumerId] += $sourceId }
+            }
+        }
+        $visiting = @{}
+        $visited = @{}
+        function Assert-PASLaneAcyclicVisit {
+            param([string]$Name, [hashtable]$Edges, [hashtable]$Visiting, [hashtable]$Visited)
+            if ($Visiting.ContainsKey($Name)) { throw "Cyclic deployment dependency involving component '$Name'" }
+            if ($Visited.ContainsKey($Name)) { return }
+            $Visiting[$Name] = $true
+            foreach ($provider in @($Edges[$Name] | Select-Object -Unique)) {
+                Assert-PASLaneAcyclicVisit -Name ([string]$provider) -Edges $Edges -Visiting $Visiting -Visited $Visited
+            }
+            $Visiting.Remove($Name)
+            $Visited[$Name] = $true
+        }
+        foreach ($node in @($edges.Keys)) {
+            Assert-PASLaneAcyclicVisit -Name ([string]$node) -Edges $edges -Visiting $visiting -Visited $visited
+        }
+    } finally {
+        foreach ($handle in @($signals.Values)) { $handle.Dispose() }
+    }
 }
 
 function Get-PASLaneOwedSignals {
@@ -213,11 +322,29 @@ function Get-PASLaneOwedSignals {
     return @($names | Where-Object { $_ } | Select-Object -Unique)
 }
 
+function Get-PASLaneConsumedSignals {
+    # The names of the signals somebody waits for: a component gate (before it starts or before it signs in to
+    # the Vault) or an integration (gateway registration, PTA trust). Every component publishes Done:<id>,
+    # but a failed lane holds up only those signals that appear here.
+    param([Parameter(Mandatory)]$Config)
+    $names = @()
+    foreach ($component in @($Config.components | Where-Object { $_.type -notin @('AD', 'Vault', 'DRVault') })) {
+        $gate = Get-PASLaneComponentGate -Config $Config -Component $component
+        $names += @($gate.StartAfter)
+        $names += @($gate.VaultAfter)
+    }
+    foreach ($job in @(Get-PASParallelFinalizationJobs -Config $Config)) {
+        $names += @($job.DependsOn)
+    }
+    return @($names | Where-Object { $_ } | Select-Object -Unique)
+}
+
 function Set-PASLaneFailed {
     # A lane ended with an error: what it still owed will never come. A signal that is only an order
     # (Registered:<id>) is set, so that who waited for its turn goes on; a signal that is a need gets its
     # Fail handle set, so that who waits for it gives up. Returns the names of the needs that failed.
-    param([hashtable]$Signals, [string[]]$Owed)
+    # -Consumed (Get-PASLaneConsumedSignals): when given, only needs that somebody waits for are returned.
+    param([hashtable]$Signals, [string[]]$Owed, [string[]]$Consumed)
     $failed = @()
     foreach ($name in @($Owed)) {
         if (-not $Signals.ContainsKey($name) -or $Signals[$name].WaitOne(0)) {
@@ -225,7 +352,9 @@ function Set-PASLaneFailed {
         }
         if ($Signals.ContainsKey('Fail:' + $name)) {
             [void]$Signals['Fail:' + $name].Set()
-            $failed += $name
+            if ($null -eq $Consumed -or $Consumed -contains $name) {
+                $failed += $name
+            }
         } else {
             [void]$Signals[$name].Set()
         }
@@ -390,6 +519,133 @@ function Invoke-PASLane {
     return $result
 }
 
+function Get-PASParallelFinalizationJobs {
+    # Only direct component readiness matters; DR replication and unrelated servers never gate integrations.
+    param([Parameter(Mandatory)]$Config)
+    $pvwas = @($Config.components | Where-Object { $_.type -eq 'PVWA' } | ForEach-Object { [string]$_.id })
+    $psms = @($Config.components | Where-Object { $_.type -eq 'PSM' } | ForEach-Object { [string]$_.id })
+    $html = @($Config.components | Where-Object { $_.type -eq 'HTML5GW' } | ForEach-Object { [string]$_.id })
+    $ptas = @($Config.components | Where-Object { $_.type -eq 'PTA' } | ForEach-Object { [string]$_.id })
+    # Both integrations run on the first PVWA server (the gateway one also restarts its application pool):
+    # everything else installed on that server must be finished first, and the gateway waits for the PTA
+    # servers, whose registration signs in through that PVWA.
+    $sameHost = @()
+    if ($pvwas.Count) {
+        $first = @($Config.components | Where-Object { [string]$_.id -eq $pvwas[0] })[0]
+        $firstHost = [string](Get-PASValue $first 'host' '')
+        $sameHost = @($Config.components | Where-Object {
+                $firstHost -and [string](Get-PASValue $_ 'host' '') -eq $firstHost -and
+                [string]$_.type -notin @('AD', 'Vault', 'DRVault') } | ForEach-Object { [string]$_.id })
+    }
+    $jobs = @()
+    if ($html.Count) {
+        if (-not $pvwas.Count) { throw 'HTML5 Gateway registration requires a PVWA in the configuration' }
+        $jobs += ,@{ Name = 'GatewayRegistration'; DependsOn = @($pvwas + $psms + $html + $ptas + $sameHost | Select-Object -Unique | ForEach-Object { 'Done:' + $_ }) }
+    }
+    if ($ptas.Count) {
+        if (-not $pvwas.Count) { throw 'PTA trust requires a PVWA in the configuration' }
+        $jobs += ,@{ Name = 'PtaTrust'; DependsOn = @($pvwas + $ptas + $sameHost | Select-Object -Unique | ForEach-Object { 'Done:' + $_ }) }
+    }
+    return @($jobs)
+}
+
+function Invoke-PASParallelFinalizations {
+    # Independent scheduler on a separate runspace. It waits on verified milestones and
+    # serializes PVWA-side changes on purpose (both operations write to the first PVWA).
+    param([Parameter(Mandatory)][hashtable]$Shared)
+    $result = @{ Lane = 'integrations'; Error = ''; Target = ''; Component = ''; Stopped = $false }
+    $run = $null
+    try {
+        $config = Read-PASConfiguration -Path (Join-Path $Shared.Directory 'config.json')
+        $script:PASFrozenMedia = @{}
+        foreach ($path in @($Shared.FrozenMedia.Keys)) {
+            $script:PASFrozenMedia[[string]$path] = [string]$Shared.FrozenMedia[$path]
+        }
+        $run = @{
+            RunId = $Shared.RunId; DataRoot = $Shared.DataRoot; Directory = $Shared.Directory
+            Config = $config; Credentials = $Shared.Credentials.Clone(); Secrets = $Shared.Secrets.Clone()
+            Record = @{ currentComponent = '' }; RecordPath = ''; Target = ''; SshReady = @{}
+            RetryFailedPreflight = [bool]$Shared.RetryFailedPreflight; Retry = $Shared.Retry
+            Lane = 'integrations'; Current = $Shared.Current; StepSignals = @{}
+            # Gateway registration signs in to the Vault while other lanes may still register: wait for the turn
+            # (as the server lanes do), not for the 180 seconds of an ungated step.
+            VaultGate = @{ Wait = @(); Cancel = @($Shared.Signals.Cancel); Names = @(); TimeoutSeconds = 14400 }
+        }
+        $pending = @(Get-PASParallelFinalizationJobs -Config $config)
+        $waitStarted = [DateTime]::UtcNow
+        $lastWait = ''
+        $failedJobs = @()
+        while ($pending.Count) {
+            if ($Shared.Signals.Cancel.WaitOne(0)) { throw 'PASLaneStopped: integration work cancelled' }
+            $next = @()
+            $progress = $false
+            $waiting = @()
+            foreach ($job in $pending) {
+                $gate = Get-PASLaneGate -Signals $Shared.Signals -Names @($job.DependsOn)
+                $failed = @($job.DependsOn | Where-Object {
+                    $name = [string]$_
+                    $Shared.Signals.ContainsKey('Fail:' + $name) -and $Shared.Signals['Fail:' + $name].WaitOne(0)
+                })
+                if ($failed.Count) {
+                    $message = 'Integration ' + $job.Name + ' skipped: failed dependency ' + ($failed -join ', ')
+                    Write-PASRunEvent $run.Directory 'IntegrationBlocked' $message $job.Name '' 'Warning'
+                    $failedJobs += $message
+                    $progress = $true
+                    continue
+                }
+                $need = @($job.DependsOn | Where-Object { -not $Shared.Signals[$_].WaitOne(0) })
+                if ($need.Count) {
+                    $waiting += ($job.Name + ': ' + ($need -join ', '))
+                    $next += ,$job
+                    continue
+                }
+                $Shared.Current['integrations'] = $job.Name
+                Write-PASRunEvent $run.Directory 'IntegrationReady' ('Integration ' + $job.Name + ' has all verified prerequisites') $job.Name
+                try {
+                    switch ([string]$job.Name) {
+                        'GatewayRegistration' { Invoke-PASGatewayRegistration -Run $run }
+                        'PtaTrust' { Invoke-PASPtaTrust -Run $run }
+                        default { throw ('Unexpected integration ' + $job.Name) }
+                    }
+                    Write-PASRunEvent $run.Directory 'IntegrationComplete' ('Integration ' + $job.Name + ' completed') $job.Name
+                } catch {
+                    $message = 'Integration ' + $job.Name + ' failed: ' + [string]$_.Exception.Message
+                    Write-PASRunEvent $run.Directory 'IntegrationFailed' $message $job.Name '' 'Warning'
+                    $failedJobs += $message
+                }
+                $progress = $true
+            }
+            $pending = @($next)
+            if ($progress) { $lastWait = ''; continue }
+            $description = $waiting -join '; '
+            if ($description -ne $lastWait) {
+                # A signal arrived (or the first wait): the time limit counts from the last progress, not from the
+                # start of the run. The producing lanes have their own time limits and fail with a Fail signal.
+                $lastWait = $description
+                $waitStarted = [DateTime]::UtcNow
+                $Shared.Current['integrations'] = 'Waiting for ' + $description
+                Write-PASRunEvent $run.Directory 'IntegrationWaiting' $description '' '' 'Information'
+            }
+            if ([DateTime]::UtcNow - $waitStarted -gt [timespan]::FromSeconds(14400)) {
+                throw ('PASLaneStopped: timed out waiting for integration prerequisites: ' + $description)
+            }
+            Start-Sleep -Milliseconds 400
+        }
+        if ($failedJobs.Count) { throw ($failedJobs -join '; ') }
+    } catch {
+        $result.Error = [string]$_.Exception.Message
+        $result.Stopped = $result.Error -match 'PASLaneStopped:'
+        if ($run) {
+            $result.Target = [string]$run.Target
+            $result.Component = [string](Get-PASValue $run.Record 'currentComponent' '')
+        }
+    } finally {
+        $Shared.Current.Remove('integrations')
+        $script:PASFrozenMedia = $null
+    }
+    return $result
+}
+
 function Invoke-PASRunLanes {
     <# Starts every lane of the run in its own runspace and waits for all of them. While they work, run.json
        names the components that are being installed. When a lane fails, only what depends on it gives up
@@ -401,6 +657,8 @@ function Invoke-PASRunLanes {
     if (-not $lanes.Count) {
         return
     }
+    # Compile dependency names before any controller starts remote work.
+    Assert-PASLaneSignalPlan -Config $Run.Config -Lanes $lanes
     # Shared by the lanes: created once here so that no lane has to add to a table another lane reads.
     Add-PASDomainCredentialAlias -Config $Run.Config -Credentials $Run.Credentials
     foreach ($component in @($Run.Config.components | Where-Object { $_.type -eq 'PTA' })) {
@@ -433,28 +691,13 @@ function Invoke-PASRunLanes {
         Installed = [hashtable]::Synchronized(@{})
     }
     $manifest = Join-Path (Get-PASModuleRoot) 'PASeasyInstall.psd1'
-    # A continued run: what is installed and verified already is left alone. Only the rest is started.
-    $finished = @($lanes | Where-Object { Test-PASLaneFinished -Lane $_ -Config $Run.Config -Directory $Run.Directory })
-    foreach ($lane in $finished) {
-        foreach ($name in @(Get-PASLaneOwedSignals -Config $Run.Config -Lane $lane)) {
-            if ($shared.Signals.ContainsKey($name)) {
-                [void]$shared.Signals[$name].Set()
-            }
-        }
-        foreach ($id in (@($lane.Components) + @(Get-PASValue $lane 'After' @()))) {
-            $shared.Installed[[string]$id] = $true
-        }
-    }
-    $lanes = @($lanes | Where-Object { $finished -notcontains $_ })
-    if ($finished.Count) {
-        Write-PASRunEvent $Run.Directory 'LanesSkipped' ('Already installed and verified in this run, left as they are: ' + (($finished | ForEach-Object { $_.Name }) -join ', '))
-    }
-    if (-not $lanes.Count) {
-        $Run.Installed = @($shared.Installed.Keys | ForEach-Object { [string]$_ })
-        foreach ($signal in @($shared.Signals.Values)) {
-            $signal.Dispose()
-        }
-        return
+    # A continued run: verify all saved successes again before releasing milestones.
+    # Never assert dependencies solely from yesterday's successful journal. All previously
+    # completed steps are re-verified read-only by Invoke-PASWorkflow on resume.
+    $integrationJobs = @(Get-PASParallelFinalizationJobs -Config $Run.Config)
+    foreach ($job in $integrationJobs) { [void](Get-PASLaneGate -Signals $shared.Signals -Names @($job.DependsOn)) }
+    if ($integrationJobs.Count) {
+        $lanes += ,@{ Name = 'integrations'; Kind = 'Finalization'; Join = $false; Components = @() }
     }
     Write-PASRunEvent $Run.Directory 'LanesStarted' ('Installing ' + $lanes.Count + ' server lane(s) at the same time: ' + (($lanes | ForEach-Object { $_.Name }) -join ', '))
     $workers = @()
@@ -471,11 +714,16 @@ function Invoke-PASRunLanes {
                     Import-Module $Manifest -ErrorAction Stop
                     & (Get-Module -Name PASeasyInstall) {
                         param($Lane, $Shared)
-                        Invoke-PASLane -Lane $Lane -Shared $Shared
+                        if ($Lane.Kind -eq 'Finalization') {
+                            Invoke-PASParallelFinalizations -Shared $Shared
+                        } else {
+                            Invoke-PASLane -Lane $Lane -Shared $Shared
+                        }
                     } $Lane $Shared
                 }).AddArgument($manifest).AddArgument($lane).AddArgument($shared)
             $workers += @{ Lane = $lane; Shell = $shell; Runspace = $runspace; Handle = $shell.BeginInvoke(); Result = $null }
         }
+        $consumed = @(Get-PASLaneConsumedSignals -Config $Run.Config)
         $shown = ''
         $firstFailure = $null
         while (@($workers | Where-Object { $null -eq $_.Result }).Count) {
@@ -486,7 +734,7 @@ function Invoke-PASRunLanes {
                         $firstFailure = $worker.Result
                     }
                     $owed = @(Get-PASLaneOwedSignals -Config $Run.Config -Lane $worker.Lane)
-                    $needs = @(Set-PASLaneFailed -Signals $shared.Signals -Owed $owed)
+                    $needs = @(Set-PASLaneFailed -Signals $shared.Signals -Owed $owed -Consumed $consumed)
                     $what = "Server lane '" + $worker.Result.Lane + "' stopped with an error."
                     if ($worker.Result.Stopped) {
                         $what = "Server lane '" + $worker.Result.Lane + "' is not installed, because a server it depends on failed."
