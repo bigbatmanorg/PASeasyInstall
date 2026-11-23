@@ -73,13 +73,20 @@ while ((Get-Date) -lt $deadline) {
         $meta = @($after | Where-Object { $_ -match 'PADR0099I' })
         $safeOk = $true
         if ($SafeName) {
-            $idx = -1
-            for ($i = 0; $i -lt $recent.Count; $i++) {
-                if ($recent[$i] -match 'PAREP0213I' -and
-                    $recent[$i].Contains('[' + $SafeName + '(') -and
-                    $recent[$i] -match 'Replicated \[[1-9]') { $idx = $i }
+            # The Safe name is unique to this run, so its replication line can only come from this run. The Primary
+            # creates the Safe as soon as it is ready (2.0.8), and the DR Vault may replicate it in an earlier step,
+            # before this one started: look for it in the whole log, not only after this step's start. A complete
+            # cycle (PADR0010I) at or after that line proves the replication finished.
+            $safeStamp = $null
+            foreach ($match in @(Select-String -LiteralPath $log -SimpleMatch -Pattern ('[' + $SafeName + '(') -ErrorAction SilentlyContinue)) {
+                if ($match.Line -match 'PAREP0213I' -and
+                    $match.Line -match 'Replicated \[[1-9]') {
+                    $stamp = Get-Stamp $match.Line
+                    if ($stamp -and (-not $safeStamp -or $stamp -gt $safeStamp)) { $safeStamp = $stamp }
+                }
             }
-            $safeOk = ($idx -ge 0 -and @($recent[($idx + 1)..($recent.Count - 1)] | Where-Object { $_ -match 'PADR0010I' }).Count -gt 0)
+            $safeOk = ($null -ne $safeStamp -and @($recent | Where-Object {
+                        $_ -match 'PADR0010I' -and (Get-Stamp $_) -ge $safeStamp }).Count -gt 0)
         }
         $phase = if (-not $cycle.Count) { 'WaitingForCycle' }
             elseif (-not $meta.Count) { 'WaitingForMetadata' }
