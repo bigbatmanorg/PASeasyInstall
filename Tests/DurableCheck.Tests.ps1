@@ -165,6 +165,50 @@ Describe 'Durable verifier attempt generations' {
             $current.check.previousAttempts.Count | Should -Be 0
             Should -Invoke Initialize-PASDetached -Times 1 -Exactly
         }
+        It 'replaces a never-claimed verifier only when the operator retried the step' {
+            $step.VerifyRetrySafe = $true
+            $current.attemptId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+            $context.VerifierRetry = @([string]$step.Id)
+            $script:CheckFixture.Observations = 0
+            Mock Wait-PASDetached {
+                param($Target, $Credentials, $AttemptId)
+                $script:CheckFixture.Observations++
+                if ($script:CheckFixture.Observations -eq 1) {
+                    # Staging was cut off: no worker ever claimed the attempt.
+                    return @{ state = 'Interrupted'; attemptId = $AttemptId; workerActive = $false; reason = 'staged boot identity missing or changed' }
+                }
+                return @{
+                    state = 'Succeeded'; attemptId = $AttemptId
+                    pid = 12346; bootUtc = '2026-11-23T13:00:00Z'
+                    workerActive = $false; taskState = 'Ready'
+                    check = @{schemaVersion = 1; passed = $true; sessionClosed = $true
+                        message = 'independent verification passed'; evidence = @() }
+                }
+            }
+            try {
+                (Get-PASDurableCheck $plan $step @{} @{} $current $context).Passed | Should -BeTrue
+            } finally {
+                $context.VerifierRetry = @()
+            }
+            $current.attemptId | Should -BeExactly 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+            $current.check.previousAttempts.Count | Should -Be 1
+            Should -Invoke Initialize-PASDetached -Times 2 -Exactly
+        }
+        It 'does not replace a never-claimed verifier that may still be running, even for the operator' {
+            $step.VerifyRetrySafe = $true
+            $current.attemptId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+            $context.VerifierRetry = @([string]$step.Id)
+            Mock Wait-PASDetached {
+                param($Target, $Credentials, $AttemptId)
+                return @{ state = 'Interrupted'; attemptId = $AttemptId; workerActive = $true }
+            }
+            try {
+                { Get-PASDurableCheck $plan $step @{} @{} $current $context } | Should -Throw '*must be proven inactive*'
+            } finally {
+                $context.VerifierRetry = @()
+            }
+            Should -Invoke Initialize-PASDetached -Times 1 -Exactly
+        }
         It 'retains the original dispatch ID after interrupted staging and missing target evidence' {
             $script:CheckFixture.FailStage = $true
             { Get-PASDurableCheck $plan $step @{} @{} $current $context } | Should -Throw '*staging interrupted*'

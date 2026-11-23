@@ -77,9 +77,16 @@ function Get-PASDurableCheck {
         $claimed = ([string](Get-PASValue $remote 'pid' '') -match '^[1-9][0-9]{0,9}$' -and
             (([string](Get-PASValue $remote 'bootUtc' '') -ne '') -or
              ([string](Get-PASValue $remote 'bootId' '') -ne '')))
-        if ($generationRetry -gt 0 -or -not $safeRetry -or -not $claimed -or
-            $remote.state -notin @('Interrupted', 'Failed') -or
-            -not $inactive -or $taskState -eq 'Running' -or
+        # The operator asked to retry this step (Resume-PASRun -RetryStep) and the engine reduced that to its
+        # verification: a verifier that never started (no claim) may be replaced once it is provably not running.
+        $operatorRetry = (@(Get-PASValue $Context 'VerifierRetry' @()) -contains [string]$Step.Id)
+        $neverRan = ($operatorRetry -and -not $claimed -and
+            $remote.state -in @('Interrupted', 'NotStarted', 'Missing') -and
+            (Get-PASValue $remote 'workerActive' $false) -ne $true)
+        if ($generationRetry -gt 0 -or -not $safeRetry -or -not ($claimed -or $neverRan) -or
+            $remote.state -notin @('Interrupted', 'Failed', 'NotStarted', 'Missing') -or
+            ($remote.state -in @('NotStarted', 'Missing') -and -not $neverRan) -or
+            (-not $inactive -and -not $neverRan) -or $taskState -eq 'Running' -or
             -not $check.ContainsKey('actionAttemptId')) {
             throw 'PAExecUnknown: durable check has no successful result from the same attempt; remote verifier must be proven inactive before retrying verification only'
         }
