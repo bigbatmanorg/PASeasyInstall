@@ -614,26 +614,30 @@ function Invoke-PASDomainPolicy {
 }
 function Get-PASVaultWorkflowNames {
     # The Vault workflows of one part of the sequence, in order (see Invoke-PASVaultSequence).
-    param([bool]$WithDR, [ValidateSet('All', 'Prepare', 'Primary', 'DR')][string]$Part = 'All')
-    $all = @('VaultPrimaryOnly.psd1')
-    if ($WithDR) {
-        $all = @('VaultPrimary-Phase1.psd1', 'VaultDR-Phase1.psd1', 'VaultPrimary-Phase2.psd1', 'VaultDR-Phase2.psd1')
+    param([bool]$WithDR, [ValidateSet('All', 'Prepare', 'Primary', 'PrimaryTest', 'DR')][string]$Part = 'All')
+    if (-not $WithDR) {
+        if ($Part -in @('All', 'Primary')) {
+            return @('VaultPrimaryOnly.psd1')
+        }
+        return @()
     }
     switch ($Part) {
         'Prepare' { return @() }
-        'Primary' { return @($all[0]) }
-        'DR' { return @($all | Select-Object -Skip 1) }
+        'Primary' { return @('VaultPrimary-Phase1.psd1') }
+        'PrimaryTest' { return @('VaultPrimary-Phase2.psd1') }
+        'DR' { return @('VaultDR-Phase1.psd1', 'VaultDR-Phase2.psd1') }
     }
-    return $all
+    return @('VaultPrimary-Phase1.psd1', 'VaultDR-Phase1.psd1', 'VaultPrimary-Phase2.psd1', 'VaultDR-Phase2.psd1')
 }
 function Invoke-PASVaultSequence {
     # Primary Vault, or Primary + DR as four phases: primary phase 1, DR phase 1, primary phase 2, DR phase 2.
     # -Part: a parallel run (Lanes.ps1) splits the sequence over two lanes that work at the same time:
     #   Prepare  only the shared inventory file, before the lanes start
-    #   Primary  primary phase 1: the Vault is ready for the other servers when it ends
-    #   DR       DR phase 1 (it waits for the milestones of the Primary by itself), then the replication
-    #            test: primary phase 2 (a test safe) and DR phase 2 (the safe arrived on the DR Vault)
-    param([hashtable]$Run, [ValidateSet('All', 'Prepare', 'Primary', 'DR')][string]$Part = 'All')
+    #   Primary      primary phase 1: the Vault is ready for the other servers when it ends
+    #   PrimaryTest  primary phase 2: the test safe for the replication test. With it the Primary is finished
+    #   DR           DR phase 1 (it waits for the milestones of the Primary by itself), then DR phase 2: the
+    #                test safe has arrived on the DR Vault
+    param([hashtable]$Run, [ValidateSet('All', 'Prepare', 'Primary', 'PrimaryTest', 'DR')][string]$Part = 'All')
     $Config = $Run.Config
     $Credentials = $Run.Credentials
     $Secrets = $Run.Secrets
@@ -874,7 +878,7 @@ function Invoke-PASRunControllerCore {
     }
     try {
         Assert-PASVaultInstallationSecrets -Configuration $config -Secrets $auth.Secrets -ReferencesResolved
-        if ($Resume) { Write-PASRunEvent $dir 'RunResumed' 'Resuming the run: finished components are revalidated, then the remaining ones are installed' }
+        if ($Resume) { Write-PASRunEvent $dir 'RunResumed' 'Continuing the run: servers that are installed and verified are left as they are; on the others the finished steps are checked, then the rest is installed' }
         if (-not $Resume) {
             foreach ($item in @($plan.Items)) {
                 Write-PASRunEvent $dir 'TaskCompleted' 'Local configuration and media checks passed' ([string]$item.Id) 'LocalPreflight'

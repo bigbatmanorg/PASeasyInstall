@@ -258,6 +258,18 @@ Every run assumes clean servers.
 - **Media scan:** only a ZIP whose end is missing is found. A ZIP that is damaged in the middle is found when it
   is unpacked on the server.
 
+### 3.9 Left open after 2.0.8
+
+- **2.0.8 was not run in the lab** (owner tests it): unit tests only. To look at in that run: the Vault line
+  finishes right after "Verify primary"; `verify-primary` takes seconds, not two minutes; *Try this step again*
+  starts only the failed server.
+- **A failed server cannot be tried again while the run is still going.** The buttons come when every other
+  server is finished. Trying one server again inside a running run needs a second controller for one lane.
+- **The gateway is entered into PVWA at the very end.** It could be done as soon as PVWA, PSM and the gateway
+  are finished, and shown as a step of the gateway.
+- **CPM registration damaged in transit** in the two-node lab: see PARALLEL.md, fourth round. If it comes back
+  with the NIC offloads off, look at the CPM server's `Casos.Debug.log` and at the path between the nodes.
+
 ## Not on this list
 
 - Cluster and distributed Vaults: out of scope by the owner's decision.

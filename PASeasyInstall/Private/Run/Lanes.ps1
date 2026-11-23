@@ -233,6 +233,49 @@ function Set-PASLaneFailed {
     return $failed
 }
 
+function Test-PASLaneFinished {
+    <# $true when everything of a lane was installed and verified by this run already (a continued run): every
+       engine target of the lane has a journal that says Succeeded. Such a lane is not run again: its servers
+       are left alone, and what it owes the others counts as done. Lanes that join a domain or install the
+       forest are always run (their steps check themselves). #>
+    param([Parameter(Mandatory)][hashtable]$Lane, [Parameter(Mandatory)]$Config, [Parameter(Mandatory)][string]$Directory)
+    if ($Lane.Kind -eq 'AD' -or $Lane.Join) {
+        return $false
+    }
+    $withDR = [bool]@($Config.components | Where-Object { $_.type -eq 'DRVault' }).Count
+    $targets = @()
+    if ($Lane.Kind -eq 'Vault') {
+        $targets += 'primary'
+        if ($withDR) {
+            $targets += 'primary_final'
+        }
+    } elseif ($Lane.Kind -eq 'DR') {
+        $targets += @('dr', 'dr_final')
+    } else {
+        $targets += @($Lane.Components)
+    }
+    $targets += @(Get-PASValue $Lane 'After' @())
+    if (-not $targets.Count) {
+        return $false
+    }
+    foreach ($target in $targets) {
+        $statePath = Join-Path (Join-Path $Directory ([string]$target)) 'state.json'
+        if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) {
+            return $false
+        }
+        $state = $null
+        try {
+            $state = Get-Content -LiteralPath $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
+        } catch {
+            return $false
+        }
+        if ([string]$state.status -ne 'Succeeded') {
+            return $false
+        }
+    }
+    return $true
+}
+
 function Invoke-PASLane {
     <# The work of one lane. Runs inside the lane's own runspace (see Invoke-PASRunLanes), with its own copy of
        the run context: its own configuration object, credential and secret tables.
@@ -282,12 +325,18 @@ function Invoke-PASLane {
             foreach ($id in @($Lane.Components)) {
                 $Shared.Installed[[string]$id] = $true
             }
+            # From here the other servers register, one at a time.
             [void]$signals.Vault.Set()
+            # With a DR Vault: the test safe of the replication test, one short sign-in in that same queue.
+            # With it the Primary Vault is finished; the DR Vault looks for the safe when it replicates.
+            $run.VaultGate = @{ Wait = @(); Cancel = @($signals.Cancel) }
+            Invoke-PASVaultSequence -Run $run -Part PrimaryTest
+            $run.VaultGate = $null
         }
         if ($Lane.Kind -eq 'DR') {
             Write-PASRunEvent $run.Directory 'VaultSequence' 'Starting the installation of the DR Vault (next to the Primary Vault)' ([string]$Lane.Components[0])
-            # Its own steps wait for the milestones of the Primary. The test safe at the end is created on the
-            # Primary by a step that takes the Vault lock for that moment only.
+            # Its own steps wait for the milestones of the Primary; the last one waits until the test safe the
+            # Primary created has arrived here.
             $run.VaultGate = @{ Wait = @(); Cancel = @($signals.Cancel, $signals['Fail:Vault']) }
             Invoke-PASVaultSequence -Run $run -Part DR
             $run.VaultGate = $null
@@ -384,6 +433,29 @@ function Invoke-PASRunLanes {
         Installed = [hashtable]::Synchronized(@{})
     }
     $manifest = Join-Path (Get-PASModuleRoot) 'PASeasyInstall.psd1'
+    # A continued run: what is installed and verified already is left alone. Only the rest is started.
+    $finished = @($lanes | Where-Object { Test-PASLaneFinished -Lane $_ -Config $Run.Config -Directory $Run.Directory })
+    foreach ($lane in $finished) {
+        foreach ($name in @(Get-PASLaneOwedSignals -Config $Run.Config -Lane $lane)) {
+            if ($shared.Signals.ContainsKey($name)) {
+                [void]$shared.Signals[$name].Set()
+            }
+        }
+        foreach ($id in (@($lane.Components) + @(Get-PASValue $lane 'After' @()))) {
+            $shared.Installed[[string]$id] = $true
+        }
+    }
+    $lanes = @($lanes | Where-Object { $finished -notcontains $_ })
+    if ($finished.Count) {
+        Write-PASRunEvent $Run.Directory 'LanesSkipped' ('Already installed and verified in this run, left as they are: ' + (($finished | ForEach-Object { $_.Name }) -join ', '))
+    }
+    if (-not $lanes.Count) {
+        $Run.Installed = @($shared.Installed.Keys | ForEach-Object { [string]$_ })
+        foreach ($signal in @($shared.Signals.Values)) {
+            $signal.Dispose()
+        }
+        return
+    }
     Write-PASRunEvent $Run.Directory 'LanesStarted' ('Installing ' + $lanes.Count + ' server lane(s) at the same time: ' + (($lanes | ForEach-Object { $_.Name }) -join ', '))
     $workers = @()
     try {

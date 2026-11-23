@@ -818,6 +818,13 @@ function Show-PASUIRunComponents {
             $now = Get-PASUIStageText $row.Current
         } elseif ($row.Kind -eq 'bad' -and $row.Current) {
             $now = 'Stopped at: ' + (Get-PASUIStageText $row.Current)
+            if ($active) {
+                # The buttons to try again come when the run has ended: the other servers finish first.
+                $now += '. The other servers go on; you can try this step again when they are finished.'
+            }
+        } elseif ($row.Kind -eq 'ok' -and [string]$row.Type -eq 'HTML5GW' -and $active) {
+            # The gateway itself needs no Vault. Its entry in the PVWA configuration is made after PVWA and PSM.
+            $now = 'Installed. It is entered into PVWA when PVWA and PSM are finished.'
         }
         if ($row.Checking -and $active) {
             $now = 'Checking what is already installed'
