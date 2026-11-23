@@ -1,5 +1,37 @@
 # Release notes
 
+## 2.0.9
+
+Lab-stabilized release, validated on Proxmox with CyberArk 15.2 in eight scenarios (window in a real desktop,
+Primary + DR, PSMP + HTML5 Gateway + PTA, new AD domain, two PVWAs and two CPMs, interrupted checks, a failed PTA
+with resume, forced stop). 696 Pester tests pass on Windows PowerShell 5.1.
+
+- **Primary + DR labs finish again.** Since 2.0.8 the DR Vault could replicate the test Safe before its final
+  check started, and that check then waited 15 minutes and failed. Every Primary + DR lab was affected.
+- **PSM post-install no longer fails at random.** About a minute after the Remote Desktop restart, Windows can
+  switch Network Level Authentication on again, after the vendor's *Disable NLA* step has checked it (seen in
+  3 of 5 lab installations). PASeasyInstall now sets it back as the vendor intends and checks the result.
+- **The HTML5 Gateway registration and the PTA trust run as soon as their own servers are ready**, not at the
+  very end and not after the DR Vault. They wait for the Vault without a 3-minute limit, and for everything
+  else installed on the first PVWA server.
+- **A step whose check was cut off can be finished.** When the connection drops while a check is being started
+  (for example on a PSMP or PTA server), the run stops as *Unknown*, as before. *Try this step again*
+  (`Resume-PASRun -RetryStep`) now repeats only that check, never the installation, once the old check has
+  been shown not to be running.
+- **A continued run looks at the finished servers again, read-only.** It checks every finished step instead of
+  skipping whole servers (2.0.8). Nothing is installed again; a check that no longer passes stops the run.
+- **DR replication shows its progress**: phase and elapsed time of the wait (for example *Waiting for the test
+  Safe, 390 of 900 seconds*) instead of a line that looks frozen for up to 15 minutes.
+- **Every dependency is checked before anything is installed.** A wait for something that no server produces,
+  or a real deadlock, stops the run at once with its name.
+- **`Stop-PASRun -Force` keeps the server locks.** A stopped controller does not prove that the work on the
+  servers has stopped. After you reset the lab servers, release the locks with
+  `Stop-PASRun -ReleaseLocksAfterReset -CredentialMap ...`.
+- **PSM for SSH**: the package installation (`unzip`) is its own step, *prepare-tools*, after the read-only
+  server check.
+- **Window:** one way to choose the lab: Primary Vault or Primary + DR and the number of each component. The
+  ready-made labs (Starter, Standard, Full) are gone; an existing Vault and the domain are in Advanced.
+
 ## 2.0.8
 
 - **The Primary Vault is finished when it is ready.** Its replication test safe is created right after it is

@@ -1,7 +1,7 @@
 # Your first lab
 
-This page builds the **Full** lab: a Vault with a DR Vault, PVWA and CPM on one server, PSM, and PSM for SSH. It
-needs five servers. For a smaller start take **Starter** (Vault, PVWA and CPM: two servers); every step is the same.
+This page builds a full lab: a Vault with a DR Vault, PVWA and CPM on one server, PSM, and PSM for SSH. It
+needs five servers. For a smaller start set PSM and PSM for SSH to 0 and choose *New Vault* (Vault, PVWA and CPM: two servers); every step is the same.
 
 The addresses below are examples. Use your own.
 
@@ -61,10 +61,10 @@ every installer with its version.
 
 ### Lab
 
-Choose **Full**. Leave *Install CPM on the PVWA server* switched on and *No domain* selected. Give the lab a name,
+Choose **New Vault with DR** and set PVWA, CPM, PSM and PSM for SSH to 1. Leave *Install CPM on the PVWA server* switched on and *No domain* selected. Give the lab a name,
 for example `PamLab`.
 
-![Lab step with the Full lab chosen](../assets/window/06-lab.png)
+![Lab step with a Vault, a DR Vault and one of each component](../assets/window/06-lab.png)
 
 ### Servers
 

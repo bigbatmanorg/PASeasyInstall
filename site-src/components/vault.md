@@ -6,8 +6,8 @@ Installs a **new Primary Vault** on a dedicated Windows Server 2022 that is not 
 Install-PASVault -ComputerName 192.0.2.11 -MediaPath D:\CyberArk -SecurityProfile Lab -Wait
 ```
 
-In a lab configuration: `-VaultMode Primary -PrimaryAddress 192.0.2.11`. In the window: every ready-made lab,
-or *New Vault* in Custom.
+In a lab configuration: `-VaultMode Primary -PrimaryAddress 192.0.2.11`. In the window: *New Vault* or
+*New Vault with DR* on the Lab step.
 
 ## What it needs
 

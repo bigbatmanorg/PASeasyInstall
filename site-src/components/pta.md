@@ -16,7 +16,7 @@ $cfg = New-PASLabConfiguration -Environment MyLab -VaultMode Primary -PrimaryAdd
                  @{ Type = 'PTA';  Name = 'pta01';  Address = '192.0.2.51'; VaultTimezone = 'Europe/Berlin' })
 ```
 
-In the window: *PTA* in the Custom lab; the time zone is under **Advanced** on the Servers step.
+In the window: the *PTA* counter on the Lab step; the time zone is under **Advanced** on the Servers step.
 
 ## What it needs
 

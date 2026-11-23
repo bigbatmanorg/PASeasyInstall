@@ -259,15 +259,20 @@ Every run assumes clean servers.
 - **Media scan:** only a ZIP whose end is missing is found. A ZIP that is damaged in the middle is found when it
   is unpacked on the server.
 
-### 3.9 Left open after 2.0.8
+### 3.9 Left open after 2.0.9
 
-- **2.0.8 was not run in the lab** (owner tests it): unit tests only. To look at in that run: the Vault line
-  finishes right after "Verify primary"; `verify-primary` takes seconds, not two minutes; *Try this step again*
-  starts only the failed server.
+- **2.0.8 and the lab-stabilized changes were run in the lab on 2026-11-23** (eight scenarios, all passing after
+  the fixes released as 2.0.9). The gateway is no longer entered into PVWA at the very end.
 - **A failed server cannot be tried again while the run is still going.** The buttons come when every other
   server is finished. Trying one server again inside a running run needs a second controller for one lane.
-- **The gateway is entered into PVWA at the very end.** It could be done as soon as PVWA, PSM and the gateway
-  are finished, and shown as a step of the gateway.
+- **Releasing a PSM for SSH lock after a reset** (`Stop-PASRun -ReleaseLocksAfterReset`) uses only the
+  controller key, which a reset server no longer trusts: it warns instead of releasing (the reset server has no
+  lock, so nothing is left behind). It should fall back to the password of `-CredentialMap`.
+- **A run against a locked, already hardened PSMP** fails at the password sign-in before it reaches the lock,
+  so its message names the password, not the lock.
+- **The server check takes 4 to 7 minutes for three Windows servers** (the window stays responsive).
+- **Every Linux check is a detached systemd job** since 2.0.9: safer after a lost connection, about 4 seconds
+  per finished Linux step when a run is continued.
 - **CPM registration damaged in transit** in the two-node lab: see PARALLEL.md, fourth round. If it comes back
   with the NIC offloads off, look at the CPM server's `Casos.Debug.log` and at the path between the nodes.
 

@@ -1,6 +1,9 @@
 # Which servers a lab needs
 
-## The ready-made labs
+## Typical labs
+
+The window has no ready-made labs: choose the Vault and the number of each component on the Lab step. These
+are common choices.
 
 | Lab | Servers |
 |---|---|
@@ -35,8 +38,8 @@ memory for all of them at once.
 - **Put the HTML5 Gateway on the PSM for SSH server.**
 - **Leave out what you do not need.** Only the Vault is required, and with *A Vault I already have* not even
   that.
-- **Add later.** Components can be added to a Vault that exists: choose *A Vault I already have* in the Custom
-  lab, or use `Install-PASPVWA`, `Install-PASCPM`, `Install-PASPSM`, `Install-PASPSMP`.
+- **Add later.** Components can be added to a Vault that exists: switch on **Advanced** on the Lab step and choose
+  *Use existing Vault*, or use `Install-PASPVWA`, `Install-PASCPM`, `Install-PASPSM`, `Install-PASPSMP`.
 
 ## Rules
 

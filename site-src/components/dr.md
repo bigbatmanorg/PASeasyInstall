@@ -7,8 +7,8 @@ DR Vault to a Vault that exists already is not supported.
 Install-PASVault -ComputerName 192.0.2.11 -DRComputerName 192.0.2.12 -MediaPath D:\CyberArk -SecurityProfile Lab -Wait
 ```
 
-In a lab configuration: `-VaultMode PrimaryDR -PrimaryAddress ... -DRAddress ...`. In the window: the **Full**
-lab, or *New Vault with DR* in Custom.
+In a lab configuration: `-VaultMode PrimaryDR -PrimaryAddress ... -DRAddress ...`. In the window: *New Vault with
+DR* on the Lab step.
 
 ## What it needs
 
