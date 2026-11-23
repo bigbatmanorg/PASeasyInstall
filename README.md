@@ -7,6 +7,11 @@ Directory domain. There is a window for it and a PowerShell command for every st
 
 Documentation: <https://bigbatmanorg.github.io/PASeasyInstall/>
 
+[![Play the 27-second overview of PASeasyInstall](site-src/assets/video/PASeasyInstall-demo-poster.png)](https://bigbatmanorg.github.io/PASeasyInstall/#pas-video)
+
+*Click to play the 27-second overview on the documentation site (an animated overview with simplified screens;
+[the MP4 itself](site-src/assets/video/PASeasyInstall-demo.mp4)). The real window looks like this:*
+
 ![The installation page: every server is installed at the same time](Docs/images/window/15-run-installing.png)
 
 > [!WARNING]
