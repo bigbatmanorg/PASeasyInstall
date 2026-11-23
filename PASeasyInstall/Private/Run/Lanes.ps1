@@ -314,11 +314,29 @@ function Get-PASLaneOwedSignals {
     return @($names | Where-Object { $_ } | Select-Object -Unique)
 }
 
+function Get-PASLaneConsumedSignals {
+    # The names of the signals somebody waits for: a component gate (before it starts or before it signs in to
+    # the Vault) or an integration (gateway registration, PTA trust). Every component publishes Done:<id>,
+    # but a failed lane holds up only those signals that appear here.
+    param([Parameter(Mandatory)]$Config)
+    $names = @()
+    foreach ($component in @($Config.components | Where-Object { $_.type -notin @('AD', 'Vault', 'DRVault') })) {
+        $gate = Get-PASLaneComponentGate -Config $Config -Component $component
+        $names += @($gate.StartAfter)
+        $names += @($gate.VaultAfter)
+    }
+    foreach ($job in @(Get-PASParallelFinalizationJobs -Config $Config)) {
+        $names += @($job.DependsOn)
+    }
+    return @($names | Where-Object { $_ } | Select-Object -Unique)
+}
+
 function Set-PASLaneFailed {
     # A lane ended with an error: what it still owed will never come. A signal that is only an order
     # (Registered:<id>) is set, so that who waited for its turn goes on; a signal that is a need gets its
     # Fail handle set, so that who waits for it gives up. Returns the names of the needs that failed.
-    param([hashtable]$Signals, [string[]]$Owed)
+    # -Consumed (Get-PASLaneConsumedSignals): when given, only needs that somebody waits for are returned.
+    param([hashtable]$Signals, [string[]]$Owed, [string[]]$Consumed)
     $failed = @()
     foreach ($name in @($Owed)) {
         if (-not $Signals.ContainsKey($name) -or $Signals[$name].WaitOne(0)) {
@@ -326,7 +344,9 @@ function Set-PASLaneFailed {
         }
         if ($Signals.ContainsKey('Fail:' + $name)) {
             [void]$Signals['Fail:' + $name].Set()
-            $failed += $name
+            if ($null -eq $Consumed -or $Consumed -contains $name) {
+                $failed += $name
+            }
         } else {
             [void]$Signals[$name].Set()
         }
@@ -678,6 +698,7 @@ function Invoke-PASRunLanes {
                 }).AddArgument($manifest).AddArgument($lane).AddArgument($shared)
             $workers += @{ Lane = $lane; Shell = $shell; Runspace = $runspace; Handle = $shell.BeginInvoke(); Result = $null }
         }
+        $consumed = @(Get-PASLaneConsumedSignals -Config $Run.Config)
         $shown = ''
         $firstFailure = $null
         while (@($workers | Where-Object { $null -eq $_.Result }).Count) {
@@ -688,7 +709,7 @@ function Invoke-PASRunLanes {
                         $firstFailure = $worker.Result
                     }
                     $owed = @(Get-PASLaneOwedSignals -Config $Run.Config -Lane $worker.Lane)
-                    $needs = @(Set-PASLaneFailed -Signals $shared.Signals -Owed $owed)
+                    $needs = @(Set-PASLaneFailed -Signals $shared.Signals -Owed $owed -Consumed $consumed)
                     $what = "Server lane '" + $worker.Result.Lane + "' stopped with an error."
                     if ($worker.Result.Stopped) {
                         $what = "Server lane '" + $worker.Result.Lane + "' is not installed, because a server it depends on failed."

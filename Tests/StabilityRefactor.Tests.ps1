@@ -1,4 +1,4 @@
-BeforeDiscovery {
+BeforeAll {
     . (Join-Path $PSScriptRoot 'TestHelpers.ps1')
     Import-PASTestModule
 }

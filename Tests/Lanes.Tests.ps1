@@ -230,8 +230,11 @@ Describe 'Signals and waiting of a parallel run' {
             try {
                 [void]$signals.Vault.Set()
                 [void]$signals.PvwaRegistered.Set()
-                $needs = @(Set-PASLaneFailed -Signals $signals -Owed (Get-PASLaneOwedSignals -Config $Config -Lane $lane['h-cpm']))
+                $consumed = @(Get-PASLaneConsumedSignals -Config $Config)
+                $needs = @(Set-PASLaneFailed -Signals $signals -Owed (Get-PASLaneOwedSignals -Config $Config -Lane $lane['h-cpm']) -Consumed $consumed)
                 $needs.Count | Should -Be 0
+                # Nobody waits for Done:cpm01, but it is still marked as never coming.
+                $signals['Fail:Done:cpm01'].WaitOne(0) | Should -BeTrue
                 Wait-PASVaultGate (Get-PASLaneGate $signals $psmNeeds) | Should -BeFalse
             } finally {
                 foreach ($signal in @($signals.Values)) { $signal.Dispose() }

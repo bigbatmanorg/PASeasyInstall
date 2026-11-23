@@ -409,7 +409,10 @@ function Invoke-PASUITestWalk {
     Invoke-PASUITestClick 'act-next'
     Assert-PASUIShown 'ServersIssues' 'Enter the (address|password)' 'missing entries are listed'
     if ($advanced) {
-        Invoke-PASUITestClick 'opt-advanced'
+        # Advanced may already be on from the Lab step (existing Vault, domain): pressing it again would switch it off.
+        if (-not $S.Advanced) {
+            Invoke-PASUITestClick 'opt-advanced'
+        }
         Assert-PASUIShown 'view' 'Address of this computer' 'the advanced view shows the network card'
         Assert-PASUIShown 'view' 'Apply the vendor hardening' 'the advanced view offers to install without hardening'
     }
