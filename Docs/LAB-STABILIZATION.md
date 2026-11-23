@@ -2,7 +2,9 @@
 
 **Support boundary: disposable lab deployments ONLY.** A production-supported deployment, production qualification program, or Secure/production profile is not planned. The built-in `Secure` CLI configuration is a legacy surface and is not a release goal. The existing module and journals are retained; no new framework, server, or external database has been added.
 
-> **Qualification status:** This is a source-level stabilization candidate, **not a verified release**. In the preparation environment, Windows PowerShell 5.1, Pester, the WPF runtime, and CyberArk/Proxmox guests were not available. Shell syntax/static checks and packaging checks are not substitutes for a real lab deployment. The local agent must perform the gates in `LabValidation/`.
+> **Lab validation 2026-11-23:** all eight scenarios of `LabValidation/` passed on Proxmox (pvex/pvey/pvez) with CyberArk 15.2, after eight fixes found in the lab (commits after the import on branch `lab/stabilized-candidate`: integration Vault gate, operator verification-only retry, PSM NLA re-apply, DR test Safe detection, per-component deadlock check, and others). Pester: 696 passed. The report and evidence are kept outside the repository.
+>
+> **Original qualification status:** This is a source-level stabilization candidate, **not a verified release**. In the preparation environment, Windows PowerShell 5.1, Pester, the WPF runtime, and CyberArk/Proxmox guests were not available. Shell syntax/static checks and packaging checks are not substitutes for a real lab deployment. The local agent must perform the gates in `LabValidation/`.
 
 ## Verified cause and mitigation
 
