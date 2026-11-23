@@ -14,7 +14,7 @@ The text of every command below is its own help (`Get-Help <command> -Full`).
 | [`Get-PASRunEvent`](#get-pasrunevent) | Returns the progress events of a run, oldest first. |
 | [`Wait-PASRun`](#wait-pasrun) | Follows a run until it ends: prints its progress events as they arrive and returns the final run. |
 | [`Resume-PASRun`](#resume-pasrun) | Continues a run that stopped: finished components are checked again, the remaining ones are installed. |
-| [`Stop-PASRun`](#stop-pasrun) | Stops or gives up a run: marks it Abandoned and releases the locks it holds on the servers. |
+| [`Stop-PASRun`](#stop-pasrun) | Abandons a run, retaining target locks unless the lab machines were reset. |
 
 ## Get-PASRun
 
@@ -142,14 +142,13 @@ Get-PASRun -Last 1 | Resume-PASRun -RetryFailedPreflight -Wait
 
 ## Stop-PASRun
 
-Stops or gives up a run: marks it Abandoned and releases the locks it holds on the servers.
+Abandons a run, retaining target locks unless the lab machines were reset.
 
-A run that stopped (Failed, Unknown, Blocked, Interrupted, LaunchFailed) keeps a lock folder on every server it did not finish, so that no other run touches a half-installed server. Stop-PASRun gives those servers back. Use it when you will not resume the run, typically after you reset or rebuilt the servers.
+A run that stopped (Failed, Unknown, Blocked, Interrupted, LaunchFailed) keeps a lock folder on every server it did not finish, so that no other run touches a half-installed server. Stop-PASRun marks the run abandoned, but keeps the locks by default. A detached remote worker can outlive its controller. Restore or rebuild affected VMs before explicitly releasing the locks.
 
 - A run that is still running is refused, unless you add -Force: then the controller process of this run is stopped first.
 - The run is marked Abandoned. An abandoned run cannot be resumed.
-- With -CredentialMap the lock on every unfinished server is released, if it still belongs to this run. A server that cannot be reached becomes a warning.
-- Without -CredentialMap no server is contacted; the lock folders to delete by hand are listed.
+- Pass -ReleaseLocksAfterReset AND -CredentialMap only after restoring/rebuilding the affected lab VMs. Locks still held by another run are never released. Without both parameters the locks remain.
 
 No installed software is changed or removed: a server may be left with a partial installation.
 
@@ -158,14 +157,15 @@ Returns RunId, Status, PreviousStatus, ControllerStopped and Locks (Target, Comp
 | Parameter | Meaning |
 |---|---|
 | `-RunId` | Run id (32 hexadecimal characters). |
-| `-CredentialMap` | Server accounts used to release the locks: @{ &lt;server id&gt; = PSCredential }, as for Install-PASLab. |
-| `-Force` | Also stops a run that is still running, by ending its controller process. |
+| `-CredentialMap` | Server accounts for explicit -ReleaseLocksAfterReset cleanup: @{ &lt;server id&gt; = PSCredential }. |
+| `-Force` | Stops the controller only; detached workers may continue and target locks stay. |
+| `-ReleaseLocksAfterReset` | Explicitly release locks after all affected lab targets have been reset/rebuilt. Not safe otherwise. |
 
 ```powershell
 Stop-PASRun -RunId 83cf015f78bd4743a54e6d0a9d0dd301 -CredentialMap @{ vault01 = (Get-Credential Administrator) }
 ```
 
-Gives up a failed run and releases its lock on the Vault server.
+Gives up a failed run but leaves the remote target locks in place.
 
 ```powershell
 Get-PASRun | Where-Object Status -eq 'Running' | Stop-PASRun -Force

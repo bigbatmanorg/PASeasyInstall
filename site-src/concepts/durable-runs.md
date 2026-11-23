@@ -93,8 +93,9 @@ confirmed.
 ## Giving a run up
 
 ```powershell
-Stop-PASRun -RunId <run id> -CredentialMap $creds
+Stop-PASRun -RunId <run id> # locks remain protected
+# Only after restoring/rebuilding all affected lab VMs:
+Stop-PASRun -RunId <run id> -ReleaseLocksAfterReset -CredentialMap $creds
 ```
 
-marks the run Abandoned and releases the locks it holds on the servers. No installed software is removed. Use
-it when you will not continue the run, typically after you reset the servers. See [Locks](coordination.md).
+marks the run Abandoned. **Remote locks remain by default** because detached workers can survive a controller stop. Explicit release is only for already reset/rebuilt disposable lab VMs. No installed software is removed. See [Locks](coordination.md).

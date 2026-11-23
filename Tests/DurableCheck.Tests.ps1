@@ -1,4 +1,4 @@
-BeforeDiscovery {
+﻿BeforeDiscovery {
     . (Join-Path $PSScriptRoot 'TestHelpers.ps1')
     Import-PASTestModule
 }
@@ -120,6 +120,50 @@ Describe 'Durable verifier attempt generations' {
             $current.check.attemptId | Should -Not -Be $id
             $current.check.previousAttempts | Should -Contain $id
             Should -Invoke Initialize-PASDetached -Times 2 -Exactly
+        }
+        It 'safely starts a new verifier generation after proving the original worker is gone' {
+            $step.VerifyRetrySafe = $true
+            $current.attemptId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+            $script:CheckFixture.Observations = 0
+            Mock Wait-PASDetached {
+                param($Target, $Credentials, $AttemptId)
+                $script:CheckFixture.Observations++
+                $script:CheckFixture.Events.Add('Observe:' + $AttemptId)
+                if ($script:CheckFixture.Observations -eq 1) {
+                    return @{
+                        state = 'Interrupted'; attemptId = $AttemptId
+                        pid = 12345; bootUtc = '2026-11-23T13:00:00Z'
+                        workerActive = $false; taskState = 'Ready'
+                    }
+                }
+                return @{
+                    state = 'Succeeded'; attemptId = $AttemptId
+                    pid = 12346; bootUtc = '2026-11-23T13:00:00Z'
+                    workerActive = $false; taskState = 'Ready'
+                    check = @{schemaVersion = 1; passed = $true; sessionClosed = $true
+                        message = 'independent verification passed'; evidence = @() }
+                }
+            }
+            (Get-PASDurableCheck $plan $step @{} @{} $current $context).Passed | Should -BeTrue
+            $current.attemptId | Should -BeExactly 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+            $current.check.previousAttempts.Count | Should -Be 1
+            $current.check.actionAttemptId | Should -BeExactly $current.attemptId
+            $current.check.purpose | Should -BeExactly 'QuiescentVerificationRecovery'
+            $script:CheckFixture.Observations | Should -Be 2
+            Should -Invoke Initialize-PASDetached -Times 2 -Exactly
+        }
+        It 'never retries a verifier when no claimed worker identity exists' {
+            $step.VerifyRetrySafe = $true
+            $current.attemptId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+            Mock Wait-PASDetached {
+                param($Target, $Credentials, $AttemptId)
+                return @{state = 'Interrupted'; attemptId = $AttemptId
+                    workerActive = $false; taskState = 'Ready'; reason = 'initializer unresolved' }
+            }
+            { Get-PASDurableCheck $plan $step @{} @{} $current $context } |
+                Should -Throw '*must be proven inactive*'
+            $current.check.previousAttempts.Count | Should -Be 0
+            Should -Invoke Initialize-PASDetached -Times 1 -Exactly
         }
         It 'retains the original dispatch ID after interrupted staging and missing target evidence' {
             $script:CheckFixture.FailStage = $true

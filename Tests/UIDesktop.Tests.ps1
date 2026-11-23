@@ -1,4 +1,4 @@
-# The desktop window (PASeasyInstall\Desktop) and the public commands it calls. No server, no vendor
+﻿# The desktop window (PASeasyInstall\Desktop) and the public commands it calls. No server, no vendor
 # execution: synthetic media in TestDrive. The screens are WPF controls: they are built here without showing
 # a window and read back as text. One test starts the window process, one walks it with the simulated installer.
 BeforeAll {
@@ -478,7 +478,7 @@ Describe 'Desktop screens' {
         $page.Text | Should -Match 'The installation stopped'
         Test-PageControl $page 'act-retry' | Should -BeTrue
         Test-PageControl $page 'act-health' | Should -BeFalse
-        (Get-TestPage $state 'lab').Text | Should -Match 'What do you want to build'
+        (Get-TestPage $state 'lab').Text | Should -Match 'Choose the lab components'
     }
     It 'shows the problems and no Install button when the plan is not valid' {
         $state = New-PASUIState
@@ -689,7 +689,7 @@ Describe 'Servers form and server check' {
         }
         $state.Screen = 'lab'
         $state.Preset = 'standard'
-        Test-PASUIAdvancedApplies $state | Should -BeFalse
+        Test-PASUIAdvancedApplies $state | Should -BeTrue
         $state.Preset = 'custom'
         Test-PASUIAdvancedApplies $state | Should -BeTrue
     }
@@ -826,7 +826,9 @@ Describe 'Desktop: a lab with a domain' {
         Set-PASUIPreset $state 'standard'
         $before = @(Get-PASUIServerSlots $state).Count
         $page = Get-TestPage $state 'lab'
-        Test-PageControl $page 'domain-New' | Should -BeTrue
+        Test-PageControl $page 'domain-New' | Should -BeFalse
+        $state.Advanced = $true
+        Test-PageControl (Get-TestPage $state 'lab') 'domain-New' | Should -BeTrue
         Test-PageControl $page 'f-domainname' | Should -BeFalse
         $state.Domain = 'New'
         $slots = @(Get-PASUIServerSlots $state)
@@ -842,6 +844,7 @@ Describe 'Desktop: a lab with a domain' {
     It 'asks for the domain name and offers a line for an existing domain' {
         $state = New-PASUIState
         Set-PASUIPreset $state 'standard'
+        $state.Advanced = $true
         $state.Domain = 'Existing'
         $state.DomainName = 'nodots'
         (Get-PASUIInputIssues $state 'lab') -join ' ' | Should -Match 'DNS name of the domain'
@@ -900,8 +903,6 @@ Describe 'HTML5 Gateway' {
         @(Get-PASUIInstances $state | Where-Object Type -eq 'HTML5GW').Count | Should -Be 1
         $state.Counts.PSMP = 0
         (@(Get-PASUIServerSlots $state) | Where-Object { $_.Types -contains 'HTML5GW' }).Roles | Should -Be 'HTML5 Gateway'
-        Test-PageControl (Get-TestPage $state 'lab') 'cnt-HTML5GW-inc' | Should -BeFalse
-        $state.Preset = 'custom'
         Test-PageControl (Get-TestPage $state 'lab') 'cnt-HTML5GW-inc' | Should -BeTrue
     }
 }

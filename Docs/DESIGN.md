@@ -77,7 +77,7 @@ target lock `~/.paeasyinstall/locks/<server id>/owner`; `/opt/paeasyinstall/medi
 
 1. **Run lock**: `controller.lock`, an exclusive file handle of the controller process. It ends with the process.
 2. **Target lock**: a folder on the server that names the run id. It is **kept when a run fails**, so no other run
-   touches a half-installed server. The same run takes it again on resume. `Stop-PASRun` releases it.
+   touches a half-installed server. The same run takes it again on resume. `Stop-PASRun` retains it unless the operator explicitly passes `-ReleaseLocksAfterReset` after resetting/rebuilding affected lab VMs.
 3. **Vault lock**: a named mutex on the controller (`Global\PASeasyInstall-Vault-<address>`). One authenticated
    Vault session at a time. Always released in `finally`, never kept after a failure, leaves no files.
 
@@ -130,8 +130,9 @@ side by side. `Sequential`, or a configuration without the key, installs one com
 - **Status**: `PAExecLocked:` in the error means Blocked, `PAExecUnknown:`/`Unknown:` means Unknown, else Failed.
   A run whose controller process is gone is reported as Interrupted (PID and start time must both match).
 - **Stop** (`Stop-PASRun`): refuses a live controller without `-Force`; with it, stops only the process that is
-  provably this run's controller. Marks the run Abandoned and releases target locks that still name the run
-  (with `-CredentialMap`), or lists the lock folders. Abandoned runs cannot be resumed. Nothing is uninstalled.
+  provably this run's controller. Marks the run Abandoned but preserves target locks by default.
+  `-ReleaseLocksAfterReset -CredentialMap` explicitly permits cleanup only after affected lab VMs are reset/rebuilt.
+  Abandoned runs cannot be resumed. Detached workers may survive the controller. Nothing is uninstalled.
 
 ## Adding a component recipe
 

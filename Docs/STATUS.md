@@ -52,14 +52,12 @@ The ordered work list with the steps of each item is in [NEXT.md](NEXT.md).
 
 Deferred on purpose so that 2.0.0 could ship as a lab installer that works. In the order they are planned.
 
-### 3.1 Secure profile
+### 3.1 Lab-only scope
 
-Out of scope for the lab for now (owner's decision of 2026-11-22). WinRM with trusted certificates and none of
-the lab shortcuts is the default of the commands, but it has never been run. What it would need:
-
-- a certificate authority in the test lab, and server certificates for WinRM and PVWA issued by it;
-- CPM trusting that authority instead of a pinned PVWA certificate; no RDP to the hardened Vault;
-- one full lab run with it, and a profile choice in the desktop (today the window always uses Lab).
+PASeasyInstall is designed only for **disposable CyberArk labs**. Production deployment support and
+Secure/production qualification are **not planned**. The existing Secure CLI settings remain legacy
+configuration surface, not an advertised supported deployment mode. Stabilization and repeatable
+end-to-end lab validation take priority. See [LAB-STABILIZATION.md](LAB-STABILIZATION.md).
 
 ### 3.2 Active Directory and domain-joined components
 

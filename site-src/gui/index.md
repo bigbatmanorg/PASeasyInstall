@@ -41,7 +41,7 @@ The switch at the top right shows what most labs never need. It appears only on 
 
 | Page | Advanced adds |
 |---|---|
-| Lab (Custom) | Up to four instances of a component instead of two |
+| Lab | Existing-Vault and Active Directory choices, plus up to four instances per component instead of two |
 | Servers | Every single result of the server check, the address of this computer, "who installs", the hardening switch, the PTA time zone |
 | Install | The same lab as PowerShell commands |
 | Installation page | The PowerShell commands for this installation, and **Stop the installation** |

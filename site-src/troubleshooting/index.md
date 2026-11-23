@@ -85,7 +85,8 @@ An earlier run started on this server and did not finish. It left its lock there
 run touches a half-installed server. Choose one:
 
 - Continue the earlier run: `Resume-PASRun -RunId <that run id>`.
-- Give it up and release its locks: `Stop-PASRun -RunId <that run id> -CredentialMap $creds`.
+- Abandon the run while retaining its locks: `Stop-PASRun -RunId <that run id>`.
+- Only **after the affected lab VMs are restored/rebuilt** may you explicitly clean stale locks: `Stop-PASRun -RunId <that run id> -ReleaseLocksAfterReset -CredentialMap $creds`. Never infer remote worker termination from controller termination.
 - If you reset the servers to their clean state, the lock is gone with it; start a new run.
 
 Then resume the blocked run. More: [Locks](../concepts/coordination.md).

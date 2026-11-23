@@ -1,4 +1,4 @@
-# One run = one deployment = one controller process. Components are installed one after the other.
+﻿# One run = one deployment = one controller process. Components are installed one after the other.
 function Assert-PASWindowsController {
     if ($env:OS -ne 'Windows_NT' -or $PSVersionTable.PSEdition -ne 'Desktop') {
         throw 'Qualified deployment controller requires Windows PowerShell 5.1 on Windows. Planning and diagnostics are available elsewhere.'
@@ -364,7 +364,8 @@ function Resume-PASDeployment {
 # ---- One run = one controller process. execution.mode Sequential installs the components one after the other:
 #      AD forest -> domain joins -> Vault (+DR) -> PVWA, CPM, PSM, PSMP (plan order).
 #      execution.mode Parallel installs the servers at the same time, with the same functions (Lanes.ps1).
-#      In both modes the gateway registration, the PTA trust and the GPOs follow at the end, in order.
+#      In parallel mode gateway registration and PTA trust run when verified prerequisites are ready;
+#      sequential mode performs finalizations in its established order. Domain GPOs remain final.
 #      Every function below takes the run context ($Run) created by Invoke-PASRunControllerCore:
 #        RunId, DataRoot, Directory, Config (in memory), Credentials, Secrets,
 #        Record (content of run.json) and RecordPath, Target (engine target that is running),
@@ -612,6 +613,53 @@ function Invoke-PASDomainPolicy {
         Invoke-PASRunTarget -Run $Run -Target $item.Target -WorkflowPath $item.Workflow -InventoryPath $item.Inventory
     }
 }
+function Initialize-PASVaultFrozenRecipes {
+    # Preserve exact Vault steps AND static helper source for the entire run.
+    # Atomic folder publication avoids accepting a half-copied payload after a crash.
+    param([Parameter(Mandatory)][string]$RunDirectory)
+    $payloads = Join-Path $RunDirectory 'Payloads'
+    if (-not (Test-Path -LiteralPath $payloads)) { New-Item -ItemType Directory -Path $payloads -Force | Out-Null }
+    $frozen = Join-Path $payloads 'VaultFrozen'
+    $manifest = Join-Path $frozen 'freeze.json'
+    if (-not (Test-Path -LiteralPath $frozen -PathType Container)) {
+        $source = Join-Path (Get-PASModuleRoot) 'Recipes/Vault'
+        $tmp = Join-Path $payloads ('VaultFrozen-stage-' + [guid]::NewGuid().ToString('N'))
+        try {
+            Copy-Item -LiteralPath $source -Destination $tmp -Recurse -ErrorAction Stop
+            $extra = Join-Path $tmp 'External/WindowsComponent'
+            New-Item -ItemType Directory -Path $extra -Force | Out-Null
+            Copy-Item -LiteralPath (Join-Path (Get-PASModuleRoot) 'Recipes/WindowsComponent/Ownership.ps1') -Destination (Join-Path $extra 'Ownership.ps1') -ErrorAction Stop
+            $entries = @(Get-ChildItem -LiteralPath $tmp -Recurse -File | ForEach-Object {
+                    @{
+                        path = $_.FullName.Substring($tmp.Length + 1).Replace('\', '/')
+                        sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+                    }
+                })
+            Write-PASJsonAtomic (Join-Path $tmp 'freeze.json') @{schemaVersion = 1; files = $entries }
+            Move-Item -LiteralPath $tmp -Destination $frozen -ErrorAction Stop
+        } finally {
+            if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+    }
+    if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { throw 'Frozen Vault recipe set is incomplete; refusing resume' }
+    $record = Read-PASJournal $manifest
+    if ([int](Get-PASValue $record 'schemaVersion' 0) -ne 1) { throw 'Frozen Vault recipe manifest version invalid' }
+    $files = @(Get-PASValue $record 'files' @())
+    if ($files.Count -lt 10) { throw 'Frozen Vault recipe manifest incomplete' }
+    foreach ($item in $files) {
+        $relative = [string](Get-PASValue $item 'path' '')
+        if ($relative -notmatch '^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$' -or $relative.Contains('..')) {
+            throw 'Frozen Vault recipe path invalid'
+        }
+        $file = Join-Path $frozen ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
+        if (-not (Test-Path -LiteralPath $file -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -cne [string]$item.sha256) {
+            throw "Frozen Vault recipe mismatch: $relative. Preserve this run and investigate the payload."
+        }
+    }
+    return $frozen
+}
+
 function Get-PASVaultWorkflowNames {
     # The Vault workflows of one part of the sequence, in order (see Invoke-PASVaultSequence).
     param([bool]$WithDR, [ValidateSet('All', 'Prepare', 'Primary', 'PrimaryTest', 'DR')][string]$Part = 'All')
@@ -699,7 +747,7 @@ function Invoke-PASVaultSequence {
         $inv.Targets['dr_final'] = $inv.Targets.dr.Clone()
         [IO.File]::WriteAllText($inventoryPath, (ConvertTo-PASLiteral $inv), [Text.UTF8Encoding]::new($false))
     }
-    $workflowDir = Join-Path (Get-PASModuleRoot) 'Recipes/Vault/Workflows'
+    $workflowDir = Join-Path (Initialize-PASVaultFrozenRecipes -RunDirectory $Run.Directory) 'Workflows'
     $names = @(Get-PASVaultWorkflowNames -WithDR ([bool]$dr.Count) -Part $Part)
     if ($Part -eq 'Prepare') {
         return
@@ -899,12 +947,6 @@ function Invoke-PASRunControllerCore {
                 $laneFailure = [string]$_.Exception.Message
                 $failedTarget = [string]$run.Target
                 $failedComponent = [string]$record.currentComponent
-                try {
-                    Invoke-PASGatewayRegistration -Run $run -Installed @($run.Installed)
-                    Invoke-PASPtaTrust -Run $run -Installed @($run.Installed)
-                } catch {
-                    Write-PASRunEvent $dir 'Warning' ('A step after the servers also failed: ' + [string]$_.Exception.Message) '' '' 'Warning'
-                }
                 $run.Target = $failedTarget
                 $record.currentComponent = $failedComponent
                 throw $laneFailure
@@ -927,8 +969,10 @@ function Invoke-PASRunControllerCore {
                 Invoke-PASComponent -Run $run -Component $component
             }
         }
-        Invoke-PASGatewayRegistration -Run $run
-        Invoke-PASPtaTrust -Run $run
+        if (-not $parallel) {
+            Invoke-PASGatewayRegistration -Run $run
+            Invoke-PASPtaTrust -Run $run
+        }
         Invoke-PASDomainPolicy -Run $run
         $record.status = 'Succeeded'
         $record.message = 'All selected component workflows completed'
@@ -993,18 +1037,17 @@ function Get-PASRunLockedTargets {
 function Stop-PASDeployment {
     <#
     .SYNOPSIS
-    Stops or abandons a run: marks it Abandoned and releases the target locks it still holds.
+    Abandons a lab run. Retains target locks unless explicit VM-reset cleanup was requested.
     .DESCRIPTION
     A run that stopped (Failed, Unknown, Blocked, Interrupted, LaunchFailed) keeps a lock folder on every
     server it did not finish, so that no other run touches a half-installed server. Stop-PASDeployment is
-    how you give those servers back: use it when you will not resume the run (typically after you reset
-    or rebuilt the servers).
+    how you abandon the run when you will not resume it. Locks remain by default, even on -Force.
     - While the controller is still running it refuses, unless -Force is given: then it stops the
       controller process (only the process that is provably this run's controller).
     - The run is marked Abandoned and a RunStopped event is written. An Abandoned run cannot be resumed.
-    - With -CredentialMap the lock of every unfinished server is released, if it still names this run.
-      A server that cannot be reached becomes a warning, not an error.
-    - Without -CredentialMap nothing is contacted; the lock folders to delete are listed instead.
+    - Only -ReleaseLocksAfterReset WITH -CredentialMap attempts to release owned locks; invoke this
+      strictly after externally restoring/rebuilding every affected disposable lab target.
+    - Without both switches nothing is contacted; retained remote locks are listed instead.
     No installed software is changed or removed. Servers may hold a partial installation.
     .PARAMETER CredentialMap
     @{ <server id> = PSCredential }, as for Start-PASDeployment. Only needed to release the locks.
@@ -1015,7 +1058,8 @@ function Stop-PASDeployment {
     #>
     [CmdletBinding(SupportsShouldProcess = $true)]
     param([Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{32}$')][string]$RunId,
-        [hashtable]$CredentialMap, [switch]$Force, [string]$DataRoot = (Get-PASDataRoot))
+        [hashtable]$CredentialMap, [switch]$Force, [switch]$ReleaseLocksAfterReset,
+        [string]$DataRoot = (Get-PASDataRoot))
     $record = Get-PASRunRecord -RunId $RunId -DataRoot $DataRoot
     if (-not $record) { throw "Run $RunId was not found under $DataRoot" }
     $dir = Get-PASRunDirectory $RunId $DataRoot
@@ -1032,7 +1076,10 @@ function Stop-PASDeployment {
     if ($running -and (Test-PASControllerAlive $record) -ne $true) {
         throw "Process $($record.controllerPid) cannot be confirmed as the controller of run $RunId; nothing was stopped."
     }
-    if (-not $PSCmdlet.ShouldProcess($RunId, 'Stop the run, mark it Abandoned and release its target locks')) { return }
+    if ($ReleaseLocksAfterReset -and -not $CredentialMap) {
+        throw '-ReleaseLocksAfterReset requires -CredentialMap so the owner of each target lock can be verified'
+    }
+    if (-not $PSCmdlet.ShouldProcess($RunId, 'Stop the run and preserve remote locks unless the targets were reset')) { return }
 
     $controllerStopped = $false
     if ($running) {
@@ -1058,7 +1105,10 @@ function Stop-PASDeployment {
 
     $locks = @()
     $targets = @(Get-PASRunLockedTargets -RunDirectory $dir)
-    if ($CredentialMap) {
+    if ($ReleaseLocksAfterReset) {
+        # A controller stop does not stop detached systemd units/scheduled tasks.
+        # There is NO safe automatic proof of quiescence after a lost initialization RPC.
+        # Only release after externally restoring/rebuilding ALL associated target VMs.
         $config = Read-PASConfiguration -Path (Join-Path $dir 'config.json')
         $credentials = Resolve-PASCredentialMap -Config $config -CredentialMap (ConvertTo-PASControllerCredentialMap $config $CredentialMap)
         Add-PASDomainCredentialAlias -Config $config -Credentials $credentials
@@ -1081,7 +1131,7 @@ function Stop-PASDeployment {
                     }
                 } catch {
                     $note = [string]$_.Exception.Message
-                    Write-Warning "The lock of $($entry.Name) on $($entry.Computer) was not released: $note. If it still names run $RunId, delete the folder $($entry.LockFolder) there."
+                    Write-Warning "The lock of $($entry.Name) on $($entry.Computer) was not released: $note. Verify the VM was restored to a clean snapshot before any manual lock cleanup."
                 }
                 $locks += [pscustomobject]@{
                     Target = $entry.Name
@@ -1096,13 +1146,13 @@ function Stop-PASDeployment {
         }
     } else {
         foreach ($entry in $targets) {
-            Write-Host "Lock of $($entry.Name): delete the folder $($entry.LockFolder) on $($entry.Computer) if it still names run $RunId."
+            Write-Host "Lock retained on $($entry.Computer): $($entry.LockFolder). Restore/rebuild this lab target before Stop-PASRun -ReleaseLocksAfterReset -CredentialMap."
             $locks += [pscustomobject]@{
                 Target = $entry.Name
                 Computer = $entry.Computer
                 LockFolder = $entry.LockFolder
                 Released = $false
-                Message = 'Not contacted (no -CredentialMap)'
+                Message = 'Lock retained: a stopped controller does not prove detached workers have stopped'
             }
         }
     }

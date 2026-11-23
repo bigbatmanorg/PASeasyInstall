@@ -11,10 +11,18 @@ Describe 'Linux recipe package installs' {
             $l | Should -Match 'NEEDRESTART_SUSPEND=1'
         }
     }
+    It 'does not install packages in preflight' {
+        $preflight = $script:task.Substring($script:task.IndexOf('  Preflight)'),
+            $script:task.IndexOf('  PrepareTools)') - $script:task.IndexOf('  Preflight)'))
+        $preflight | Should -Not -Match 'apt-get.*install|dnf.*install|paeasy_needrestart_guard'
+    }
     It 'exempts its attempt units from needrestart before installing anything' {
         $script:task | Should -Match ([regex]::Escape('$nrconf{override_rc}{qr(^paeasy-.*)} = 0;'))
-        $first = $script:task.IndexOf('paeasy_needrestart_guard', $script:task.IndexOf('  Preflight)'))
-        $apt = $script:task.IndexOf('apt-get', $script:task.IndexOf('  Preflight)'))
+        $preflight = $script:task.IndexOf('  Preflight)')
+        $prepare = $script:task.IndexOf('  PrepareTools)')
+        $first = $script:task.IndexOf('paeasy_needrestart_guard', $prepare)
+        $apt = $script:task.IndexOf('apt-get', $prepare)
+        $prepare | Should -BeGreaterThan $preflight
         $first | Should -BeGreaterThan 0
         $first | Should -BeLessThan $apt
     }

@@ -63,6 +63,10 @@ function Wait-PASVaultGate {
         return $false
     }
     $waited = $false
+    $seconds = [int](Get-PASValue $Gate 'TimeoutSeconds' 14400)
+    if ($seconds -le 0 -or $seconds -gt 172800) { throw 'Invalid dependency timeout budget' }
+    $deadline = [DateTime]::UtcNow.AddSeconds($seconds)
+    $names = @((Get-PASValue $Gate 'Names' @()) | ForEach-Object { [string]$_ })
     foreach ($handle in @($Gate.Wait)) {
         if ($null -eq $handle) {
             continue
@@ -72,7 +76,14 @@ function Wait-PASVaultGate {
             if (Test-PASGateCancelled $Gate.Cancel) {
                 throw 'PASLaneStopped: a server this one depends on failed, or the run is being stopped. Nothing was started for this step.'
             }
+            if ([DateTime]::UtcNow -ge $deadline) {
+                throw ('PASLaneStopped: dependency wait timed out after ' + $seconds + ' seconds; waiting for: ' + ($names -join ', '))
+            }
             [void]$handle.WaitOne(1000)
+        }
+        # Failure can race with publication; failure has priority over a spuriously open gate.
+        if (Test-PASGateCancelled $Gate.Cancel) {
+            throw 'PASLaneStopped: dependency failed while waiting; no dependent step was dispatched.'
         }
     }
     return $waited

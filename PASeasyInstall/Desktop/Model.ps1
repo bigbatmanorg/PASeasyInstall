@@ -1,4 +1,4 @@
-# The data behind the desktop window: what the user chose and what follows from it.
+﻿# The data behind the desktop window: what the user chose and what follows from it.
 # Nothing here opens a window or calls the installer, so every function can be tested on its own.
 
 $script:PASUIComponentTypes = @('PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'PTA')
@@ -36,6 +36,7 @@ $script:PASUIStageNames = @{
     'media-upload' = 'Copying the installer'
     'pvwa-trust-certificate' = 'Copying the PVWA certificate'
     'preflight' = 'Checking the server'
+    'prepare-tools' = 'Preparing Linux archive tools'
     'extract' = 'Unpacking the installer'
     'prerequisites' = 'Preparing the server'
     'install' = 'Installing'
@@ -84,7 +85,7 @@ function New-PASUIState {
         MediaScanned = $false
 
         LabName = 'MyPAM'
-        Preset = 'standard'
+        Preset = 'custom' # Legacy value for saved UI scenarios; the UI offers only direct component selection
         VaultMode = 'Primary'
         Counts = @{ PVWA = 1; CPM = 1; PSM = 1; PSMP = 0; HTML5GW = 0; PTA = 0 }
         # CPM on the PVWA server (one server less), in every lab that has both. Off: CPM gets its own server.
@@ -177,8 +178,8 @@ function Test-PASUIAdvancedApplies {
     if ([string]$State.Screen -in @('servers', 'review', 'run')) {
         return $true
     }
-    # The Custom lab allows more instances of a component in the advanced view.
-    return ([string]$State.Screen -eq 'lab' -and [string]$State.Preset -eq 'custom')
+    # Component counts and Vault mode are always visible; only secondary options need Advanced.
+    return ([string]$State.Screen -eq 'lab')
 }
 
 function Get-PASUIMaxCount {

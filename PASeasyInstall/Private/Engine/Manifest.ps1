@@ -77,6 +77,11 @@ function Get-PASWorkflowPlan {
         $scope = [string](Get-PASValue $s 'Scope' 'Target')
         $verifyMode = [string](Get-PASValue $s 'VerifyMode' 'Direct')
         if ($verifyMode -notin @('Direct', 'Detached')) { throw 'Invalid VerifyMode' }
+        if ($s.Contains('VerifyRetrySafe') -and
+            ($s.VerifyRetrySafe -isnot [bool] -or
+            (-not (Get-PASValue $s 'Verify' '')))) {
+            throw 'VerifyRetrySafe requires a Boolean and a declared verification script'
+        }
         if ($verifyMode -eq 'Detached' -and
             ($kind -notin @('Script', 'Verify') -or
             $scope -ne 'Target' -or

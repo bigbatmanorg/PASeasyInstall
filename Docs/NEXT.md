@@ -131,14 +131,15 @@ health page as verification, one more component in the window. Results and limit
 - [ ] Open a PSM session in a browser through the gateway (by hand; see STATUS.md 3.4 for what the browser needs).
 - [ ] Ask the owner for a complete 15.2 gateway package; then let the media selection skip a package that is cut short.
 - [ ] Run it on a RHEL-family server (Podman).
-- [ ] A gateway certificate of your own (with the Secure profile, 2.3).
+- [ ] Optional custom gateway certificates for lab interoperability, without adding a production profile.
 - [ ] Add a gateway to a lab that is installed already.
 
-### 2.3 Secure profile
+### 2.3 Stability and repeatable lab automation
 
-**Out of scope for the lab for now** (owner's decision of 2026-11-22). The profile stays the default of the
-commands and stays untested; the window keeps using Lab. What it would need is listed in
-[STATUS.md](STATUS.md) 3.1.
+**Only disposable lab environments are in scope.** A production-supported deployment and a Secure/production
+profile are not planned. Stabilize dependency ordering, verifier-only recovery, safe cancellation and resume,
+clear progress reporting, and reproducible Proxmox lab scenario evidence before the next public release.
+See [LAB-STABILIZATION.md](LAB-STABILIZATION.md) and `LabValidation/`.
 
 ### 2.4 PTA
 
@@ -251,8 +252,8 @@ Every run assumes clean servers.
   skipped entirely.
 - **Verify of the Primary Vault takes about two minutes** after the restart that follows hardening: it waits
   until the four Vault services run. Nothing waits longer than needed, but everything that registers waits for it.
-- **`Stop-PASRun` without `-CredentialMap`** cannot remove the lock folders on the servers and prints one line
-  per server. The window should offer to release them.
+- **`Stop-PASRun` now retains locks by default**, even with `-CredentialMap`. Only `-ReleaseLocksAfterReset`
+  permits cleanup after target VM reset/rebuild. The window must never silently offer unsafe cleanup.
 - **Server check:** an HTML5 Gateway server is still judged like a PSMP server (same distributions, so it fits).
   Memory and disk of the other Linux servers are not checked.
 - **Media scan:** only a ZIP whose end is missing is found. A ZIP that is damaged in the middle is found when it

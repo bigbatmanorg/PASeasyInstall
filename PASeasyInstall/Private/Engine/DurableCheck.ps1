@@ -12,6 +12,7 @@ function Get-PASDurableCheck {
         [int]$TimeoutSeconds = 900
     )
     $authenticated = [bool](Get-PASValue $Step 'VerifyRequiresVaultSession' $false)
+    $linux = ($Plan.Target.Protocol -eq 'SSH' -and $Plan.Target.Runtime -eq 'Bash')
     if ($authenticated -and
         -not [bool](Get-PASValue $Context 'VaultLocked' $false)) { throw 'PAExecUnknown: authenticated check runs without the Vault lock' }
     $path = Assert-PASProjectPath $Plan.Root ([string]$Step.Verify)
@@ -36,24 +37,77 @@ function Get-PASDurableCheck {
             consumed = $false
             previousAttempts = $previous
             startedUtc = (Get-PASNow)
+            actionAttemptId = [string](Get-PASValue $Current 'attemptId' '')
         }
         $Current.check = $check
         Save-PASState $Context
     }
-    if ($check.scriptDigest -cne $digest) { throw 'PAExecUnknown: durable check script changed' }
-    if ($check.status -eq 'Pending') {
-        # Dispatch intent is durable before any remote callback. Missing evidence
-        # after that point is uncertain, never permission to allocate another ID.
-        $check.status = 'Dispatched'
+    # Only an independently verified, non-mutating check may get another generation.
+    # In particular, an unobservable initializer or a possibly live worker keeps its ID.
+    $generationRetry = 0
+    while ($true) {
+        if ($check.scriptDigest -cne $digest) { throw 'PAExecUnknown: durable check script changed' }
+        if ($check.ContainsKey('actionAttemptId') -and
+            [string]$check.actionAttemptId -cne [string](Get-PASValue $Current 'attemptId' '')) {
+            throw 'PAExecUnknown: verifier belongs to a different action attempt'
+        }
+        if ($check.status -eq 'Pending') {
+            # Dispatch intent is durable before any remote callback.
+            $check.status = 'Dispatched'
+            Save-PASState $Context
+            try {
+                $selected = Select-PASDeclaredInputs $path $Inputs
+                if ($linux) {
+                    [void](Initialize-PASLinuxDetached $Plan.Target $path $selected $check.attemptId $TimeoutSeconds 'Object')
+                } else {
+                    [void](Initialize-PASDetached -Target $Plan.Target -Credentials $Credentials -ScriptPath $path -Parameters $selected -AttemptId $check.attemptId -TimeoutSeconds $TimeoutSeconds -Contract 'Check')
+                }
+            } catch { throw ('PAExecUnknown: durable check staging interrupted: ' + $_.Exception.Message) }
+        }
+        if ($check.status -notin @('Dispatched', 'Completed')) { throw 'PAExecUnknown: durable check journal state is unsupported' }
+        $remote = Wait-PASDetached -Target $Plan.Target -Credentials $Credentials -AttemptId $check.attemptId -TimeoutSeconds $TimeoutSeconds -Context $Context -TaskId ([string]$Step.Id) -AllowStart
+        if ($remote.state -eq 'Succeeded' -and
+            [string](Get-PASValue $remote 'attemptId' '') -ceq $check.attemptId) { break }
+        $safeRetry = ([bool](Get-PASValue $Step 'VerifyRetrySafe' $false) -or $linux)
+        $inactive = ((Get-PASValue $remote 'workerActive' $null) -is [bool] -and -not $remote.workerActive)
+        $taskState = [string](Get-PASValue $remote 'taskState' '')
+        # Never treat an unclaimed/dispatched initializer as a completed verifier.
+        # PID plus boot identity prove the worker actually started, and the separate
+        # workerActive check proves that same worker has exited.
+        $claimed = ([string](Get-PASValue $remote 'pid' '') -match '^[1-9][0-9]{0,9}$' -and
+            (([string](Get-PASValue $remote 'bootUtc' '') -ne '') -or
+             ([string](Get-PASValue $remote 'bootId' '') -ne '')))
+        if ($generationRetry -gt 0 -or -not $safeRetry -or -not $claimed -or
+            $remote.state -notin @('Interrupted', 'Failed') -or
+            -not $inactive -or $taskState -eq 'Running' -or
+            -not $check.ContainsKey('actionAttemptId')) {
+            throw 'PAExecUnknown: durable check has no successful result from the same attempt; remote verifier must be proven inactive before retrying verification only'
+        }
+        # Never change the action attempt, even when the verifier is terminal.
+        $generationRetry++
+        $oldId = [string]$check.attemptId
+        $history = @(@(Get-PASValue $check 'previousAttempts' @()) + @($oldId))
+        if ($history.Count -ge 1000) { throw 'PAExecUnknown: check history limit reached' }
+        $check = @{
+            schemaVersion = 1
+            attemptId = [guid]::NewGuid().ToString('N')
+            purpose = 'QuiescentVerificationRecovery'
+            status = 'Pending'
+            scriptDigest = $digest
+            consumed = $false
+            actionAttemptId = [string]$Current.attemptId
+            previousAttempts = $history
+            startedUtc = (Get-PASNow)
+            supersedes = $oldId
+        }
+        $Current.check = $check
         Save-PASState $Context
-        try { [void](Initialize-PASDetached -Target $Plan.Target -Credentials $Credentials -ScriptPath $path -Parameters (Select-PASDeclaredInputs $path $Inputs) -AttemptId $check.attemptId -TimeoutSeconds $TimeoutSeconds -Contract 'Check') }
-        catch { throw ('PAExecUnknown: durable check staging interrupted: ' + $_.Exception.Message) }
+        Add-PASEvent $Context 'VerificationRecovered' ([string]$Step.Id) "Previous verifier $oldId is terminal and inactive; starting verification-only generation $($check.attemptId)" 'Warning'
     }
-    if ($check.status -notin @('Dispatched', 'Completed')) { throw 'PAExecUnknown: durable check journal state is unsupported' }
-    $remote = Wait-PASDetached -Target $Plan.Target -Credentials $Credentials -AttemptId $check.attemptId -TimeoutSeconds $TimeoutSeconds -Context $Context -TaskId ([string]$Step.Id) -AllowStart
-    if ($remote.state -ne 'Succeeded' -or
-        [string](Get-PASValue $remote 'attemptId' '') -cne $check.attemptId) { throw 'PAExecUnknown: durable check has no successful result from the same attempt; reconcile before another login' }
-    Wait-PASDetachedSessionQuiescence $Plan.Target $Credentials $check.attemptId
+    if (-not $linux) { Wait-PASDetachedSessionQuiescence $Plan.Target $Credentials $check.attemptId }
+    elseif ((Get-PASValue $remote 'workerActive' $null) -isnot [bool] -or $remote.workerActive) {
+        throw 'PAExecUnknown: Linux verifier has not proved worker exit'
+    }
     $result = Get-PASValue $remote 'check' $null
     if ($result -isnot [Collections.IDictionary] -or
         [int](Get-PASValue $result 'schemaVersion' 0) -ne 1 -or
@@ -105,9 +159,10 @@ function Get-PASStepCheck {
     if ([bool](Get-PASValue $Step 'RequiresVaultSession' $false)) {
         Wait-PASDetachedSessionQuiescence $Plan.Target $Credentials ([string]$Current.attemptId)
     }
-    if ([string](Get-PASValue $Step 'VerifyMode' 'Direct') -eq 'Detached') {
+    if ([string](Get-PASValue $Step 'VerifyMode' 'Direct') -eq 'Detached' -or
+        ($Plan.Target.Protocol -eq 'SSH' -and $Plan.Target.Runtime -eq 'Bash' -and $Scope -eq 'Target')) {
         if ($Script -cne [string]$Step.Verify -or
-            $Property -ne 'Passed') { throw 'PAExecUnknown: detached verification cannot substitute another script or property' }
+            $Property -ne 'Passed') { throw 'PAExecUnknown: durable verification cannot substitute another script or property' }
         return Get-PASDurableCheck $Plan $Step $Credentials $Inputs $Current $Context $Purpose $TimeoutSeconds
     }
     return Get-PASCheck $Plan $Credentials $Script $Inputs $Property $Scope $TimeoutSeconds

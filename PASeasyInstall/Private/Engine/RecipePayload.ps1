@@ -9,8 +9,22 @@ function Get-PASRecipePayload {
     $root = [IO.Path]::GetFullPath((Join-Path (Get-PASModuleRoot) 'Recipes/Vault'))
     $prefix = $root + [IO.Path]::DirectorySeparatorChar
     $comparison = if (Test-PASWindows) { [StringComparison]::OrdinalIgnoreCase }else { [StringComparison]::Ordinal }
-    if (-not $full.StartsWith($prefix, $comparison)) { throw 'Static Vault helper requested outside the shipped Vault recipes' }
-    $relative = $full.Substring($prefix.Length).Replace('\', '/')
+    $frozenRoot = ''
+    if ($full.StartsWith($prefix, $comparison)) {
+        $relative = $full.Substring($prefix.Length).Replace('\', '/')
+    } else {
+        # Only a run-owned VaultFrozen tree may supply the exact same reviewed helpers.
+        # This is a pinned copy, never dynamic includes from arbitrary projects.
+        $normalized = $full.Replace('\', '/')
+        $marker = '/Payloads/VaultFrozen/'
+        $position = $normalized.IndexOf($marker, $comparison)
+        if ($position -lt 0) { throw 'Static Vault helper requested outside the shipped Vault recipes' }
+        $frozenRoot = $normalized.Substring(0, $position + $marker.Length - 1)
+        $relative = $normalized.Substring($position + $marker.Length)
+        if (-not $relative.StartsWith('Tasks/', [StringComparison]::Ordinal)) {
+            throw 'Static Vault helper is not in the frozen Vault task tree'
+        }
+    }
     $specifications = @{
         PAEASY_INCLUDE_VAULT_WORKSPACE = @{
             Tasks = @('Tasks/Common/Prepare-Paths.ps1', 'Tasks/Common/Verify-Paths.ps1', 'Tasks/Common/Expand-Media.ps1', 'Tasks/Common/Verify-Media.ps1')
@@ -43,7 +57,14 @@ function Get-PASRecipePayload {
             $seen.ContainsKey($name)) { throw 'Unknown, misplaced or duplicated static Vault helper marker' }
         $seen[$name] = $true
         $parts = @(foreach ($helper in $specifications[$name].Helpers) {
-                $helperPath = Get-PASRecipePath $helper
+            if ($frozenRoot) {
+                if ($helper.StartsWith('Recipes/Vault/')) {
+                    $helperPath = Join-Path $frozenRoot $helper.Substring('Recipes/Vault/'.Length)
+                } elseif ($helper.StartsWith('Recipes/WindowsComponent/')) {
+                    $helperPath = Join-Path (Join-Path $frozenRoot 'External/WindowsComponent') $helper.Substring('Recipes/WindowsComponent/'.Length)
+                } else { throw 'Unqualified frozen recipe helper' }
+                if (-not (Test-Path -LiteralPath $helperPath -PathType Leaf)) { throw 'Frozen Vault helper missing' }
+            } else { $helperPath = Get-PASRecipePath $helper }
                 $files += $helperPath
                 $helperText = [IO.File]::ReadAllText($helperPath)
                 if ($helperText -match '(?m)^\s*# PAEASY_INCLUDE_') { throw 'Nested static Vault helpers are forbidden' }

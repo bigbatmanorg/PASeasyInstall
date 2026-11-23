@@ -65,7 +65,7 @@ The HTML5 Gateway, PTA, domain joins and the hardening GPOs are installed as par
 | [`Get-PASRunEvent`](runs.md#get-pasrunevent) | The progress events of a run; `-Failed` shows what failed |
 | [`Wait-PASRun`](runs.md#wait-pasrun) | Follows a run until it ends |
 | [`Resume-PASRun`](runs.md#resume-pasrun) | Continues a run that stopped; `-RetryStep` runs a failed step again |
-| [`Stop-PASRun`](runs.md#stop-pasrun) | Gives a run up and releases its locks on the servers |
+| [`Stop-PASRun`](runs.md#stop-pasrun) | Abandons a run, preserving target locks unless explicitly cleaned after VM reset |
 
 ## Checks and diagnostics
 
