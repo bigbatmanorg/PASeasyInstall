@@ -51,6 +51,9 @@ function Write-Marker([string]$Name, [string]$Message) {
 . (Join-Path $PSScriptRoot 'Workspace.ps1')
 Protect-PASeasyComponentWorkspace -Settings $Settings
 try {
+    if ($type -in @('CPM', 'PSM') -and $Stage -eq 'Prerequisites') {
+        Add-PASeasyPvwaNames -Settings $Settings
+    }
     if ($type -eq 'PVWA') {
         . (Join-Path $PSScriptRoot 'PvwaTls.ps1')
         if ($Stage -eq 'Preflight') { $null = Test-PASeasyPvwaTlsPreparation -Settings $Settings }

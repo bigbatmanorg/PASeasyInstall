@@ -241,6 +241,23 @@ Every run assumes clean servers.
 
 ---
 
+### 3.8 Left open after 2.0.7 (owner's test on the two-network lab, 2026-11-23)
+
+- **The window was not run against real servers with the 2.0.7 changes** (gateway on its own server, Save on the
+  Servers step, the new status texts): simulated installer and unit tests only.
+- **A failing first PVWA, Primary Vault in a lab with DR, or domain controller** is covered by unit tests of the
+  signals, not by a lab run. (A failing Vault without DR happened by accident in the lab and behaved as designed.)
+- **The gateway is installed even when PSM fails**; only its registration in PVWA is left out. It could be
+  skipped entirely.
+- **Verify of the Primary Vault takes about two minutes** after the restart that follows hardening: it waits
+  until the four Vault services run. Nothing waits longer than needed, but everything that registers waits for it.
+- **`Stop-PASRun` without `-CredentialMap`** cannot remove the lock folders on the servers and prints one line
+  per server. The window should offer to release them.
+- **Server check:** an HTML5 Gateway server is still judged like a PSMP server (same distributions, so it fits).
+  Memory and disk of the other Linux servers are not checked.
+- **Media scan:** only a ZIP whose end is missing is found. A ZIP that is damaged in the middle is found when it
+  is unpacked on the server.
+
 ## Not on this list
 
 - Cluster and distributed Vaults: out of scope by the owner's decision.

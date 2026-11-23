@@ -77,7 +77,9 @@ what is needed.
 
 ## Name resolution
 
-The installation works with addresses and needs no DNS. Two things are reached by name afterwards:
+The installation works with addresses and needs no DNS. CPM (its Scanner service) and PSM call PVWA under its
+computer name; in a lab the installation adds that name to the hosts file of the CPM and PSM servers when they
+cannot resolve it (servers in different networks, no DNS). Two things are reached by name afterwards:
 
 - **The web portal:** `https://<computer name of the PVWA server>/PasswordVault`. The computer with the browser
   must resolve that name; a line in its hosts file is enough.

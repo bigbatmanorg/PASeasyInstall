@@ -66,11 +66,23 @@ function Get-PASMediaSelection {
             if ($_.Entry) { 0 } else { 1 }
         }
 
+        # A package that is not a complete ZIP file is chosen only when there is no other.
+        $byIntact = {
+            if ($_.PSObject.Properties['Damaged'] -and $_.Damaged) { 0 } else { 1 }
+        }
         $selection = @{}
         $installable = @($all.ToArray() | Where-Object { $_.Component -in $script:PASMediaInstallable })
         foreach ($group in @($installable | Group-Object -Property Component)) {
-            $sorted = @($group.Group | Sort-Object -Descending -Property @{ Expression = $byPreference }, @{ Expression = $byVersion }, @{ Expression = $byPlainFile })
+            $sorted = @($group.Group | Sort-Object -Descending -Property @{ Expression = $byIntact }, @{ Expression = $byPreference }, @{ Expression = $byVersion }, @{ Expression = $byPlainFile })
             $selection[$group.Name] = $sorted[0]
+            $damaged = @($group.Group | Where-Object { $_.PSObject.Properties['Damaged'] -and $_.Damaged })
+            foreach ($bad in $damaged) {
+                if ($bad -eq $sorted[0]) {
+                    Write-Warning ("The only $($group.Name) package, '$($bad.Name)' ($($bad.Source)), is damaged: it is not a complete ZIP file. Download it again, or add a good copy as a single file.")
+                } else {
+                    Write-Warning ("The $($group.Name) package '$($bad.Name)' ($($bad.Source)) is damaged (not a complete ZIP file) and is not used. Used instead: '$($sorted[0].Name)'.")
+                }
+            }
         }
         return $selection
     }

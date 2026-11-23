@@ -30,8 +30,8 @@ The number of servers on each card follows your choices below: CPM on its own se
 **Advanced** switched on, up to four. Two of each were tested, and the Vault license decides how many can
 register. Set a component to 0 to leave it out.
 
-- An **HTML5 Gateway** shares the server of a PSM for SSH when there is one; otherwise it gets its own Linux
-  server. It needs a PVWA in the same lab.
+- An **HTML5 Gateway** shares the server of a PSM for SSH when there is one, unless you switch that off (see
+  below); otherwise it gets its own Linux server. It needs a PVWA in the same lab.
 - **PTA** needs its own RHEL-family server with 8 GB, and a PVWA in the same lab.
 
 ## Server for CPM
@@ -39,6 +39,12 @@ register. Set a component to 0 to leave it out.
 In every lab, *Install CPM on the PVWA server (one server less)* is switched on. Switch it off to give CPM a
 server of its own; the Servers step then has one more line. A CPM on its own server is installed at the same
 time as PVWA.
+
+## Server for the HTML5 Gateway
+
+In a lab with PSM for SSH and an HTML5 Gateway, *Install the HTML5 Gateway on the PSM for SSH server (one server
+less)* is switched on. Switch it off to give the gateway a Linux server of its own; the Servers step then has
+one more line.
 
 ## Active Directory
 

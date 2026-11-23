@@ -552,6 +552,32 @@ function Start-PASUIPlan {
     }
 }
 
+function Save-PASUILabFile {
+    # Writes the lab of the window as a lab file (no password is in it). On the Install step the configuration
+    # exists already; on the Servers step it is built from what is in the form now. No server is contacted.
+    param([string]$Path)
+    $S.SavePath = $Path
+    $saveIt = {
+        if (-not $S.Configuration) {
+            $why = @($S.Check.Issues | Where-Object { $_ }) -join ' '
+            Set-PASUINotice 'error' ('The lab file was not saved: fill in the servers first. ' + $why)
+            return
+        }
+        Start-PASUITask -ArgumentList @($S.Configuration, [string]$S.SavePath) -ScriptBlock {
+            param($Configuration, [string]$Path)
+            Export-PASLabConfiguration -Configuration $Configuration -Path $Path -Force
+        } -OnCompleted {
+            param($result)
+            Set-PASUINotice 'ok' ('Saved: ' + [string](@($result)[-1]) + '. It holds no password.')
+        }
+    }
+    if ($S.Configuration -and $S.Screen -eq 'review') {
+        & $saveIt
+    } else {
+        Start-PASUIPlan $saveIt
+    }
+}
+
 function Invoke-PASUIMediaScan {
     # Looks for installers in every folder and file that was added, in the background. $Then runs afterwards.
     # The page says at once that it is looking; the window stays usable meanwhile.
@@ -966,6 +992,10 @@ function Set-PASUILabFromFile {
     $pvwaAddresses = @($Plan.Items | Where-Object { [string]$_.Type -eq 'PVWA' } | ForEach-Object { [string]$_.Address })
     $cpmAddresses = @($Plan.Items | Where-Object { [string]$_.Type -eq 'CPM' } | ForEach-Object { [string]$_.Address })
     $S.Colocate = [bool]@($cpmAddresses | Where-Object { $pvwaAddresses -contains $_ }).Count -or -not $cpmAddresses.Count
+    # The same for an HTML5 Gateway and the PSM for SSH servers.
+    $psmpAddresses = @($Plan.Items | Where-Object { [string]$_.Type -eq 'PSMP' } | ForEach-Object { [string]$_.Address })
+    $gatewayAddresses = @($Plan.Items | Where-Object { [string]$_.Type -eq 'HTML5GW' } | ForEach-Object { [string]$_.Address })
+    $S.ColocateGw = [bool]@($gatewayAddresses | Where-Object { $psmpAddresses -contains $_ }).Count -or -not $gatewayAddresses.Count
     $numbers = @{}
     foreach ($item in @($Plan.Items)) {
         $type = [string]$item.Type
@@ -983,8 +1013,19 @@ function Set-PASUILabFromFile {
         if ($type -eq 'CPM' -and $S.Colocate -and $pvwaAddresses -contains [string]$item.Address) {
             continue
         }
+        if ($type -eq 'HTML5GW' -and $S.ColocateGw -and $psmpAddresses -contains [string]$item.Address) {
+            continue
+        }
         $numbers[$type] = 1 + [int]$numbers[$type]
         $key = $type.ToLowerInvariant() + $numbers[$type]
+        if ($type -eq 'HTML5GW') {
+            # Gateway servers of their own are numbered after the shared ones (see Get-PASUIServerSlots).
+            $shared = 0
+            if ($S.ColocateGw) {
+                $shared = $psmpAddresses.Count
+            }
+            $key = 'gw' + ($shared + $numbers[$type])
+        }
         Set-PASUISlotValue $S $key 'Address' ([string]$item.Address)
         Set-PASUISlotValue $S $key 'Name' ([string]$item.Name)
         Set-PASUISlotValue $S $key 'User' $account
@@ -1134,13 +1175,7 @@ function Invoke-PASUIClick {
             if (-not $path) {
                 return
             }
-            Start-PASUITask -ArgumentList @($S.Configuration, $path) -ScriptBlock {
-                param($Configuration, [string]$Path)
-                Export-PASLabConfiguration -Configuration $Configuration -Path $Path -Force
-            } -OnCompleted {
-                param($result)
-                Set-PASUINotice 'ok' ('Saved: ' + [string](@($result)[-1]))
-            }
+            Save-PASUILabFile $path
             return
         }
         '^act-install$' {
@@ -1344,6 +1379,13 @@ function Set-PASUIToggle {
                 $S.Colocate = $Checked
                 $S.Preflight = $null
                 # The ready-made labs show their number of servers.
+                Show-PASUIScreen 'lab'
+            }
+        }
+        'f-colocate-gw' {
+            if ([bool]$S.ColocateGw -ne $Checked) {
+                $S.ColocateGw = $Checked
+                $S.Preflight = $null
                 Show-PASUIScreen 'lab'
             }
         }

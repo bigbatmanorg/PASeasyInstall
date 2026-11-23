@@ -13,8 +13,8 @@ function Enter-PASVaultLock {
     # Waits for the Vault lock of one Vault address and returns it. Pass the result to Exit-PASVaultLock.
     # The mutex is re-entrant on the same thread: a workflow step may take it again while the controller
     # already holds it for the whole Vault installation.
-    # -Cancel: a wait handle of a parallel run (Private\Run\Lanes.ps1). When it is set the wait ends with
-    # PASLaneStopped, so a server waiting for its turn does not wait for a run that is being stopped.
+    # -Cancel: one or more wait handles of a parallel run (Private\Run\Lanes.ps1). When one of them is set the
+    # wait ends with PASLaneStopped, so a server does not wait for something that will never come.
     param([Parameter(Mandatory)][string]$Address, [int]$TimeoutSeconds = 180, $Cancel = $null)
     $key = $Address.Trim().TrimEnd('.').ToLowerInvariant() -replace '[^a-z0-9.-]', '_'
     if (-not $key) { throw 'The Vault lock needs the Vault address' }
@@ -36,9 +36,9 @@ function Enter-PASVaultLock {
     try {
         while (-not $held -and [DateTime]::UtcNow -lt $deadline) {
             $held = $mutex.WaitOne(1000)
-            if (-not $held -and $Cancel -and $Cancel.WaitOne(0)) {
+            if (-not $held -and (Test-PASGateCancelled $Cancel)) {
                 $mutex.Dispose()
-                throw 'PASLaneStopped: the run is being stopped because another server failed. Nothing was started for this step.'
+                throw 'PASLaneStopped: a server this one depends on failed, or the run is being stopped. Nothing was started for this step.'
             }
         }
     } catch [Threading.AbandonedMutexException] {
@@ -55,7 +55,8 @@ function Enter-PASVaultLock {
 function Wait-PASVaultGate {
     <# A parallel run (Private\Run\Lanes.ps1) hands every server a gate for its steps that sign in to the Vault:
          Wait    wait handles that must all be set first (the Vault is installed; the first PVWA is registered)
-         Cancel  a wait handle that is set when the run is being stopped.
+         Cancel  wait handles; one of them is set when the run is being stopped or when a server that this
+                 one depends on failed.
        Returns $true when it had to wait. Throws PASLaneStopped when the run is stopped while waiting. #>
     param($Gate)
     if (-not $Gate) {
@@ -68,13 +69,24 @@ function Wait-PASVaultGate {
         }
         while (-not $handle.WaitOne(0)) {
             $waited = $true
-            if ($Gate.Cancel -and $Gate.Cancel.WaitOne(0)) {
-                throw 'PASLaneStopped: the run is being stopped because another server failed. Nothing was started for this step.'
+            if (Test-PASGateCancelled $Gate.Cancel) {
+                throw 'PASLaneStopped: a server this one depends on failed, or the run is being stopped. Nothing was started for this step.'
             }
             [void]$handle.WaitOne(1000)
         }
     }
     return $waited
+}
+
+function Test-PASGateCancelled {
+    # $true when one of the cancel handles of a gate is set. Accepts one handle, several or none.
+    param($Cancel)
+    foreach ($handle in @($Cancel)) {
+        if ($null -ne $handle -and $handle.WaitOne(0)) {
+            return $true
+        }
+    }
+    return $false
 }
 
 function Test-PASVaultGateOpen {

@@ -115,3 +115,33 @@ function Protect-PASeasyComponentWorkspace {
     $null = Assert-WorkspaceEntry $media
     if ((Get-FileHash -LiteralPath $media -Algorithm SHA256).Hash -ine [string]$Settings.MediaSHA256) { throw 'Staged component media SHA256 differs from frozen controller media' }
 }
+
+function Add-PASeasyPvwaNames {
+    # Lab: CPM (its Scanner service) and PSM call PVWA under its computer name. Where that name does not
+    # resolve (a lab without DNS, servers in different networks), it is added to the hosts file of this server.
+    # A name that resolves already is left alone. Settings.PvwaNames: lines "<IPv4 address> <name>".
+    param([hashtable]$Settings)
+    if ([string]$Settings.SecurityProfile -ne 'Lab') {
+        return
+    }
+    $hostsFile = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
+    foreach ($line in @($Settings.PvwaNames)) {
+        $parts = @(([string]$line).Trim() -split '\s+')
+        if ($parts.Count -ne 2 -or $parts[0] -notmatch '^\d{1,3}(\.\d{1,3}){3}$' -or $parts[1] -notmatch '^[A-Za-z0-9][A-Za-z0-9.-]*$') {
+            continue
+        }
+        if ($parts[1] -ieq $env:COMPUTERNAME) {
+            continue
+        }
+        $resolves = $false
+        try {
+            $resolves = [bool]@([Net.Dns]::GetHostAddresses($parts[1])).Count
+        } catch {
+            $resolves = $false
+        }
+        if ($resolves) {
+            continue
+        }
+        Add-Content -LiteralPath $hostsFile -Value ($parts[0] + ' ' + $parts[1] + ' # PASeasyInstall lab') -Encoding ASCII
+    }
+}

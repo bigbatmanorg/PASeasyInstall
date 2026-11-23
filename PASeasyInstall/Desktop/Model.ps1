@@ -89,6 +89,8 @@ function New-PASUIState {
         Counts = @{ PVWA = 1; CPM = 1; PSM = 1; PSMP = 0; HTML5GW = 0; PTA = 0 }
         # CPM on the PVWA server (one server less), in every lab that has both. Off: CPM gets its own server.
         Colocate = $true
+        # The HTML5 Gateway on the PSM for SSH server (one server less), or on a server of its own.
+        ColocateGw = $true
         # Advanced: apply the vendor hardening. Off: the lab is installed without it (New-PASLabConfiguration -SkipHardening).
         Hardening = $true
         ExistingVault = ''
@@ -223,18 +225,24 @@ function Get-PASUIServerSlots {
     for ($i = 1; $i -le [int]$State.Counts.PSM; $i++) {
         [void]$slots.Add(@{ Key = "psm$i"; Roles = 'PSM'; Types = @('PSM'); Os = 'Windows'; DefaultName = ('PSM{0:00}' -f $i); Named = $true })
     }
-    # An HTML5 Gateway shares the server of a PSMP when there is one; otherwise it gets its own Linux server.
+    # An HTML5 Gateway shares the server of a PSMP when there is one and the user did not ask for a server of
+    # its own (ColocateGw); otherwise it gets its own Linux server.
     $gateways = [int]$State.Counts['HTML5GW']
+    $shareGateway = (-not $State.ContainsKey('ColocateGw') -or [bool]$State.ColocateGw)
+    $firstOwnGateway = 1
+    if ($shareGateway) {
+        $firstOwnGateway = [int]$State.Counts.PSMP + 1
+    }
     for ($i = 1; $i -le [int]$State.Counts.PSMP; $i++) {
         $types = @('PSMP')
         $roles = 'PSMP'
-        if ($i -le $gateways) {
+        if ($shareGateway -and $i -le $gateways) {
             $types = @('PSMP', 'HTML5GW')
             $roles = 'PSMP + HTML5 Gateway'
         }
         [void]$slots.Add(@{ Key = "psmp$i"; Roles = $roles; Types = $types; Os = 'Linux'; DefaultName = ('psmp{0:00}' -f $i); Named = $true })
     }
-    for ($i = [int]$State.Counts.PSMP + 1; $i -le $gateways; $i++) {
+    for ($i = $firstOwnGateway; $i -le $gateways; $i++) {
         [void]$slots.Add(@{ Key = "gw$i"; Roles = 'HTML5 Gateway'; Types = @('HTML5GW'); Os = 'Linux'; DefaultName = ('html5gw{0:00}' -f $i); Named = $true })
     }
     # PTA needs its own RHEL-family server with 8 GB.
@@ -551,6 +559,16 @@ function Get-PASUIMediaRows {
             $item = $found[0]
             $detail = (@($found | ForEach-Object { [string]$_.Name } | Select-Object -Unique) -join ', ')
         }
+        # A package that is not a complete ZIP file: say so, and which copy is used instead.
+        $broken = @($found | Where-Object { $_.PSObject.Properties['Damaged'] -and $_.Damaged })
+        if ($broken.Count) {
+            $names = (@($broken | ForEach-Object { [string]$_.Name } | Select-Object -Unique) -join ', ')
+            if ($item -and $item.PSObject.Properties['Damaged'] -and $item.Damaged) {
+                $detail += '. DAMAGED: not a complete ZIP file. Download it again or add a good copy as a single file.'
+            } else {
+                $detail += '. Not used, because damaged (not a complete ZIP file): ' + $names
+            }
+        }
         if ($item -and $item.PSObject.Properties['Path']) {
             $source = Get-PASUIMediaSourceOf $State $item
             if ($item.PSObject.Properties['Entry'] -and [string]$item.Entry) {
@@ -842,8 +860,15 @@ function Get-PASUIRunProgress {
                 $waiting = 'Waiting for its turn at the Vault'
             } elseif ([string]$latest.Event -eq 'ComponentWaiting') {
                 $waiting = 'Waiting for PVWA'
+            } elseif ([string]$latest.Event -eq 'WaitingForMilestone') {
+                $waiting = 'Waiting for the Primary Vault'
             }
         }
+        # A continued installation looks at every finished step again before it goes on: that is a check,
+        # not the step itself.
+        $checking = ($mine.Count -and [string]$mine[-1].Event -eq 'TaskRevalidated' -and $status -notin @('Succeeded', 'Failed', 'Unknown', 'Blocked'))
+        # The server was not continued because a server it depends on failed.
+        $gaveUp = ($latest -and [string]$latest.Event -eq 'LaneWaitingEnded' -and $status -ne 'Succeeded')
         $address = ''
         if ($PlanItems.ContainsKey($id)) {
             $address = [string]$PlanItems[$id].Address
@@ -864,6 +889,8 @@ function Get-PASUIRunProgress {
                 Percent = $percent
                 Current = $current
                 Waiting = $waiting
+                Checking = [bool]$checking
+                GaveUp = [bool]$gaveUp
             })
         $doneAll += $done
         $totalAll += $total

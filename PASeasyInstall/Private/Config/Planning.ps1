@@ -563,6 +563,19 @@ function New-PASRuntimeInventory {
             $componentSettings.PVWATrustCertificateSHA256 = [string](Get-PASValue $componentSettings.Options 'pvwaTrustCertificateSHA256' '')
             $componentSettings.PVWATrustCertificateTarget = if ($componentSettings.PVWATrustCertificateFile) { 'C:\ProgramData\PASeasyInstall\media\' + $id + '\pvwa-trust.cer' }else { '' }
         }
+        if ($entry.type -in @('CPM', 'PSM') -and $Config.security.profile -eq 'Lab') {
+            # CPM (its Scanner service) and PSM call PVWA under the computer name PVWA registered in the Vault.
+            # A lab often has no DNS: the server gets a hosts entry for every PVWA name it cannot resolve.
+            $pvwaNames = @()
+            foreach ($pvwaEntry in @($Config.components | Where-Object { $_ -and $_.type -eq 'PVWA' })) {
+                $pvwaAddress = [string]$Config.hosts[[string]$pvwaEntry.host].address
+                $pvwaName = [string](Get-PASValue $pvwaEntry 'name' '')
+                if ($pvwaName -match '^[A-Za-z0-9][A-Za-z0-9.-]*$' -and $pvwaAddress -match '^\d{1,3}(\.\d{1,3}){3}$') {
+                    $pvwaNames += ($pvwaAddress + ' ' + $pvwaName)
+                }
+            }
+            $componentSettings.PvwaNames = @($pvwaNames)
+        }
         if ($Config.security.profile -eq 'Lab' -and $Config.security.overrides) {
             $ck = ([string]$entry.type + '.ApplyHardening')
             if ($Config.security.overrides.Contains($ck)) { $componentSettings.ApplyHardening = [bool]$Config.security.overrides[$ck] }

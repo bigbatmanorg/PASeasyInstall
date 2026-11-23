@@ -8,7 +8,8 @@ The controller gives every server a **lane**: the work of that server, in plan o
 side.
 
 - Components on the same server stay one after the other: a server does one thing at a time.
-- The Vault and its DR Vault are one lane. The new domain controller is one lane.
+- The Vault is one lane and its DR Vault another: the DR Vault is prepared while the Primary is installed.
+  The new domain controller is one lane.
 - Most of the time a lane only waits for the server: the long steps run on the server itself.
 
 ## What waits for what
@@ -18,10 +19,11 @@ side.
 | A server that is joined to a new domain | the new forest | A join needs the DNS of the domain |
 | A component on a joined server | the join of its server | The join restarts the server |
 | CPM, HTML5 Gateway and PTA on another server than PVWA | the HTTPS certificate of every PVWA | They copy it to trust PVWA. PVWA creates it as its first step, so this is a short wait |
-| Every step that signs in to the Vault | the Vault being installed; with a DR Vault, the whole Vault and DR sequence | The sequence restarts the Vault while it sets up replication |
+| Every step that signs in to the Vault | the Primary Vault being installed, hardened and checked | It signs in to that Vault. Nothing waits for the DR Vault |
+| The DR Vault | the keys of the Primary Vault, then the Primary Vault being ready | It is installed with the same keys and replicates from the Primary |
 | Every registration except the first PVWA's | the first PVWA being registered | The others write into the PVWA configuration the first PVWA creates in the Vault |
-| CPM | every PVWA being registered | The CPM registration looks at the certificate of every registered PVWA |
-| PSM, PSM for SSH and the others | every CPM being registered | CyberArk's order: PVWA, then CPM, then the rest |
+| CPM | every PVWA being registered | The CPM registration looks at the certificate of every registered PVWA. Only the first PVWA is needed; a second PVWA that fails does not stop CPM |
+| PSM, PSM for SSH and the others | every CPM being registered | CyberArk's order: PVWA, then CPM, then the rest. It is an order, not a need: when a CPM fails, the others go on |
 | PTA's configuration | every PVWA being finished | It names the PVWA and signs in through it |
 | Gateway registration, PVWA trusting PTA, the hardening GPOs | all servers | They change the PVWA server, and the GPOs close the servers down |
 
@@ -53,14 +55,37 @@ CyberArk's documentation allows hardening before registration for PVWA. CPM regi
 hardening starts services that need the registration. PSM registers first because the vendor's stage script
 reported the registration on a hardened PSM server as failed in the test lab (see [PSM](../components/psm.md)).
 
+## The DR Vault and the replication test
+
+The DR Vault uploads its media, installs its prerequisites and unpacks while the Primary Vault is installed.
+It installs its server when the Primary has created the keys, and sets up replication when the Primary is
+ready. The other servers register with the Primary meanwhile.
+
+At the end the installation proves that replication works: it creates a small test safe on the Primary (one
+short sign-in, in the queue like every other) and waits until that safe has arrived on the DR Vault.
+
 ## When a server fails
 
-- The lanes that are **working** finish the component they are installing.
-- The lanes that are **waiting** for their turn give up. Nothing was started for the step they waited for.
-- The run ends as Failed and names the step that failed.
+A server that fails stops **only what depends on it**. Every other server is installed to the end.
+
+| Fails | Not installed because of it | Goes on |
+|---|---|---|
+| The Primary Vault | Everything that signs in to it: the registrations, the DR Vault | What needs no Vault is still done on each server, then it stops |
+| The first PVWA | CPM, PSM, PSM for SSH, the gateway and PTA (they need its certificate or its configuration in the Vault) | The Vault and the DR Vault |
+| The DR Vault, CPM, PSM, PSM for SSH, the HTML5 Gateway, PTA | Nothing | Everything else |
+| A new domain controller | The servers that join the domain | Servers that are not joined |
+
+- A server that is not installed for this reason says so on its line: *Not continued: a server it depends on
+  failed*. Nothing was started for the step it waited for.
+- The HTML5 Gateway is entered into the PVWA configuration only when every PVWA, every PSM and the gateway
+  are installed; PVWA trusts PTA only when both are installed. The hardening GPOs of a new domain are applied
+  only when everything is installed.
+- The run ends as Failed and names the step that failed first, the other servers that failed and those that
+  were not installed because of it.
 
 Nothing is undone. Correct the cause and continue: [`Resume-PASRun`](../commands/runs.md#resume-pasrun) starts
-every lane again. Steps that finished are only checked.
+every lane again. Steps that finished are only checked; the window shows that as *Checking what is already
+installed*.
 
 ## What it saves
 
@@ -89,8 +114,6 @@ components in plan order. `Parallel` is the default of new configurations. A con
 
 - Two instances of each component, and a lab with a DR Vault and a domain together, were not installed at the
   same time yet.
-- With a DR Vault the registrations wait for the whole Vault and DR sequence, although the Primary Vault is
-  ready earlier.
 - Five installers at once worked on a small lab host. Whether steps time out on a slower host is not known.
 - Once, a step on a Linux server stopped with "SSH observation timed out" while five servers were being
   installed; see [Troubleshooting](../troubleshooting/index.md#ssh-observation-timed-out).

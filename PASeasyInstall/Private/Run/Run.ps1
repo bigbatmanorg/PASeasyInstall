@@ -556,7 +556,18 @@ function Invoke-PASDomainJoins {
 function Invoke-PASGatewayRegistration {
     # After the components: every HTML5 Gateway of the lab is entered into the PVWA configuration, from the
     # first PVWA server (see Private\Config\GatewayRegistration.ps1).
-    param([hashtable]$Run)
+    # -Installed: after a parallel run in which a server failed: the ids of the components that are installed.
+    # A gateway is then registered only when it, every PVWA and every PSM are among them.
+    param([hashtable]$Run, [string[]]$Installed = $null)
+    $gateways = @($Run.Config.components | Where-Object { $_.type -eq 'HTML5GW' })
+    if ($null -ne $Installed -and $gateways.Count) {
+        $needed = @($Run.Config.components | Where-Object { $_.type -in @('PVWA', 'PSM', 'HTML5GW') } | ForEach-Object { [string]$_.id })
+        $missing = @($needed | Where-Object { $Installed -notcontains $_ })
+        if ($missing.Count) {
+            Write-PASRunEvent $Run.Directory 'Warning' ('The HTML5 Gateway is not registered in PVWA yet, because these are not installed: ' + ($missing -join ', ')) '' '' 'Warning'
+            return
+        }
+    }
     foreach ($item in @(New-PASGatewayRegistrationWorkflow -Config $Run.Config -RunDirectory $Run.Directory)) {
         Add-PASFrozenMedia -Path $item.Archive -SHA256 (Get-FileHash -LiteralPath $item.Archive -Algorithm SHA256).Hash
         Set-PASRunCurrentComponent $Run $item.Target
@@ -567,7 +578,15 @@ function Invoke-PASGatewayRegistration {
 function Invoke-PASPtaTrust {
     # After the components: the first PVWA server of the lab trusts the certificate of every PTA
     # (see Private\Config\PtaTrust.ps1). Lab profile only.
-    param([hashtable]$Run)
+    # -Installed: after a parallel run in which a server failed: nothing is done unless every PVWA and every
+    # PTA are among the installed components.
+    param([hashtable]$Run, [string[]]$Installed = $null)
+    if ($null -ne $Installed) {
+        $needed = @($Run.Config.components | Where-Object { $_.type -in @('PVWA', 'PTA') } | ForEach-Object { [string]$_.id })
+        if (@($needed | Where-Object { $Installed -notcontains $_ }).Count) {
+            return
+        }
+    }
     foreach ($item in @(New-PASPtaTrustWorkflow -Config $Run.Config -RunDirectory $Run.Directory)) {
         Set-PASRunCurrentComponent $Run $item.Target
         Write-PASRunEvent $Run.Directory 'PtaTrust' 'Making PVWA trust the PTA certificate' $item.Target
@@ -593,9 +612,28 @@ function Invoke-PASDomainPolicy {
         Invoke-PASRunTarget -Run $Run -Target $item.Target -WorkflowPath $item.Workflow -InventoryPath $item.Inventory
     }
 }
+function Get-PASVaultWorkflowNames {
+    # The Vault workflows of one part of the sequence, in order (see Invoke-PASVaultSequence).
+    param([bool]$WithDR, [ValidateSet('All', 'Prepare', 'Primary', 'DR')][string]$Part = 'All')
+    $all = @('VaultPrimaryOnly.psd1')
+    if ($WithDR) {
+        $all = @('VaultPrimary-Phase1.psd1', 'VaultDR-Phase1.psd1', 'VaultPrimary-Phase2.psd1', 'VaultDR-Phase2.psd1')
+    }
+    switch ($Part) {
+        'Prepare' { return @() }
+        'Primary' { return @($all[0]) }
+        'DR' { return @($all | Select-Object -Skip 1) }
+    }
+    return $all
+}
 function Invoke-PASVaultSequence {
     # Primary Vault, or Primary + DR as four phases: primary phase 1, DR phase 1, primary phase 2, DR phase 2.
-    param([hashtable]$Run)
+    # -Part: a parallel run (Lanes.ps1) splits the sequence over two lanes that work at the same time:
+    #   Prepare  only the shared inventory file, before the lanes start
+    #   Primary  primary phase 1: the Vault is ready for the other servers when it ends
+    #   DR       DR phase 1 (it waits for the milestones of the Primary by itself), then the replication
+    #            test: primary phase 2 (a test safe) and DR phase 2 (the safe arrived on the DR Vault)
+    param([hashtable]$Run, [ValidateSet('All', 'Prepare', 'Primary', 'DR')][string]$Part = 'All')
     $Config = $Run.Config
     $Credentials = $Run.Credentials
     $Secrets = $Run.Secrets
@@ -658,7 +696,10 @@ function Invoke-PASVaultSequence {
         [IO.File]::WriteAllText($inventoryPath, (ConvertTo-PASLiteral $inv), [Text.UTF8Encoding]::new($false))
     }
     $workflowDir = Join-Path (Get-PASModuleRoot) 'Recipes/Vault/Workflows'
-    $names = if ($dr.Count) { @('VaultPrimary-Phase1.psd1', 'VaultDR-Phase1.psd1', 'VaultPrimary-Phase2.psd1', 'VaultDR-Phase2.psd1') }else { @('VaultPrimaryOnly.psd1') }
+    $names = @(Get-PASVaultWorkflowNames -WithDR ([bool]$dr.Count) -Part $Part)
+    if ($Part -eq 'Prepare') {
+        return
+    }
     foreach ($name in $names) {
         $wf = Join-Path $workflowDir $name
         $plan = Get-PASWorkflowPlan -WorkflowPath $wf -InventoryPath $inventoryPath
@@ -843,7 +884,27 @@ function Invoke-PASRunControllerCore {
         $parallel = ([string](Get-PASValue (Get-PASValue $config 'execution' $null) 'mode' 'Sequential') -eq 'Parallel')
         if ($parallel) {
             # The servers are installed at the same time (Lanes.ps1). What follows them stays in order below.
-            Invoke-PASRunLanes -Run $run -PlanItems @($plan.Items)
+            # A server that fails stops only what depends on it: the lanes end, what can still be done after
+            # them is done for the components that are installed, and then the run reports the failure.
+            try {
+                Invoke-PASRunLanes -Run $run -PlanItems @($plan.Items)
+            } catch {
+                if (-not $run.ContainsKey('Installed')) {
+                    throw
+                }
+                $laneFailure = [string]$_.Exception.Message
+                $failedTarget = [string]$run.Target
+                $failedComponent = [string]$record.currentComponent
+                try {
+                    Invoke-PASGatewayRegistration -Run $run -Installed @($run.Installed)
+                    Invoke-PASPtaTrust -Run $run -Installed @($run.Installed)
+                } catch {
+                    Write-PASRunEvent $dir 'Warning' ('A step after the servers also failed: ' + [string]$_.Exception.Message) '' '' 'Warning'
+                }
+                $run.Target = $failedTarget
+                $record.currentComponent = $failedComponent
+                throw $laneFailure
+            }
         } else {
             Invoke-PASActiveDirectoryForest -Run $run
             Invoke-PASDomainJoins -Run $run

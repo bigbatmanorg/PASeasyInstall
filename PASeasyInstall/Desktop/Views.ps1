@@ -389,6 +389,13 @@ function Add-PASUILabPage {
                     (New-PASUIText 'Switch it off to give CPM a server of its own. The Servers step then has one more line.' 'Hint' -Margin '0,6,0,0'))))
     }
 
+    if ([int]$S.Counts.PSMP -gt 0 -and [int]$S.Counts['HTML5GW'] -gt 0) {
+        # In every lab that has both: the gateway next to PSM for SSH, or on a server of its own.
+        Add-PASUIChild $Page @((New-PASUICard 'Server for the HTML5 Gateway' @(
+                    (New-PASUICheck 'f-colocate-gw' 'Install the HTML5 Gateway on the PSM for SSH server (one server less)' ([bool]$S.ColocateGw)),
+                    (New-PASUIText 'Switch it off to give the gateway a Linux server of its own. The Servers step then has one more line.' 'Hint' -Margin '0,6,0,0'))))
+    }
+
     $domains = New-Object Windows.Controls.WrapPanel
     $options = @(
         @{ Id = 'None'; Title = 'No domain'; What = 'The servers stay as they are.' }
@@ -551,7 +558,15 @@ function Add-PASUIServersPage {
                                 'A tz database name such as Europe/Berlin. PTA reads the times in the Vault audit with it. Empty: UTC.' -Margin '0'))))
         }
     }
-    Add-PASUIChild $Page @((New-PASUIRegion 'ServersIssues'), (New-PASUIRegion 'PreflightResult'))
+    $saveLab = New-PASUIButton 'act-save' 'Save the lab file...' 'Btn' -Margin '0'
+    $saveLab.HorizontalAlignment = 'Left'
+    Add-PASUIChild $Page @(
+        (New-PASUICard 'Keep these entries' @(
+                $saveLab,
+                (New-PASUIText 'Saves the lab, the servers, their names and accounts as a file, so that you need not type them again. Passwords are never saved. Open it later with "Open a saved lab file" on the start page.' 'Hint' -Margin '0,8,0,0'))),
+        (New-PASUIRegion 'ServersIssues'),
+        (New-PASUIRegion 'PreflightResult')
+    )
     Show-PASUIPreflight
 }
 
@@ -672,6 +687,12 @@ function Add-PASUIReviewPage {
                     (New-PASUIText 'Everything this window does can be done from the prompt. The lab file holds the choices, never a password.' 'Hint'),
                     (New-PASUIPre (Get-PASUICommandText $S)),
                     $save)))
+    } else {
+        $save = New-PASUIButton 'act-save' 'Save the lab file...' 'Btn' -Margin '0'
+        $save.HorizontalAlignment = 'Left'
+        Add-PASUIChild $Page @((New-PASUICard 'Keep these entries' @(
+                    $save,
+                    (New-PASUIText 'Saves the lab and its servers as a file, without any password. Open it later with "Open a saved lab file" on the start page.' 'Hint' -Margin '0,8,0,0'))))
     }
     $install = New-PASUIButton 'act-install' 'Install the lab' 'PrimaryBig' -Margin '0'
     $install.HorizontalAlignment = 'Left'
@@ -797,6 +818,12 @@ function Show-PASUIRunComponents {
             $now = Get-PASUIStageText $row.Current
         } elseif ($row.Kind -eq 'bad' -and $row.Current) {
             $now = 'Stopped at: ' + (Get-PASUIStageText $row.Current)
+        }
+        if ($row.Checking -and $active) {
+            $now = 'Checking what is already installed'
+        }
+        if ($row.GaveUp) {
+            $now = 'Not continued: a server it depends on failed'
         }
         $waiting = ($row.Waiting -and $active)
         if ($waiting) {

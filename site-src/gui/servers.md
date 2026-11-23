@@ -32,6 +32,13 @@ the Linux installers here.
 
 Passwords are kept in memory only, never in a file.
 
+## Save what you entered
+
+**Save the lab file...** (below the form) writes the lab, the servers, their names and accounts to a file, so
+that you need not type them again. No password is saved, and no server is contacted. Open the file later with
+**Open a saved lab file** on the start page: the form is filled in, and you enter only the media folder and the
+passwords. The same button is on the Install step.
+
 ## Next checks the servers
 
 **Next: check the servers** changes nothing on any server. The button is disabled at once and a message says
@@ -49,6 +56,8 @@ which part is running:
 - Only when every server passed, the Install step is shown.
 
 A wrong root password of a Linux server is found here too: the check signs in the way the installation will.
+It also looks at what the server is: a server for PTA must be RHEL, Rocky or Alma with 8 GB, and the check says
+so when it is something else.
 
 ## Advanced
 

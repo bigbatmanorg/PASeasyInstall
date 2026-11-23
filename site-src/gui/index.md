@@ -25,7 +25,7 @@ Nothing is changed on any server before you press **Install the lab** on step 4 
 ![The start page before any installation](../assets/window/01-start.png)
 
 - **Start a new lab** begins with step 1.
-- **Open a saved lab file** reads a lab file (JSON) saved on the Review step or written by
+- **Open a saved lab file** reads a lab file (JSON) saved on the Servers or Install step or written by
   `Export-PASLabConfiguration`. Its name, lab choice, addresses and server names are filled in. Media and
   passwords are entered again: a lab file never contains them.
 - **Your installations** lists every installation started from this computer, with its state. **Open** shows its
@@ -43,7 +43,7 @@ The switch at the top right shows what most labs never need. It appears only on 
 |---|---|
 | Lab (Custom) | Up to four instances of a component instead of two |
 | Servers | Every single result of the server check, the address of this computer, "who installs", the hardening switch, the PTA time zone |
-| Install | The same lab as PowerShell commands, and **Save the lab file** |
+| Install | The same lab as PowerShell commands |
 | Installation page | The PowerShell commands for this installation, and **Stop the installation** |
 
 ## An installation runs on its own

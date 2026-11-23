@@ -39,6 +39,9 @@ function Resolve-PASMediaItemPath {
     $path = Get-PASMediaItemValue $Item 'Path'
     $entry = Get-PASMediaItemValue $Item 'Entry'
     if (-not $path) { return '' }
+    if ((Get-PASMediaItemValue $Item 'Damaged') -eq 'True') {
+        throw ("The package '" + (Get-PASMediaItemValue $Item 'Name') + "' (" + (Get-PASMediaItemValue $Item 'Source') + ") is damaged: it is not a complete ZIP file. Download it again, or add a good copy of this package as a single file on the Media step.")
+    }
     if (-not $entry) { return $path }
     if (-not(Test-Path -LiteralPath $path -PathType Leaf)) { throw "Media bundle not found: $path" }
     Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue

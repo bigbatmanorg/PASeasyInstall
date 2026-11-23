@@ -3,31 +3,38 @@
 #   Lane    the work of one server, in plan order, as in a sequential run. The lanes run side by side, each in
 #           its own PowerShell runspace of the controller process with its own copy of this module (so the
 #           remoting sessions and the approved media list of one lane are not shared with another).
-#           The Vault and its DR Vault are one lane; the new forest is one lane.
+#           The Vault is one lane, its DR Vault another, the new forest is one lane.
 #   Signal  a wait handle that is set once and stays set:
 #             Domain          the new forest is installed (set from the start when the run creates none)
-#             Vault           the Vault sequence is finished (set from the start when the run installs none)
+#             Vault           the Primary Vault is installed, hardened and verified (set from the start when
+#                             the run installs none). The DR Vault is not waited for.
 #             PvwaRegistered  the first PVWA finished its step 'register'
 #             Registered:<id> PVWA or CPM <id> finished its step 'register'
 #             Cert:<id>       PVWA <id> has its HTTPS certificate (its first step, 'certificate')
 #             Done:<id>       PVWA <id> is installed and verified
-#             Cancel          a lane failed: lanes that wait give up, no lane starts another component
+#             Fail:<signal>   the lane that would have set <signal> failed: who waits for it gives up
+#             Cancel          the lanes are being taken down (set only when the run ends)
 #   What waits for what (see Docs\PARALLEL.md):
 #             a joined server          Domain, before its join
 #             a component that trusts
-#             the PVWA certificate     Cert of every PVWA, before it starts (CPM, HTML5 Gateway, PTA)
+#             the PVWA certificate     Cert of every PVWA, before it starts (CPM, PSM, HTML5 Gateway, PTA)
 #             a step that signs in
 #             to the Vault             Vault; every component except the first PVWA also PvwaRegistered;
 #                                      everything except PVWA and CPM also Registered of every CPM
 #                                      (the vendor's order: PVWA, CPM, then the rest); PTA waits for Done of
 #                                      every PVWA
+#             the DR Vault             nothing but the milestones of the Primary Vault (its keys, then
+#                                      'primary-ready'); nothing waits for the DR Vault
 #           One Vault sign-in at a time is the Vault lock that every such step takes (Engine\Locks.ps1).
+#   A lane that fails stops only what depends on it. Registered:<id> is an order, not a need: when that server
+#   fails, those that waited for it go on. Everything else in the list is a need: who waits for it is not
+#   installed, and says so. The other servers are installed to the end, then the run ends Failed.
 # What follows the lanes stays in order in the controller: gateway registration, PTA trust, GPOs.
 
 function Get-PASRunLanes {
     <# The lanes of a configuration, in the order they are started. Each lane:
-         Name        'ad', 'vault' or the id of the server
-         Kind        AD, Vault or Server
+         Name        'ad', 'vault', 'dr' or the id of the server
+         Kind        AD, Vault, DR or Server
          Join        $true when the server is joined to the domain before its components
          Components  ids of the components this lane installs, in plan order (AD and Vault lanes: their own) #>
     param([Parameter(Mandatory)]$Config, [Parameter(Mandatory)][object[]]$PlanItems)
@@ -49,9 +56,17 @@ function Get-PASRunLanes {
         $laneOfHost[[string]$forest[0].host] = 'ad'
     }
     if ($hasVault) {
-        [void]$lanes.Add(@{ Name = 'vault'; Kind = 'Vault'; Join = $false; Components = @($vaultParts | ForEach-Object { [string]$_.id }) })
-        foreach ($part in $vaultParts) {
+        [void]$lanes.Add(@{ Name = 'vault'; Kind = 'Vault'; Join = $false; Components = @($vaultParts | Where-Object { $_.type -eq 'Vault' } | ForEach-Object { [string]$_.id }) })
+        foreach ($part in @($vaultParts | Where-Object { $_.type -eq 'Vault' })) {
             $laneOfHost[[string]$part.host] = 'vault'
+        }
+        $drParts = @($vaultParts | Where-Object { $_.type -eq 'DRVault' })
+        if ($drParts.Count) {
+            # The DR Vault prepares itself while the Primary is installed and waits only for its milestones.
+            [void]$lanes.Add(@{ Name = 'dr'; Kind = 'DR'; Join = $false; Components = @($drParts | ForEach-Object { [string]$_.id }) })
+            foreach ($part in $drParts) {
+                $laneOfHost[[string]$part.host] = 'dr'
+            }
         }
     }
     foreach ($item in @($PlanItems | Where-Object { $_.Type -notin @('Vault', 'DRVault', 'AD') })) {
@@ -107,6 +122,9 @@ function Get-PASLaneComponentGate {
         }
     } elseif ($type -eq 'CPM') {
         # The CPM registration looks at the certificate of every PVWA that is registered in the Vault.
+        if ($pvwas.Count) {
+            $gate.VaultAfter += 'PvwaRegistered'
+        }
         $gate.VaultAfter += @($pvwas | ForEach-Object { 'Registered:' + $_ })
         $gate.StepSignals['register'] = @('Registered:' + $id)
         $gate.DoneSignals = @('Registered:' + $id)
@@ -149,14 +167,70 @@ function New-PASLaneSignals {
     foreach ($cpm in @($components | Where-Object { $_.type -eq 'CPM' })) {
         $signals['Registered:' + [string]$cpm.id] = New-Object System.Threading.ManualResetEvent -ArgumentList $false
     }
+    # Every signal that is a need has a second handle that says "this will never come".
+    foreach ($name in @($signals.Keys | Where-Object { $_ -ne 'Cancel' -and $_ -notlike 'Registered:*' })) {
+        $signals['Fail:' + $name] = New-Object System.Threading.ManualResetEvent -ArgumentList $false
+    }
     return $signals
 }
 
-function Wait-PASLaneSignal {
-    # Waits until the named signals are set. Throws PASLaneStopped when the run is stopped meanwhile.
+function Get-PASLaneGate {
+    # The gate for the named signals: the handles to wait for, and those that end the wait (the run is being
+    # taken down, or the lane that would have set one of the signals failed).
     param([hashtable]$Signals, [string[]]$Names)
-    $handles = @($Names | Where-Object { $_ -and $Signals.ContainsKey($_) } | ForEach-Object { $Signals[$_] })
-    [void](Wait-PASVaultGate @{ Wait = $handles; Cancel = $Signals.Cancel })
+    $known = @($Names | Where-Object { $_ -and $Signals.ContainsKey($_) })
+    $cancel = @($Signals.Cancel) + @($known | Where-Object { $Signals.ContainsKey('Fail:' + $_) } | ForEach-Object { $Signals['Fail:' + $_] })
+    return @{ Wait = @($known | ForEach-Object { $Signals[$_] }); Cancel = $cancel }
+}
+
+function Wait-PASLaneSignal {
+    # Waits until the named signals are set. Throws PASLaneStopped when one of them will never come.
+    param([hashtable]$Signals, [string[]]$Names)
+    [void](Wait-PASVaultGate (Get-PASLaneGate $Signals $Names))
+}
+
+function Get-PASLaneOwedSignals {
+    # The names of the signals a lane sets when its work succeeds.
+    param([Parameter(Mandatory)]$Config, [Parameter(Mandatory)][hashtable]$Lane)
+    if ($Lane.Kind -eq 'AD') {
+        return @('Domain')
+    }
+    $names = @()
+    if ($Lane.Kind -eq 'Vault') {
+        $names += 'Vault'
+    }
+    foreach ($id in (@($Lane.Components) + @(Get-PASValue $Lane 'After' @()))) {
+        $component = @($Config.components | Where-Object { $_.id -eq $id })[0]
+        if (-not $component -or [string]$component.type -in @('AD', 'Vault', 'DRVault')) {
+            continue
+        }
+        $gate = Get-PASLaneComponentGate -Config $Config -Component $component
+        $names += @($gate.DoneSignals)
+        foreach ($step in @($gate.StepSignals.Keys)) {
+            $names += @($gate.StepSignals[$step])
+        }
+    }
+    return @($names | Where-Object { $_ } | Select-Object -Unique)
+}
+
+function Set-PASLaneFailed {
+    # A lane ended with an error: what it still owed will never come. A signal that is only an order
+    # (Registered:<id>) is set, so that who waited for its turn goes on; a signal that is a need gets its
+    # Fail handle set, so that who waits for it gives up. Returns the names of the needs that failed.
+    param([hashtable]$Signals, [string[]]$Owed)
+    $failed = @()
+    foreach ($name in @($Owed)) {
+        if (-not $Signals.ContainsKey($name) -or $Signals[$name].WaitOne(0)) {
+            continue
+        }
+        if ($Signals.ContainsKey('Fail:' + $name)) {
+            [void]$Signals['Fail:' + $name].Set()
+            $failed += $name
+        } else {
+            [void]$Signals[$name].Set()
+        }
+    }
+    return $failed
 }
 
 function Invoke-PASLane {
@@ -196,16 +270,30 @@ function Invoke-PASLane {
             [void]$signals.Domain.Set()
         }
         if ($Lane.Kind -eq 'Vault') {
-            Write-PASRunEvent $run.Directory 'VaultSequence' 'Starting primary/DR installation'
-            # The whole sequence holds the Vault lock; the steps of the other servers that sign in to the
-            # Vault wait for the signal below and then for this lock.
+            Write-PASRunEvent $run.Directory 'VaultSequence' 'Starting the installation of the Primary Vault'
+            # The installation of the Primary holds the Vault lock; the steps of the other servers that sign in
+            # to the Vault wait for the signal below and then for this lock.
             $vaultLock = Enter-PASVaultLock -Address ([string]$config.vault.address) -TimeoutSeconds 14400 -Cancel $signals.Cancel
             try {
-                Invoke-PASVaultSequence -Run $run
+                Invoke-PASVaultSequence -Run $run -Part Primary
             } finally {
                 Exit-PASVaultLock $vaultLock
             }
+            foreach ($id in @($Lane.Components)) {
+                $Shared.Installed[[string]$id] = $true
+            }
             [void]$signals.Vault.Set()
+        }
+        if ($Lane.Kind -eq 'DR') {
+            Write-PASRunEvent $run.Directory 'VaultSequence' 'Starting the installation of the DR Vault (next to the Primary Vault)' ([string]$Lane.Components[0])
+            # Its own steps wait for the milestones of the Primary. The test safe at the end is created on the
+            # Primary by a step that takes the Vault lock for that moment only.
+            $run.VaultGate = @{ Wait = @(); Cancel = @($signals.Cancel, $signals['Fail:Vault']) }
+            Invoke-PASVaultSequence -Run $run -Part DR
+            $run.VaultGate = $null
+            foreach ($id in @($Lane.Components)) {
+                $Shared.Installed[[string]$id] = $true
+            }
         }
         if ($Lane.Join) {
             Wait-PASLaneSignal $signals @('Domain')
@@ -217,7 +305,7 @@ function Invoke-PASLane {
                 continue
             }
             if ($signals.Cancel.WaitOne(0)) {
-                throw 'PASLaneStopped: the run is being stopped because another server failed. This component was not started.'
+                throw 'PASLaneStopped: the run is being stopped. This component was not started.'
             }
             $gate = Get-PASLaneComponentGate -Config $config -Component $component
             if ($gate.StartAfter.Count) {
@@ -228,15 +316,13 @@ function Invoke-PASLane {
                 }
                 Wait-PASLaneSignal $signals $gate.StartAfter
             }
-            $run.VaultGate = @{
-                Wait = @($gate.VaultAfter | Where-Object { $signals.ContainsKey($_) } | ForEach-Object { $signals[$_] })
-                Cancel = $signals.Cancel
-            }
+            $run.VaultGate = Get-PASLaneGate $signals $gate.VaultAfter
             $run.StepSignals = @{}
             foreach ($step in @($gate.StepSignals.Keys)) {
                 $run.StepSignals[$step] = @($gate.StepSignals[$step] | ForEach-Object { $signals[$_] })
             }
             Invoke-PASComponent -Run $run -Component $component
+            $Shared.Installed[[string]$id] = $true
             foreach ($name in @($gate.DoneSignals)) {
                 [void]$signals[$name].Set()
             }
@@ -257,8 +343,9 @@ function Invoke-PASLane {
 
 function Invoke-PASRunLanes {
     <# Starts every lane of the run in its own runspace and waits for all of them. While they work, run.json
-       names the components that are being installed. When a lane fails the others are told to stop: a lane
-       that waits gives up, a lane that works finishes the component it is installing.
+       names the components that are being installed. When a lane fails, only what depends on it gives up
+       (Set-PASLaneFailed); every other server is installed to the end.
+       $Run.Installed then names the components that are installed.
        Throws the error of the lane that failed first; $Run.Target is then the engine target it failed in. #>
     param([Parameter(Mandatory)][hashtable]$Run, [Parameter(Mandatory)][object[]]$PlanItems)
     $lanes = @(Get-PASRunLanes -Config $Run.Config -PlanItems $PlanItems)
@@ -272,6 +359,10 @@ function Invoke-PASRunLanes {
         if ($root -and $root.Password.Length) {
             $Run.Secrets['PTARoot-' + [string]$component.id] = $root.Password
         }
+    }
+    # The inventory file of the Vault workflows is shared by the Vault lane and the DR lane: written once, here.
+    if (@($Run.Config.components | Where-Object { $_.type -eq 'Vault' }).Count) {
+        Invoke-PASVaultSequence -Run $Run -Part Prepare
     }
     $frozen = @{}
     if ($script:PASFrozenMedia) {
@@ -290,6 +381,7 @@ function Invoke-PASRunLanes {
         FrozenMedia = $frozen
         Signals = (New-PASLaneSignals -Config $Run.Config)
         Current = [hashtable]::Synchronized(@{})
+        Installed = [hashtable]::Synchronized(@{})
     }
     $manifest = Join-Path (Get-PASModuleRoot) 'PASeasyInstall.psd1'
     Write-PASRunEvent $Run.Directory 'LanesStarted' ('Installing ' + $lanes.Count + ' server lane(s) at the same time: ' + (($lanes | ForEach-Object { $_.Name }) -join ', '))
@@ -321,10 +413,18 @@ function Invoke-PASRunLanes {
                     if (-not $worker.Result.Stopped -and -not $firstFailure) {
                         $firstFailure = $worker.Result
                     }
-                    if (-not $shared.Signals.Cancel.WaitOne(0)) {
-                        [void]$shared.Signals.Cancel.Set()
-                        Write-PASRunEvent $Run.Directory 'LanesStopping' ("Server lane '" + $worker.Result.Lane + "' stopped with an error. The other servers finish the component they are installing; those that wait give up.") ([string]$worker.Result.Component) '' 'Warning'
+                    $owed = @(Get-PASLaneOwedSignals -Config $Run.Config -Lane $worker.Lane)
+                    $needs = @(Set-PASLaneFailed -Signals $shared.Signals -Owed $owed)
+                    $what = "Server lane '" + $worker.Result.Lane + "' stopped with an error."
+                    if ($worker.Result.Stopped) {
+                        $what = "Server lane '" + $worker.Result.Lane + "' is not installed, because a server it depends on failed."
                     }
+                    if ($needs.Count) {
+                        $what += ' What depends on it is not installed. Every other server is installed to the end.'
+                    } else {
+                        $what += ' Nothing else depends on it: every other server is installed to the end.'
+                    }
+                    Write-PASRunEvent $Run.Directory 'LaneFailed' $what ([string]$worker.Result.Component) '' 'Warning'
                 }
             }
             $current = (@($shared.Current.Values | Sort-Object) -join ', ')
@@ -338,10 +438,20 @@ function Invoke-PASRunLanes {
         if (-not $firstFailure) {
             $firstFailure = @($workers | Where-Object { $_.Result.Error } | ForEach-Object { $_.Result })[0]
         }
+        $Run.Installed = @($shared.Installed.Keys | ForEach-Object { [string]$_ })
         if ($firstFailure) {
             $Run.Target = [string]$firstFailure.Target
             $Run.Record.currentComponent = [string]$firstFailure.Component
-            throw [string]$firstFailure.Error
+            $others = @($workers | Where-Object { $_.Result.Error -and -not $_.Result.Stopped -and $_.Result.Lane -ne $firstFailure.Lane } | ForEach-Object { [string]$_.Result.Lane })
+            $skipped = @($workers | Where-Object { $_.Result.Error -and $_.Result.Stopped } | ForEach-Object { [string]$_.Result.Lane })
+            $message = [string]$firstFailure.Error
+            if ($others.Count) {
+                $message += ' Also failed: ' + ($others -join ', ') + '.'
+            }
+            if ($skipped.Count) {
+                $message += ' Not installed because of it: ' + ($skipped -join ', ') + '.'
+            }
+            throw $message
         }
         $Run.Target = ''
         $Run.Record.currentComponent = ''

@@ -1,5 +1,30 @@
 # Release notes
 
+## 2.0.7
+
+- **A server that fails stops only what depends on it.** Before, one failed server made every server that was
+  waiting for its turn give up. Now a failed PTA, CPM, PSM, PSM for SSH, gateway or DR Vault stops nothing
+  else; only a failed Primary Vault, first PVWA or new domain controller stops what needs it. The run still
+  ends Failed and names what failed and what was not installed because of it.
+- **The DR Vault is installed next to the Primary Vault**, not after it, and the other servers register as
+  soon as the Primary is ready instead of waiting for the DR Vault.
+- **The server check knows what a server is for.** A PTA server that is not RHEL, Rocky or Alma, or has less
+  than 8 GB, is reported before anything is installed. Before, a PTA pointed at an Ubuntu server passed the
+  check and failed during the installation.
+- **CPM on a server that cannot resolve the PVWA name.** The CPM Scanner service calls PVWA under its computer
+  name and ended at once when that name did not resolve, so the CPM check failed (servers in different
+  networks without DNS). In a lab the CPM and PSM servers now get a hosts entry for every PVWA name they cannot
+  resolve.
+- **A damaged package is found before the installation.** A package that is not a complete ZIP file (cut off
+  during the download, also one inside the big bundle) is marked `Damaged` by `Get-PASMediaInventory` and shown
+  on the Media step. `Get-PASMediaSelection` and the window use another copy of that component when there is
+  one, even an older one, and say so; with no other copy the configuration is refused with that reason.
+- **A failed step on a Linux server shows its reason**, not only "Bash task failed with code 3".
+- **Window:** the HTML5 Gateway can have a server of its own (a switch on the Lab step, like the one for CPM).
+  **Save the lab file** is on the Servers step and on the Install step for everybody, not only in the Advanced
+  view. After *Continue*, a server shows *Checking what is already installed* instead of the name of a step it
+  only looks at again, and a server that was not continued says why.
+
 ## 2.0.6
 
 - **A server waits for the Vault only when it has nothing else to do.** PVWA and PSM for SSH now harden first
