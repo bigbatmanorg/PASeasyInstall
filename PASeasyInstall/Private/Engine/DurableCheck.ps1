@@ -104,6 +104,16 @@ function Get-PASDurableCheck {
         Save-PASState $Context
         Add-PASEvent $Context 'VerificationRecovered' ([string]$Step.Id) "Previous verifier $oldId is terminal and inactive; starting verification-only generation $($check.attemptId)" 'Warning'
     }
+    if ($linux) {
+        # The Linux runner writes its terminal status just before it exits: a poll in between sees Succeeded
+        # with the worker still alive. Look again for a short while before calling it unproven.
+        $settle = 0
+        while ((Get-PASValue $remote 'workerActive' $null) -is [bool] -and $remote.workerActive -and $settle -lt 10) {
+            $settle++
+            Start-Sleep -Seconds 3
+            $remote = Wait-PASDetached -Target $Plan.Target -Credentials $Credentials -AttemptId $check.attemptId -TimeoutSeconds $TimeoutSeconds -Context $Context -TaskId ([string]$Step.Id)
+        }
+    }
     if (-not $linux) { Wait-PASDetachedSessionQuiescence $Plan.Target $Credentials $check.attemptId }
     elseif ((Get-PASValue $remote 'workerActive' $null) -isnot [bool] -or $remote.workerActive) {
         throw 'PAExecUnknown: Linux verifier has not proved worker exit'

@@ -68,7 +68,9 @@ Describe 'Lab stability: dependency compilation and finalization' {
             $pta.DependsOn | Should -Not -Contain 'Done:dr'
             $gw.DependsOn | Should -Contain 'Done:psm01'
             $gw.DependsOn | Should -Contain 'Done:gw01'
-            $gw.DependsOn | Should -Not -Contain 'Done:pta01'
+            # The gateway restarts the PVWA application pool; PTA registers through that PVWA: one after the other.
+            $gw.DependsOn | Should -Contain 'Done:pta01'
+            $gw.DependsOn | Should -Not -Contain 'Done:psmp01'
             $gw.DependsOn | Should -Not -Contain 'Done:dr'
         }
     }
@@ -83,5 +85,30 @@ Describe 'Lab stability: dependency compilation and finalization' {
         $state.Preset | Should -BeExactly 'custom'
         $state.VaultMode | Should -BeExactly 'Primary'
         $state.Counts.PVWA | Should -BeGreaterThan 0
+    }
+    It 'waits for every component on the first PVWA server before an integration runs there' {
+        InModuleScope PASeasyInstall {
+            $cfg = @{components = @(
+                @{id='vault';type='Vault';host='v';options=@{}},
+                @{id='pvwa01';type='PVWA';host='w';options=@{}},
+                @{id='cpm01';type='CPM';host='w';options=@{}},
+                @{id='psm01';type='PSM';host='w';options=@{}},
+                @{id='pta01';type='PTA';host='t';options=@{}}
+            )}
+            $pta = @(Get-PASParallelFinalizationJobs -Config $cfg | Where-Object Name -eq 'PtaTrust')[0]
+            $pta.DependsOn | Should -Contain 'Done:cpm01'
+            $pta.DependsOn | Should -Contain 'Done:psm01'
+            @($pta.DependsOn | Select-Object -Unique).Count | Should -Be @($pta.DependsOn).Count
+        }
+    }
+    It 'gives the integration lane a Vault gate, so gateway registration waits for its turn' {
+        $source = Get-Content -Raw (Get-PASTestModulePath 'Private/Run/Lanes.ps1')
+        $source | Should -Match ('Lane = ''integrations''[^\r\n]*\r?\n(\s*#[^\r\n]*\r?\n)*\s*VaultGate = @\{ Wait = @\(\); Cancel = @\(\$Shared\.Signals\.Cancel\)')
+    }
+    It 'gives prepare-tools more time than its two package manager calls' {
+        InModuleScope PASeasyInstall {
+            $source = Get-Content -Raw (Join-Path (Get-PASModuleRoot) 'Private/Config/Planning.ps1')
+            $source | Should -Match "Id = 'prepare-tools'(?s).{0,400}TimeoutSeconds = 1800"
+        }
     }
 }

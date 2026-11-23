@@ -518,14 +518,25 @@ function Get-PASParallelFinalizationJobs {
     $psms = @($Config.components | Where-Object { $_.type -eq 'PSM' } | ForEach-Object { [string]$_.id })
     $html = @($Config.components | Where-Object { $_.type -eq 'HTML5GW' } | ForEach-Object { [string]$_.id })
     $ptas = @($Config.components | Where-Object { $_.type -eq 'PTA' } | ForEach-Object { [string]$_.id })
+    # Both integrations run on the first PVWA server (the gateway one also restarts its application pool):
+    # everything else installed on that server must be finished first, and the gateway waits for the PTA
+    # servers, whose registration signs in through that PVWA.
+    $sameHost = @()
+    if ($pvwas.Count) {
+        $first = @($Config.components | Where-Object { [string]$_.id -eq $pvwas[0] })[0]
+        $firstHost = [string](Get-PASValue $first 'host' '')
+        $sameHost = @($Config.components | Where-Object {
+                $firstHost -and [string](Get-PASValue $_ 'host' '') -eq $firstHost -and
+                [string]$_.type -notin @('AD', 'Vault', 'DRVault') } | ForEach-Object { [string]$_.id })
+    }
     $jobs = @()
     if ($html.Count) {
         if (-not $pvwas.Count) { throw 'HTML5 Gateway registration requires a PVWA in the configuration' }
-        $jobs += ,@{ Name = 'GatewayRegistration'; DependsOn = @($pvwas + $psms + $html | ForEach-Object { 'Done:' + $_ }) }
+        $jobs += ,@{ Name = 'GatewayRegistration'; DependsOn = @($pvwas + $psms + $html + $ptas + $sameHost | Select-Object -Unique | ForEach-Object { 'Done:' + $_ }) }
     }
     if ($ptas.Count) {
         if (-not $pvwas.Count) { throw 'PTA trust requires a PVWA in the configuration' }
-        $jobs += ,@{ Name = 'PtaTrust'; DependsOn = @($pvwas + $ptas | ForEach-Object { 'Done:' + $_ }) }
+        $jobs += ,@{ Name = 'PtaTrust'; DependsOn = @($pvwas + $ptas + $sameHost | Select-Object -Unique | ForEach-Object { 'Done:' + $_ }) }
     }
     return @($jobs)
 }
@@ -547,7 +558,10 @@ function Invoke-PASParallelFinalizations {
             Config = $config; Credentials = $Shared.Credentials.Clone(); Secrets = $Shared.Secrets.Clone()
             Record = @{ currentComponent = '' }; RecordPath = ''; Target = ''; SshReady = @{}
             RetryFailedPreflight = [bool]$Shared.RetryFailedPreflight; Retry = $Shared.Retry
-            Lane = 'integrations'; Current = $Shared.Current; VaultGate = $null; StepSignals = @{}
+            Lane = 'integrations'; Current = $Shared.Current; StepSignals = @{}
+            # Gateway registration signs in to the Vault while other lanes may still register: wait for the turn
+            # (as the server lanes do), not for the 180 seconds of an ungated step.
+            VaultGate = @{ Wait = @(); Cancel = @($Shared.Signals.Cancel); Names = @(); TimeoutSeconds = 14400 }
         }
         $pending = @(Get-PASParallelFinalizationJobs -Config $config)
         $waitStarted = [DateTime]::UtcNow
@@ -597,7 +611,10 @@ function Invoke-PASParallelFinalizations {
             if ($progress) { $lastWait = ''; continue }
             $description = $waiting -join '; '
             if ($description -ne $lastWait) {
+                # A signal arrived (or the first wait): the time limit counts from the last progress, not from the
+                # start of the run. The producing lanes have their own time limits and fail with a Fail signal.
                 $lastWait = $description
+                $waitStarted = [DateTime]::UtcNow
                 $Shared.Current['integrations'] = 'Waiting for ' + $description
                 Write-PASRunEvent $run.Directory 'IntegrationWaiting' $description '' '' 'Information'
             }

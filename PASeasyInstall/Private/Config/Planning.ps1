@@ -401,7 +401,8 @@ function New-PASComponentWorkflow {
                 Inputs = @{Stage = 'PrepareTools'; Settings = @{ConfigRef = ('Values.Components.' + $id) } }
                 Verify = $verifyPath
                 Mode = 'Detached'
-                TimeoutSeconds = 1200
+                # Two package manager calls of up to 600 seconds each, plus the rest.
+                TimeoutSeconds = 1800
             }
         }
         $stages = @(Get-PASComponentStageNames $type)
