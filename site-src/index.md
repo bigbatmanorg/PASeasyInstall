@@ -11,6 +11,14 @@ CyberArk installer media, name the servers and press **Install**. It installs, r
 Vault (or a Primary and DR pair), PVWA, CPM, PSM, PSM for SSH, and optionally the HTML5 Gateway, PTA and an Active
 Directory domain. Use the window, or one PowerShell command per step.
 
+<video id="pas-video" controls muted playsinline preload="metadata" width="100%" poster="assets/video/PASeasyInstall-demo-poster.png" aria-label="PASeasyInstall in 27 seconds">
+  <source src="assets/video/PASeasyInstall-demo.mp4" type="video/mp4">
+  Your browser cannot play this video. <a href="assets/video/PASeasyInstall-demo.mp4">Download it (MP4, 1 MB)</a>.
+</video>
+
+*PASeasyInstall in 27 seconds: media, lab, servers, install, lab check. An animated overview with simplified
+screens; the real window is shown page by page in [The window](gui/index.md).*
+
 ![The installation page: every server is installed at the same time](assets/window/15-run-installing.png)
 
 !!! warning "Made for labs"
