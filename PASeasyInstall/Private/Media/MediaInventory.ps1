@@ -43,14 +43,78 @@ function Get-PASMediaVariant {
     if ($Component -eq 'PSMP' -and $Name -match '(?i)sshproxy-([A-Za-z0-9]+)-') { return $Matches[1] }
     return ''
 }
+function Test-PASZipTail {
+    # $true when the ZIP end record ("PK" 05 06) is found in the last bytes of a file, or of a part of it
+    # (-Offset, -Length: a package stored inside a bundle). A ZIP without it was cut off or damaged.
+    param([string]$Path, [long]$Offset = 0, [long]$Length = -1)
+    $stream = [IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite')
+    try {
+        if ($Length -lt 0) {
+            $Length = $stream.Length - $Offset
+        }
+        $count = [int][Math]::Min($Length, 66000)
+        if ($count -lt 22) {
+            return $false
+        }
+        $buffer = New-Object byte[] $count
+        $stream.Position = $Offset + $Length - $count
+        $read = 0
+        while ($read -lt $count) {
+            $got = $stream.Read($buffer, $read, $count - $read)
+            if ($got -le 0) {
+                break
+            }
+            $read += $got
+        }
+        for ($i = $read - 22; $i -ge 0; $i--) {
+            if ($buffer[$i] -eq 0x50 -and $buffer[$i + 1] -eq 0x4B -and $buffer[$i + 2] -eq 0x05 -and $buffer[$i + 3] -eq 0x06) {
+                return $true
+            }
+        }
+        return $false
+    } finally {
+        $stream.Dispose()
+    }
+}
+function Test-PASMediaDamaged {
+    # $true when a package (a .zip file, or a .zip stored inside a bundle) is not a complete ZIP file.
+    # What cannot be judged (a compressed entry, an unexpected .NET build) counts as not damaged: the
+    # installation checks the package again when it unpacks it.
+    param([string]$Path, [string]$Name, $Entry = $null)
+    if ($Name -notmatch '(?i)\.zip$') {
+        return $false
+    }
+    try {
+        if ($null -eq $Entry) {
+            return (-not (Test-PASZipTail -Path $Path))
+        }
+        if ($Entry.CompressedLength -ne $Entry.Length) {
+            return $false
+        }
+        $property = $Entry.GetType().GetProperty('OffsetOfCompressedData', [Reflection.BindingFlags]'NonPublic,Instance')
+        if (-not $property) {
+            return $false
+        }
+        $offset = [long]$property.GetValue($Entry, $null)
+        return (-not (Test-PASZipTail -Path $Path -Offset $offset -Length ([long]$Entry.Length)))
+    } catch {
+        return $false
+    }
+}
 function New-PASMediaItem {
-    param([string]$Path, [string]$Entry, [string]$Component, [string]$Name, [string]$Container)
+    param([string]$Path, [string]$Entry, [string]$Component, [string]$Name, [string]$Container, [bool]$Damaged = $false)
+    if (-not $Entry -and -not $Damaged -and $Component -in $script:PASMediaInstallable -and (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        $Damaged = Test-PASMediaDamaged -Path $Path -Name $Name
+    }
     [pscustomobject]@{
         Component = $Component; Name = $Name; Version = (Get-PASMediaVersion $Name)
         Variant = (Get-PASMediaVariant $Component $Name)
         Path = $Path; Entry = $Entry   # Entry: path inside a ZIP bundle, '' for a plain file
         Source = $(if ($Entry) { [IO.Path]::GetFileName($Path) + ' › ' + $Entry } else { $Path })
         Container = $Container
+        # $true: the package is not a complete ZIP file (cut off or damaged). It is never chosen when
+        # another copy of the component is there.
+        Damaged = $Damaged
     }
 }
 function Get-PASZipMedia {
@@ -64,7 +128,8 @@ function Get-PASZipMedia {
                 if (-not $entry.Name) { continue }   # directory entry
                 $kind = Get-PASMediaClassification $entry.Name
                 if ($kind -in $script:PASMediaInstallable) {
-                    [void]$found.Add((New-PASMediaItem -Path $Path -Entry $entry.FullName -Component $kind -Name $entry.Name -Container 'Bundle'))
+                    $damaged = Test-PASMediaDamaged -Path $Path -Name $entry.Name -Entry $entry
+                    [void]$found.Add((New-PASMediaItem -Path $Path -Entry $entry.FullName -Component $kind -Name $entry.Name -Container 'Bundle' -Damaged $damaged))
                 }
             }
         } finally { $zip.Dispose() }

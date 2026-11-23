@@ -26,10 +26,13 @@ Describe 'Lanes of a parallel run' {
             @('vault', 'Vault', 'h-vault'), @('dr', 'DRVault', 'h-dr'), @('pvwa01', 'PVWA', 'h-web'), @('cpm01', 'CPM', 'h-web'),
             @('psm01', 'PSM', 'h-psm'), @('psmp01', 'PSMP', 'h-linux'), @('gw01', 'HTML5GW', 'h-linux'))
         $lanes = @(Get-Lanes $config)
-        ($lanes | ForEach-Object { $_.Name }) -join ',' | Should -Be 'vault,h-web,h-psm,h-linux'
-        ($lanes[0].Components -join ',') | Should -Be 'vault,dr'
-        ($lanes[1].Components -join ',') | Should -Be 'pvwa01,cpm01'
-        ($lanes[3].Components -join ',') | Should -Be 'psmp01,gw01'
+        # The DR Vault has a lane of its own: it is installed next to the Primary, not after it.
+        ($lanes | ForEach-Object { $_.Name }) -join ',' | Should -Be 'vault,dr,h-web,h-psm,h-linux'
+        ($lanes[0].Components -join ',') | Should -Be 'vault'
+        $lanes[1].Kind | Should -Be 'DR'
+        ($lanes[1].Components -join ',') | Should -Be 'dr'
+        ($lanes[2].Components -join ',') | Should -Be 'pvwa01,cpm01'
+        ($lanes[4].Components -join ',') | Should -Be 'psmp01,gw01'
         @($lanes | Where-Object { $_.Join }).Count | Should -Be 0
     }
     It 'starts with the forest and marks the servers that are joined first' {
@@ -55,6 +58,20 @@ Describe 'Lanes of a parallel run' {
     }
 }
 
+Describe 'The Vault workflows of a lane' {
+    It 'gives the Vault lane the Primary and the DR lane everything after it' {
+        InModuleScope PASeasyInstall {
+            (@(Get-PASVaultWorkflowNames -WithDR $false -Part Primary) -join ',') | Should -Be 'VaultPrimaryOnly.psd1'
+            @(Get-PASVaultWorkflowNames -WithDR $false -Part DR).Count | Should -Be 0
+            (@(Get-PASVaultWorkflowNames -WithDR $false) -join ',') | Should -Be 'VaultPrimaryOnly.psd1'
+            (@(Get-PASVaultWorkflowNames -WithDR $true -Part Primary) -join ',') | Should -Be 'VaultPrimary-Phase1.psd1'
+            (@(Get-PASVaultWorkflowNames -WithDR $true -Part DR) -join ',') | Should -Be 'VaultDR-Phase1.psd1,VaultPrimary-Phase2.psd1,VaultDR-Phase2.psd1'
+            @(Get-PASVaultWorkflowNames -WithDR $true).Count | Should -Be 4
+            @(Get-PASVaultWorkflowNames -WithDR $true -Part Prepare).Count | Should -Be 0
+        }
+    }
+}
+
 Describe 'What a component of a parallel run waits for' {
     BeforeAll {
         $script:config = New-LaneConfig @(
@@ -77,7 +94,7 @@ Describe 'What a component of a parallel run waits for' {
     }
     It 'registers in the order PVWA, CPM, then the rest' {
         ((Get-Gate 'pvwa02').VaultAfter -join ',') | Should -Be 'Vault,PvwaRegistered'
-        ((Get-Gate 'cpm01').VaultAfter -join ',') | Should -Be 'Vault,Registered:pvwa01,Registered:pvwa02'
+        ((Get-Gate 'cpm01').VaultAfter -join ',') | Should -Be 'Vault,PvwaRegistered,Registered:pvwa01,Registered:pvwa02'
         ((Get-Gate 'cpm01').StepSignals['register'] -join ',') | Should -Be 'Registered:cpm01'
         ((Get-Gate 'psm01').VaultAfter -join ',') | Should -Be 'Vault,PvwaRegistered,Registered:cpm01'
         (Get-Gate 'psm01').StartAfter.Count | Should -Be 0
@@ -119,6 +136,61 @@ Describe 'Signals and waiting of a parallel run' {
                 [void]$signals.Vault.Set()
                 Test-PASVaultGateOpen @{ Wait = @($signals.Vault); Cancel = $signals.Cancel } | Should -BeTrue
                 Wait-PASVaultGate @{ Wait = @($signals.Vault); Cancel = $signals.Cancel } | Should -BeFalse
+            } finally {
+                foreach ($signal in @($signals.Values)) { $signal.Dispose() }
+            }
+        }
+    }
+    It 'stops only what depends on a server that failed' {
+        $config = New-LaneConfig @(
+            @('vault', 'Vault', 'h-vault'), @('dr', 'DRVault', 'h-dr'), @('pvwa01', 'PVWA', 'h-web'),
+            @('cpm01', 'CPM', 'h-cpm', @{ pvwaTrustFrom = 'pvwa01' }), @('psm01', 'PSM', 'h-psm'), @('pta01', 'PTA', 'h-pta', @{ pvwaTrustFrom = 'pvwa01' }))
+        $items = @($config.components | ForEach-Object { [pscustomobject]@{ Id = $_.id; Type = $_.type } })
+        InModuleScope PASeasyInstall -Parameters @{ Config = $config; Items = $items } {
+            param($Config, $Items)
+            $lanes = @(Get-PASRunLanes -Config $Config -PlanItems $Items)
+            $lane = @{}
+            foreach ($entry in $lanes) { $lane[$entry.Name] = $entry }
+            $psm = @($Config.components | Where-Object { $_.id -eq 'psm01' })[0]
+            $psmNeeds = (Get-PASLaneComponentGate -Config $Config -Component $psm).VaultAfter
+
+            # PTA and the DR Vault owe nothing: their failure stops nobody.
+            @(Get-PASLaneOwedSignals -Config $Config -Lane $lane['h-pta']).Count | Should -Be 0
+            @(Get-PASLaneOwedSignals -Config $Config -Lane $lane['dr']).Count | Should -Be 0
+
+            # CPM fails: its registration was only an order, so PSM goes on.
+            $signals = New-PASLaneSignals -Config $Config
+            try {
+                [void]$signals.Vault.Set()
+                [void]$signals.PvwaRegistered.Set()
+                $needs = @(Set-PASLaneFailed -Signals $signals -Owed (Get-PASLaneOwedSignals -Config $Config -Lane $lane['h-cpm']))
+                $needs.Count | Should -Be 0
+                Wait-PASVaultGate (Get-PASLaneGate $signals $psmNeeds) | Should -BeFalse
+            } finally {
+                foreach ($signal in @($signals.Values)) { $signal.Dispose() }
+            }
+
+            # PVWA fails: what needs it gives up, at once.
+            $signals = New-PASLaneSignals -Config $Config
+            try {
+                [void]$signals.Vault.Set()
+                $needs = @(Set-PASLaneFailed -Signals $signals -Owed (Get-PASLaneOwedSignals -Config $Config -Lane $lane['h-web']))
+                $needs | Should -Contain 'PvwaRegistered'
+                $needs | Should -Contain 'Cert:pvwa01'
+                { Wait-PASVaultGate (Get-PASLaneGate $signals $psmNeeds) } | Should -Throw 'PASLaneStopped:*'
+                { Wait-PASLaneSignal $signals @('Cert:pvwa01') } | Should -Throw 'PASLaneStopped:*'
+            } finally {
+                foreach ($signal in @($signals.Values)) { $signal.Dispose() }
+            }
+
+            # The Vault fails: everything that signs in to it gives up; what is already set stays set.
+            $signals = New-PASLaneSignals -Config $Config
+            try {
+                [void]$signals['Cert:pvwa01'].Set()
+                $needs = @(Set-PASLaneFailed -Signals $signals -Owed (Get-PASLaneOwedSignals -Config $Config -Lane $lane['vault']))
+                ($needs -join ',') | Should -Be 'Vault'
+                { Wait-PASVaultGate (Get-PASLaneGate $signals $psmNeeds) } | Should -Throw 'PASLaneStopped:*'
+                Wait-PASVaultGate (Get-PASLaneGate $signals @('Cert:pvwa01')) | Should -BeFalse
             } finally {
                 foreach ($signal in @($signals.Values)) { $signal.Dispose() }
             }
@@ -166,6 +238,47 @@ Describe 'Signals and waiting of a parallel run' {
                 $taken.Dispose()
                 $cancel.Dispose()
             }
+        }
+    }
+}
+
+Describe 'A damaged package in the media' {
+    BeforeAll {
+        Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+        $script:mediaDir = Join-Path ([IO.Path]::GetTempPath()) ('pas-damaged-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $script:mediaDir
+        # A good package: a real ZIP. A damaged one: the same bytes with the end cut off.
+        $inner = Join-Path $script:mediaDir 'inner'
+        $null = New-Item -ItemType Directory -Path $inner
+        Set-Content -LiteralPath (Join-Path $inner 'readme.txt') -Value ('x' * 4000)
+        $script:good = Join-Path $script:mediaDir 'HTML5 Gateway-Rls-v15.0.zip'
+        [IO.Compression.ZipFile]::CreateFromDirectory($inner, $script:good)
+        $bytes = [IO.File]::ReadAllBytes($script:good)
+        $script:bad = Join-Path $script:mediaDir 'HTML5 Gateway-Rls-v15.2.1.zip'
+        [IO.File]::WriteAllBytes($script:bad, $bytes[0..($bytes.Length - 30)])
+        Remove-Item -LiteralPath $inner -Recurse -Force
+    }
+    AfterAll {
+        Remove-Item -LiteralPath $script:mediaDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    It 'marks a package that is not a complete ZIP file and uses the good copy, although it is older' {
+        $inventory = @(Get-PASMediaInventory -Path $script:mediaDir)
+        ($inventory | Where-Object { $_.Name -eq 'HTML5 Gateway-Rls-v15.2.1.zip' }).Damaged | Should -BeTrue
+        ($inventory | Where-Object { $_.Name -eq 'HTML5 Gateway-Rls-v15.0.zip' }).Damaged | Should -BeFalse
+        $selection = Get-PASMediaSelection -Inventory $inventory -WarningVariable warned -WarningAction SilentlyContinue
+        $selection['HTML5GW'].Name | Should -Be 'HTML5 Gateway-Rls-v15.0.zip'
+        ($warned -join ' ') | Should -Match 'damaged'
+    }
+    It 'judges a package that lies inside a bigger file by its own last bytes' {
+        # As inside a bundle that stores its packages: the good package, then the damaged one, then more bytes.
+        $combined = Join-Path $script:mediaDir 'combined.bin'
+        $goodBytes = [IO.File]::ReadAllBytes($script:good)
+        $badBytes = [IO.File]::ReadAllBytes($script:bad)
+        [IO.File]::WriteAllBytes($combined, [byte[]]($goodBytes + $badBytes + (New-Object byte[] 500)))
+        InModuleScope PASeasyInstall -Parameters @{ Path = $combined; Good = $goodBytes.Length; Bad = $badBytes.Length } {
+            param($Path, $Good, $Bad)
+            Test-PASZipTail -Path $Path -Offset 0 -Length $Good | Should -BeTrue
+            Test-PASZipTail -Path $Path -Offset $Good -Length $Bad | Should -BeFalse
         }
     }
 }

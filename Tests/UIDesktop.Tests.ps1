@@ -301,6 +301,39 @@ Describe 'Desktop model' {
         $state.Colocate = $false
         @(Get-PASUIServerSlots $state | ForEach-Object { $_.Key }) -join ',' | Should -Be 'vault,pvwa1,cpm1,cpm2,psm1'
     }
+    It 'puts the HTML5 Gateway on the PSM for SSH server, or on a server of its own when asked' {
+        $state = New-PASUIState
+        Set-PASUIPreset $state 'standard'
+        $state.Counts.PSMP = 1
+        $state.Counts['HTML5GW'] = 1
+        @(Get-PASUIServerSlots $state | ForEach-Object { $_.Key }) -join ',' | Should -Be 'vault,pvwa1,psm1,psmp1'
+        (Get-PASUIServerSlots $state | Where-Object { $_.Key -eq 'psmp1' }).Types -join ',' | Should -Be 'PSMP,HTML5GW'
+        $state.ColocateGw = $false
+        @(Get-PASUIServerSlots $state | ForEach-Object { $_.Key }) -join ',' | Should -Be 'vault,pvwa1,psm1,psmp1,gw1'
+        (Get-PASUIServerSlots $state | Where-Object { $_.Key -eq 'psmp1' }).Types -join ',' | Should -Be 'PSMP'
+        Set-PASUISlotValue $state 'psmp1' 'Address' '192.0.2.41'
+        Set-PASUISlotValue $state 'gw1' 'Address' '192.0.2.42'
+        $instances = @(Get-PASUIInstances $state)
+        ($instances | Where-Object { $_.Type -eq 'PSMP' }).Address | Should -Be '192.0.2.41'
+        ($instances | Where-Object { $_.Type -eq 'HTML5GW' }).Address | Should -Be '192.0.2.42'
+    }
+    It 'tells a check of finished steps and a server that gave up from an installation step' {
+        $snapshot = [pscustomobject]@{
+            Status = 'Running'
+            Components = @(
+                [pscustomobject]@{ Id = 'pvwa01'; Type = 'PVWA'; Status = 'Running'; Message = '' },
+                [pscustomobject]@{ Id = 'psm01'; Type = 'PSM'; Status = 'Stopped'; Message = '' })
+            Events = @(
+                [pscustomobject]@{ Component = 'pvwa01'; Stage = 'extract'; Event = 'TaskRevalidated' },
+                [pscustomobject]@{ Component = 'psm01'; Stage = 'register'; Event = 'VaultWaiting' },
+                [pscustomobject]@{ Component = 'psm01'; Stage = ''; Event = 'LaneWaitingEnded' })
+        }
+        $rows = @((Get-PASUIRunProgress -Snapshot $snapshot).Components)
+        ($rows | Where-Object { $_.Id -eq 'pvwa01' }).Checking | Should -BeTrue
+        ($rows | Where-Object { $_.Id -eq 'pvwa01' }).GaveUp | Should -BeFalse
+        ($rows | Where-Object { $_.Id -eq 'psm01' }).GaveUp | Should -BeTrue
+        ($rows | Where-Object { $_.Id -eq 'psm01' }).Checking | Should -BeFalse
+    }
     It 'says in plain words what is missing on the servers step' {
         $state = New-PASUIState
         Set-PASUIPreset $state 'full'

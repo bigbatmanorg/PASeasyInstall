@@ -182,7 +182,7 @@ function Test-PASPreflight {
                 if ($server.Contains('port') -and $server.port) {
                     $sshArguments += @('-p', [string][int]$server.port)
                 }
-                $sshArguments += @(([string]$server.user + '@' + $address), 'id -u; cat /etc/os-release')
+                $sshArguments += @(([string]$server.user + '@' + $address), 'id -u; cat /etc/os-release; echo; grep MemTotal /proc/meminfo')
                 try {
                     $ssh = Invoke-PASNativeQuiet 'ssh.exe' $sshArguments 60
                 } catch {
@@ -228,6 +228,23 @@ function Test-PASPreflight {
             $osName = [string]$osRelease['PRETTY_NAME']
             if (-not $osName) {
                 $osName = ([string]$osRelease['ID'] + ' ' + [string]$osRelease['VERSION_ID']).Trim()
+            }
+            # What the server must be depends on what is installed on it.
+            $typesHere = @($configuration.components | Where-Object { [string]$_.host -eq $serverId } | ForEach-Object { [string]$_.type })
+            $rhelFamily = ((([string]$osRelease['ID']) + ' ' + ([string]$osRelease['ID_LIKE'])) -match '(?i)\b(rhel|centos|fedora|rocky|almalinux)\b')
+            if ($typesHere -contains 'PTA') {
+                $osDetail = $osName
+                if (-not $rhelFamily) {
+                    $osDetail += ' (PTA needs RHEL, Rocky or Alma 8.8+ or 9.3+; this server cannot run PTA)'
+                }
+                New-PASPreflightResult -Server $serverId -Address $address -Check 'Operating system' -Passed $rhelFamily -Detail $osDetail
+                $memoryLine = @($lines | Where-Object { $_ -match '^MemTotal:\s+(\d+)\s+kB' }) | Select-Object -First 1
+                if ($memoryLine) {
+                    $memoryGb = [math]::Round(([double]([regex]::Match($memoryLine, '(\d+)').Groups[1].Value)) / 1MB, 1)
+                    # A server with 8 GB reports a little less.
+                    New-PASPreflightResult -Server $serverId -Address $address -Check 'Memory' -Passed ($memoryGb -ge 7.2) -Detail "$memoryGb GB (PTA needs 8 GB)"
+                }
+                continue
             }
             $variant = Get-PASPsmpVariantForOs ([string]$osRelease['ID']) ([string]$osRelease['VERSION_ID']) ([string]$osRelease['ID_LIKE'])
             $osDetail = $osName

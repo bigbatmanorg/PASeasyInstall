@@ -26,8 +26,13 @@ PSM restarts its server several times, and a server that joins a domain restarts
 
 ![An installation that stopped with an error](../assets/window/17-run-failed.png)
 
-The red box names the step and shows the installer's own error text. When one server fails, the others finish
-the component they are installing; those that were waiting for their turn give up. Nothing is undone.
+The red box names the step and shows the installer's own error text. A server that fails stops only what
+depends on it: every other server is installed to the end, and a server that could not go on says *Not
+continued: a server it depends on failed* (see [Servers at the same time](../concepts/parallel.md#when-a-server-fails)).
+Nothing is undone.
+
+After **Try this step again** or **Continue**, every server first shows *Checking what is already installed*:
+the finished steps are looked at again, not repeated.
 
 Look at the server and correct the cause. Then:
 

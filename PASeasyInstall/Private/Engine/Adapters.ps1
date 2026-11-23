@@ -400,11 +400,17 @@ function Invoke-PASRawSSHScript {
             $errorText = ''
             try { $errorText = [string](Invoke-PASLinuxControl $Target ('tail -n 40 -- ' + $directory + '/stderr.log.tail 2>/dev/null || true')) }catch { Write-Verbose 'stderr tail not readable' }
             if ($errorText.Trim()) { $output = Limit-PASText (($output + "`n--- stderr`n" + $errorText).Trim()) 20000 }
+            # The last line the task wrote to stderr is its own reason: it leads the error message.
+            $reason = ''
+            $lastLine = @($errorText -split "`r?`n" | Where-Object { $_.Trim() }) | Select-Object -Last 1
+            if ($lastLine) {
+                $reason = (Limit-PASText ([string]$lastLine).Trim() 400) + ' ('
+            }
             $result = @{
                 Ok = $false
                 Terminal = $marker.Value
                 Output = $output
-                Error = ('Bash task ' + $attempt + ' failed with code ' + $exitCode + '. Full output: ' + $directory + ' on ' + [string]$Target.ComputerName)
+                Error = ($reason + 'Bash task ' + $attempt + ' failed with code ' + $exitCode + '. Full output: ' + $directory + ' on ' + [string]$Target.ComputerName + $(if ($reason) { ')' } else { '' }))
                 ExitCode = $exitCode
                 AttemptId = $attempt
             }

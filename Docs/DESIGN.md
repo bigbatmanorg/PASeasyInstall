@@ -87,11 +87,14 @@ A configuration with `execution.mode = Parallel` (the default of `New-PASLabConf
 side by side. `Sequential`, or a configuration without the key, installs one component after the other.
 
 - **Lane**: the work of one server, in plan order. Each lane is a runspace of the controller process with its
-  own copy of the module, so remoting sessions are not shared. The Vault with its DR Vault is one lane, the new
-  forest is one lane. Components on the same server stay one after the other.
-- **Signals** (wait handles inside the controller, set once): `Domain` (forest installed), `Vault` (Vault
-  sequence finished), `Cert:<pvwa>` (PVWA created its certificate, its first step), `Registered:<id>` (a PVWA
-  or a CPM finished `register`), `PvwaRegistered` (the first PVWA did), `Done:<pvwa>`, `Cancel` (a lane failed).
+  own copy of the module, so remoting sessions are not shared. The Vault is one lane, its DR Vault another
+  (`Invoke-PASVaultSequence -Part Primary | DR`; the DR workflow waits for the milestones `primary-keys` and
+  `primary-ready` by itself, then runs the replication test), the new forest is one lane. Components on the
+  same server stay one after the other.
+- **Signals** (wait handles inside the controller, set once): `Domain` (forest installed), `Vault` (the
+  Primary Vault is installed, hardened and verified), `Cert:<pvwa>` (PVWA created its certificate, its first
+  step), `Registered:<id>` (a PVWA or a CPM finished `register`), `PvwaRegistered` (the first PVWA did),
+  `Done:<pvwa>`, `Fail:<signal>` (the lane that owed the signal failed), `Cancel` (the lanes are taken down).
 - **Who waits:** a joined server waits for `Domain` before its join. A component that trusts the PVWA
   certificate (CPM, PSM, gateway, PTA) starts when every PVWA has created one, about a minute into the run.
   A step that signs in to the Vault waits for `Vault`, and the registrations follow the vendor's order: the
@@ -101,9 +104,12 @@ side by side. `Sequential`, or a configuration without the key, installs one com
   register last, so they only wait for the Vault when nothing else is left. CPM and PSM register before their
   hardening: CPM's hardening starts services that need the registration; for PSM the vendor's stage script
   reported the registration on a hardened server as failed. The reasons are written next to the stage lists.
-- **A lane fails:** `Cancel` is set. A lane that waits gives up (its target is journalled as `Stopped`, shown as
-  Pending); a lane that works finishes the component it is installing. The run ends Failed with the step that
-  failed. `Resume-PASRun` starts every lane again; finished steps are only revalidated.
+- **A lane fails** (`Set-PASLaneFailed`): what the lane still owed will never come. `Registered:<id>` is only
+  an order, so it is set and who waited for its turn goes on. Every other signal is a need: its `Fail:` handle
+  is set and who waits for it gives up (target journalled as `Stopped`). All other lanes work to the end.
+  Then the controller does what can still be done after the lanes (gateway registration and PTA trust when
+  their components are installed, never the GPOs) and the run ends Failed with the step that failed first.
+  `Resume-PASRun` starts every lane again; finished steps are only revalidated.
 - Gateway registration, PTA trust and the GPOs follow the lanes, in order, as in a sequential run.
 - While preparing a component, the lanes of one run share the SSH known-hosts file and the PVWA certificate
   bundle; that short part is guarded by a mutex of the run (`prepare-<run id>`).

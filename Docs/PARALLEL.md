@@ -19,7 +19,7 @@ and 39 minutes before their turn came.
 | One server does one thing at a time | Installers, MSI and restarts of one server cannot overlap. Components on the same server stay one after the other. |
 | New forest before the domain joins | A join needs the domain's DNS. |
 | Join of a server before anything is installed on it | The join restarts the server; the PSM install account is a domain account. |
-| Vault installed before any registration | Registration signs in to the Vault. With a DR Vault the registrations wait for the end of the whole Vault sequence, because it restarts the Primary Vault while it sets up replication. |
+| Primary Vault installed before any registration | Registration signs in to the Vault. Until 2.0.6 the registrations also waited for the DR Vault; that was not needed (see "Third round"). |
 | One Vault sign-in as Administrator at a time | Several at once lock the Administrator out. |
 | First PVWA registered before any other component registers | PSM, PSMP, the gateway and PTA write into the PVWA configuration that the first PVWA creates in the Vault. |
 | Every PVWA has its certificate before CPM, gateway or PTA start | Their preparation copies the certificates of all PVWA servers. |
@@ -85,6 +85,31 @@ hardening where that is possible, so that a server waits for the Vault only when
 
 Measured, clean servers, 15.2: see [STATUS.md](STATUS.md).
 
+## Third round (2026-11-23): a failure stops only what depends on it
+
+Owner's own test of 2.0.6 on a new lab (nine servers in two networks): PTA was pointed at an Ubuntu server by
+mistake and failed after 90 seconds. Every server that was waiting for its turn at the Vault gave up, the Vault
+and the DR Vault went on for 13 minutes, and nothing else was installed. Every *Continue* looked at the finished
+Vault and DR steps again, which the window showed as an installation.
+
+- **Failure of a lane** (`Set-PASLaneFailed`): signals are needs (`Vault`, `PvwaRegistered`, `Cert:`, `Done:`,
+  `Domain`) or orders (`Registered:`). A failed lane fails the needs it owed and releases the orders. PTA, CPM,
+  PSM, PSMP, the gateway and the DR Vault owe no need: their failure stops nobody.
+- **The DR Vault has its own lane.** Its workflow always waited for the milestones of the Primary by itself;
+  only the controller ran it after the Primary. The other servers register when the Primary is ready. The
+  replication test (a test safe on the Primary, then on the DR Vault) runs at the end of the DR lane; its one
+  sign-in takes the Vault lock like every other.
+- **Server check:** a PTA server must be RHEL-family with 8 GB. Before, every Linux server was judged as a PSMP
+  server, so PTA on Ubuntu passed.
+- **Found on the way:** the CPM Scanner calls PVWA by name and ends when the name does not resolve. The old lab
+  hid it (one network, the name resolved by broadcast). CPM and PSM servers now get hosts entries (Lab).
+
+Measured on the new lab (15.2, clean servers, CPM in another network than the Vault): with four lanes failing
+at the start (two Linux servers that refused the root password, PTA with a locked root, CPM with the unresolved
+name), the Primary Vault was ready after 8.0 minutes, PVWA registered three seconds later, the DR Vault was
+replicating after 10.7 minutes and its test safe had arrived after 11.5; Vault, DR Vault, PVWA and PSM were
+finished after 17.3 minutes.
+
 ## Open
 
 - **A step stopped with "SSH observation timed out"** once: the HTML5 Gateway step that followed PSMP on the
@@ -92,8 +117,6 @@ Measured, clean servers, 15.2: see [STATUS.md](STATUS.md).
   not end within two minutes. The cause is not known. The input stream is now closed after sending, so that a
   transfer that comes up short fails at once instead of waiting; whether that was the cause is not proven.
   The run could be continued by naming the step (`-RetryStep`).
-- **Registrations wait for the DR Vault.** They could start when the Primary Vault is ready and pause while the
-  Vault sequence restarts it. That would save about seven more minutes on a lab with DR.
 - **Load.** Five installers at once on a small lab host worked. Whether steps time out on a slower host is not known.
 - **Two of each component, and three or four**, were not run in parallel yet.
 - **PSM in the vendor's order.** Find out why `Execute-Stage.ps1` reports the registration on a hardened PSM

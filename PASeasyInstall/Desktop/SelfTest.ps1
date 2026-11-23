@@ -11,6 +11,7 @@
 #   mediaSources     more folders or files that are added after 'media', one after the other
 #   removedMedia     a folder or file that is added and then removed again (its items must go with it)
 #   separateCpm      true: CPM gets a server of its own (the check box of the Lab step is switched off)
+#   separateGateway  true: the HTML5 Gateway gets a server of its own (the check box of the Lab step is switched off)
 #   hardening        false: 'Apply the vendor hardening' is switched off (needs advanced); the review
 #                    step and the confirmation must say that the servers will not be hardened
 #   labFile          a saved lab file: it is opened first, as "Open a saved lab file" does, and the walk goes on
@@ -378,6 +379,11 @@ function Invoke-PASUITestWalk {
         Invoke-PASUITestClick 'f-colocate'
         Assert-PASUITest (@(Get-PASUIServerSlots $S | Where-Object { $_.Key -eq 'cpm1' }).Count -eq 1) 'CPM has a server of its own'
     }
+    if ($Scenario.PSObject.Properties['separateGateway'] -and [bool]$Scenario.separateGateway) {
+        Assert-PASUIShown 'view' 'Install the HTML5 Gateway on the PSM for SSH server' 'a lab with PSM for SSH and a gateway offers a server of its own for the gateway'
+        Invoke-PASUITestClick 'f-colocate-gw'
+        Assert-PASUITest (@(Get-PASUIServerSlots $S | Where-Object { $_.Key -eq 'gw1' }).Count -eq 1) 'the HTML5 Gateway has a server of its own'
+    }
     if (-not $fromFile) {
         Set-PASUITestField 'f-labname' $labName
     }
@@ -386,6 +392,7 @@ function Invoke-PASUITestWalk {
 
     Invoke-PASUITestClick 'act-next'
     Assert-PASUIShown 'view' 'Which servers' 'servers step'
+    Assert-PASUIShown 'view' 'Save the lab file' 'the Servers step offers to save the entries'
     Invoke-PASUITestClick 'act-next'
     Assert-PASUIShown 'ServersIssues' 'Enter the (address|password)' 'missing entries are listed'
     if ($advanced) {
@@ -434,6 +441,21 @@ function Invoke-PASUITestWalk {
     if ([int]$S.Counts.PSMP -gt 0 -or [int]$S.Counts['HTML5GW'] -gt 0 -or [int]$S.Counts['PTA'] -gt 0) {
         Invoke-PASUITestClick 'f-eula'
         Assert-PASUITest ([bool]$S.AcceptEula) 'the license agreement of the Linux installers is accepted'
+    }
+    # What "Save the lab file..." does once a file name is chosen: on this step, before any server is checked.
+    $labFilePath = Join-Path ([IO.Path]::GetTempPath()) ('pasui-selftest-' + [guid]::NewGuid().ToString('N') + '.json')
+    try {
+        Save-PASUILabFile $labFilePath
+        Wait-PASUITestIdle
+        Assert-PASUIShown 'notice' 'Saved: ' 'the entries of the Servers step are saved as a lab file'
+        $savedText = ''
+        if (Test-Path -LiteralPath $labFilePath) {
+            $savedText = Get-Content -LiteralPath $labFilePath -Raw
+        }
+        Assert-PASUITest ($savedText -match [regex]::Escape($labName)) 'the lab file names the lab'
+        Assert-PASUITest (-not ($savedText -match [regex]::Escape($password))) 'the lab file holds no password'
+    } finally {
+        Remove-Item -LiteralPath $labFilePath -ErrorAction SilentlyContinue
     }
     $ui.Page.ScrollToTop()
     Save-PASUISnapshot '4-servers'

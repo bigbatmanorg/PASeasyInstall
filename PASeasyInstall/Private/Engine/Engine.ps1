@@ -65,7 +65,9 @@ function Wait-PASMilestone {
         [int]$TimeoutSeconds = 1200,
         [string]$Waiter = '',
         [hashtable]$Context = $null,
-        [string]$TaskId = ''
+        [string]$TaskId = '',
+        # Wait handles of a parallel run: when one is set, what would publish the milestone has failed.
+        $Cancel = $null
     )
     if ($Milestone -notmatch '^[a-zA-Z0-9_.-]+$') { throw 'Invalid milestone name' }
     $runRoot = Join-Path $StateRoot $RunId
@@ -79,6 +81,9 @@ function Wait-PASMilestone {
             $Context) {
             Add-PASEvent $Context 'WaitingForMilestone' $TaskId "waiting for milestone '$Milestone'"
             $announced = $true
+        }
+        if (Test-PASGateCancelled $Cancel) {
+            throw "PASLaneStopped: milestone '$Milestone' will not come, because the server that publishes it failed or the run is being stopped. Nothing was started for this step."
         }
         # Stop waiting early when every other target of this run has terminated without publishing.
         $others = @(Get-ChildItem -LiteralPath $runRoot -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @('milestones', 'Payloads') -and $_.Name -ne $Waiter })
@@ -544,7 +549,7 @@ function Invoke-PASWorkflow {
             $dispatched = $false
             $acknowledged = $false
             if (-not $reconciled) {
-                foreach ($dependency in @(Get-PASValue $step 'DependsOn' @())) { [void](Wait-PASMilestone $StateRoot $RunId ([string]$dependency) $timeout $plan.TargetName $context $id) }
+                foreach ($dependency in @(Get-PASValue $step 'DependsOn' @())) { [void](Wait-PASMilestone $StateRoot $RunId ([string]$dependency) $timeout $plan.TargetName $context $id (Get-PASValue $VaultGate 'Cancel' $null)) }
                 $attempt = [guid]::NewGuid().ToString('N')
                 $previous = @()
                 if ($current) { $previous = @(Get-PASValue $current 'previousAttempts' @()) }
@@ -711,7 +716,7 @@ function Invoke-PASWorkflow {
                             }
                             $acknowledged = $true
                         } elseif ($kind -eq 'Wait') {
-                            [void](Wait-PASMilestone $StateRoot $RunId ([string]$step.Milestone) $timeout $plan.TargetName $context $id)
+                            [void](Wait-PASMilestone $StateRoot $RunId ([string]$step.Milestone) $timeout $plan.TargetName $context $id (Get-PASValue $VaultGate 'Cancel' $null))
                             $acknowledged = $true
                         } elseif ($kind -eq 'Verify') {
                             # No action body exists. A failed check can be repeated on

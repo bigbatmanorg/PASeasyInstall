@@ -7,8 +7,9 @@ function Get-PASMediaInventory {
     CyberArk distribution ZIP that contains the installer ZIPs) is looked into through its directory
     only; nothing is extracted.
 
-    Returns one object per installer with Component, Name, Version, Variant, Path, Entry, Source and
-    Container. Component is Vault, PACLI, DR, KeyGen, PVWA, CPM, PSM, PSMP, HTML5GW, PTA, License, RecoveryKey,
+    Returns one object per installer with Component, Name, Version, Variant, Path, Entry, Source,
+    Container and Damaged. Damaged is true for a package that is not a complete ZIP file (cut off or
+    damaged); Get-PASMediaSelection does not choose it when another copy is there. Component is Vault, PACLI, DR, KeyGen, PVWA, CPM, PSM, PSMP, HTML5GW, PTA, License, RecoveryKey,
     Prerequisite, Unknown, or Missing for a path that does not exist. Entry is the path inside a
     bundle and empty for a plain file. Variant is the Linux distribution of a PSMP package.
     .PARAMETER Path
