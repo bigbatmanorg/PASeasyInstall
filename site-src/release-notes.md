@@ -1,5 +1,21 @@
 # Release notes
 
+## 2.0.10
+
+Recovery after a failed or stopped installation, tested in the lab on 2026-11-24.
+
+- **Releasing the locks after a reset works for PSM for SSH too.** `Stop-PASRun -ReleaseLocksAfterReset`
+  signs in to a Linux server restored from a snapshot with the password of `-CredentialMap` again, as an
+  installation does. Before, it could only warn, because the restored server no longer trusted the controller key.
+- **A run that is blocked by an unfinished run says so.** On a Linux server that another run of this controller
+  still holds (and has hardened), a new run now stops *Blocked* with `locked by run <run id>` and how to resume
+  or release that run, instead of *Password sign-in failed*.
+- **Tested in the lab:** the first PVWA failing in the middle of the installation (CPM and PSM give up at
+  once, the Vault is finished, a plain *Continue* installs the rest), and the Primary Vault failing in a lab with
+  a DR Vault (the DR Vault, PVWA and PSM stop where they need the Vault, nothing waits, *Continue* installs
+  everything including the DR replication test).
+- The message of a continued run says what happens: finished steps are checked again, read-only.
+
 ## 2.0.9
 
 Lab-stabilized release, validated on Proxmox with CyberArk 15.2 in eight scenarios (window in a real desktop,
