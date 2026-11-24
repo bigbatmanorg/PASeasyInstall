@@ -938,14 +938,20 @@ function Invoke-PASRunControllerCore {
     }
     try {
         Assert-PASVaultInstallationSecrets -Configuration $config -Secrets $auth.Secrets -ReferencesResolved
-        if ($Resume) { Write-PASRunEvent $dir 'RunResumed' 'Continuing the run: on every server the finished steps are checked again (read-only, nothing is installed twice), then the rest is installed' }
+        $parallel = ([string](Get-PASValue (Get-PASValue $config 'execution' $null) 'mode' 'Sequential') -eq 'Parallel')
+        if ($Resume) {
+            if ($parallel) {
+                Write-PASRunEvent $dir 'RunResumed' 'Continuing the run: servers that are installed and verified are left alone; on the others the finished steps are checked again (read-only, nothing is installed twice), then the rest is installed'
+            } else {
+                Write-PASRunEvent $dir 'RunResumed' 'Continuing the run: on every server the finished steps are checked again (read-only, nothing is installed twice), then the rest is installed'
+            }
+        }
         if (-not $Resume) {
             foreach ($item in @($plan.Items)) {
                 Write-PASRunEvent $dir 'TaskCompleted' 'Local configuration and media checks passed' ([string]$item.Id) 'LocalPreflight'
             }
         }
 
-        $parallel = ([string](Get-PASValue (Get-PASValue $config 'execution' $null) 'mode' 'Sequential') -eq 'Parallel')
         if ($parallel) {
             # The servers are installed at the same time (Lanes.ps1). What follows them stays in order below.
             # A server that fails stops only what depends on it: the lanes end, what can still be done after

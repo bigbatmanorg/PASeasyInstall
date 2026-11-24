@@ -517,11 +517,28 @@ function Get-PASUIPlanArguments {
 function Start-PASUIPlan {
     # Has the installer build the configuration from the entries, validate it and lay out the plan, in the
     # background. Fills $S.Configuration, $S.Check, $S.Plan and $S.Requirements, then runs $Then. Contacts no server.
+    # One plan at a time: a request while one is being laid out (for example "Save the lab file" and then Next)
+    # waits for it and then gets a plan of its own, from the entries as they are then. Two at once would both
+    # unpack the media into the same cache and hand their results to each other's $Then.
     param([scriptblock]$Then)
+    if ($null -eq $S.PlanQueue) {
+        $S.PlanQueue = New-Object System.Collections.ArrayList
+    }
+    [void]$S.PlanQueue.Add($Then)
+    if ($S.PlanBusy) {
+        return
+    }
+    Start-PASUIPlanTask
+}
+
+function Start-PASUIPlanTask {
+    # Lays out one plan for every $Then that is waiting (Start-PASUIPlan).
+    $S.PlanBusy = $true
+    $S.AfterPlan = @($S.PlanQueue)
+    $S.PlanQueue.Clear()
     $S.Configuration = $null
     $S.Plan = $null
     $S.Requirements = @()
-    $S.AfterPlan = $Then
     Start-PASUITask -ArgumentList @(, (Get-PASUIPlanArguments)) -ScriptBlock {
         param([hashtable]$Arguments)
         $configuration = New-PASLabConfiguration @Arguments
@@ -540,15 +557,29 @@ function Start-PASUIPlan {
         $S.Configuration = $answer.Configuration
         $S.Plan = $answer.Plan
         $S.Requirements = @($answer.Requirements)
-        $then = $S.AfterPlan
-        $S.AfterPlan = $null
-        & $then
+        Complete-PASUIPlanTask
     } -OnFailed {
         param($failure)
         $S.Check = @{ Valid = $false; Issues = @([string]$failure.Message); Warnings = @() }
-        $then = $S.AfterPlan
-        $S.AfterPlan = $null
-        & $then
+        Complete-PASUIPlanTask
+    }
+}
+
+function Complete-PASUIPlanTask {
+    # The plan is there: runs what waited for it, then lays out the next plan if more was asked for meanwhile.
+    $thens = @($S.AfterPlan)
+    $S.AfterPlan = @()
+    $S.PlanBusy = $false
+    try {
+        foreach ($then in $thens) {
+            if ($then) {
+                & $then
+            }
+        }
+    } finally {
+        if (-not $S.PlanBusy -and $S.PlanQueue -and $S.PlanQueue.Count) {
+            Start-PASUIPlanTask
+        }
     }
 }
 
@@ -571,7 +602,9 @@ function Save-PASUILabFile {
             Set-PASUINotice 'ok' ('Saved: ' + [string](@($result)[-1]) + '. It holds no password.')
         }
     }
-    if ($S.Configuration -and $S.Screen -eq 'review') {
+    # While the servers are checked the form is locked and the check uses $S.Configuration: save that one and
+    # lay out no new plan, which would take the configuration away from the running check.
+    if ($S.Configuration -and ($S.Screen -eq 'review' -or ($S.Checking -and -not $S.PlanBusy))) {
         & $saveIt
     } else {
         Start-PASUIPlan $saveIt
@@ -906,7 +939,7 @@ function Resume-PASUIRun {
     } -OnCompleted {
         $S.ResumeUntil = [datetime]::UtcNow.AddSeconds(90)
         $S.Health = $null
-        Set-PASUINotice 'info' 'The installation continues. Finished steps are checked again first; this page updates by itself.'
+        Set-PASUINotice 'info' 'The installation continues on the servers that are not finished; finished servers are left alone. This page updates by itself.'
         $S.RunSignature = ''
         Update-PASUIRun
     } -OnFailed {

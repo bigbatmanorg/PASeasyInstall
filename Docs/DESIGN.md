@@ -146,9 +146,11 @@ certificate bundle). Nothing else coordinates runs.
   set and who waits for it gives up (`PASLaneStopped`, nothing dispatched). All other lanes work to the end, then
   the run ends Failed with the step that failed first, the other failed lanes and those not installed because
   of it. The domain GPOs are not applied after a failure.
-- **Resume** starts every lane again. Finished steps are only revalidated, read-only, and signals are set again
-  only by those checks, never from the old journal alone. (`Test-PASLaneFinished` exists and is tested, but the
-  controller does not skip lanes with it.)
+- **Resume** leaves alone every lane whose targets this run already finished (`Test-PASLaneFinished`: every
+  journal of the lane says Succeeded) and every integration it already finished (`Test-PASIntegrationFinished`).
+  Their servers are not contacted again and what they owe the others is set from their journals (event
+  `LanesSkipped`). The other lanes start again: their finished steps are only revalidated, read-only. So a retry
+  of one failed step touches only that server and what waited for it.
 
 ## Resume, retry, stop
 

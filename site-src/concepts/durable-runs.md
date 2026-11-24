@@ -52,9 +52,9 @@ stored. What happens then is decided by what the journals and the servers say:
 - a step that was started is found again by its id. It is never started a second time;
 - a step that ended **Failed** or **Unknown** is **not** repeated on its own.
 
-In a run that installs the servers at the same time, resume starts every lane again; the lanes of finished
-servers only check their steps. The signals between the lanes are set again only by those checks, never from
-the old journal alone.
+In a run that installs the servers at the same time, resume leaves alone every server this run installed and
+verified already: it is not contacted again, and what the others wait for from it counts as done. Only the
+lanes that failed or did not finish start again, and there the finished steps are checked first.
 
 ## Repeating a failed step
 

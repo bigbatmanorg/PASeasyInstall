@@ -16,7 +16,15 @@ function Write-PASJsonAtomic {
         # [NullString]::Value, not $null: Windows PowerShell 5.1 passes $null to a .NET string parameter as ''
         # and File.Replace then rejects the empty backup path ("The path is not of a legal form").
         if (Test-Path -LiteralPath $Path) { [IO.File]::Replace($tmp, $Path, [NullString]::Value) }
-        else { [IO.File]::Move($tmp, $Path) }
+        else {
+            try { [IO.File]::Move($tmp, $Path) }
+            catch [System.IO.IOException] {
+                # Another writer created the file between the test and the move (two checks of the same media
+                # at once): replace it instead ("Cannot create a file when that file already exists").
+                if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw }
+                [IO.File]::Replace($tmp, $Path, [NullString]::Value)
+            }
+        }
     } finally { if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force } }
 }
 

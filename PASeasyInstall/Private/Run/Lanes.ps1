@@ -421,6 +421,37 @@ function Test-PASLaneFinished {
     return $true
 }
 
+function Test-PASIntegrationFinished {
+    <# $true when this run already finished an integration job (Get-PASParallelFinalizationJobs): every engine
+       target of it has a journal that says Succeeded. GatewayRegistration: 'register-<gateway id>' per HTML5
+       Gateway; PtaTrust: 'trust-<pta id>' per PTA. #>
+    param([Parameter(Mandatory)][hashtable]$Job, [Parameter(Mandatory)]$Config, [Parameter(Mandatory)][string]$Directory)
+    $targets = @()
+    switch ([string]$Job.Name) {
+        'GatewayRegistration' { $targets = @($Config.components | Where-Object { $_.type -eq 'HTML5GW' } | ForEach-Object { 'register-' + [string]$_.id }) }
+        'PtaTrust' { $targets = @($Config.components | Where-Object { $_.type -eq 'PTA' } | ForEach-Object { 'trust-' + [string]$_.id }) }
+    }
+    if (-not $targets.Count) {
+        return $false
+    }
+    foreach ($target in $targets) {
+        $statePath = Join-Path (Join-Path $Directory $target) 'state.json'
+        if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) {
+            return $false
+        }
+        $state = $null
+        try {
+            $state = Get-Content -LiteralPath $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
+        } catch {
+            return $false
+        }
+        if ([string]$state.status -ne 'Succeeded') {
+            return $false
+        }
+    }
+    return $true
+}
+
 function Invoke-PASLane {
     <# The work of one lane. Runs inside the lane's own runspace (see Invoke-PASRunLanes), with its own copy of
        the run context: its own configuration object, credential and secret tables.
@@ -587,7 +618,9 @@ function Invoke-PASParallelFinalizations {
             # (as the server lanes do), not for the 180 seconds of an ungated step.
             VaultGate = @{ Wait = @(); Cancel = @($Shared.Signals.Cancel); Names = @(); TimeoutSeconds = 14400 }
         }
-        $pending = @(Get-PASParallelFinalizationJobs -Config $config)
+        # A continued run: integrations this run already finished are not done again.
+        $skip = @(Get-PASValue $Shared 'SkipIntegrations' @())
+        $pending = @(Get-PASParallelFinalizationJobs -Config $config | Where-Object { $skip -notcontains [string]$_.Name })
         $waitStarted = [DateTime]::UtcNow
         $lastWait = ''
         $failedJobs = @()
@@ -707,13 +740,39 @@ function Invoke-PASRunLanes {
         Installed = [hashtable]::Synchronized(@{})
     }
     $manifest = Join-Path (Get-PASModuleRoot) 'PASeasyInstall.psd1'
-    # A continued run: verify all saved successes again before releasing milestones.
-    # Never assert dependencies solely from yesterday's successful journal. All previously
-    # completed steps are re-verified read-only by Invoke-PASWorkflow on resume.
+    # A continued run (a retry of one failed step): a lane whose every target this run already installed and
+    # verified is left alone. Its servers are not contacted again, and what it owes the others counts as done.
+    # Only the lanes that failed or did not finish are started, and the integrations that did not finish.
+    $finished = @($lanes | Where-Object { Test-PASLaneFinished -Lane $_ -Config $Run.Config -Directory $Run.Directory })
+    foreach ($lane in $finished) {
+        foreach ($name in @(Get-PASLaneOwedSignals -Config $Run.Config -Lane $lane)) {
+            if ($shared.Signals.ContainsKey($name)) {
+                [void]$shared.Signals[$name].Set()
+            }
+        }
+        foreach ($id in (@($lane.Components) + @(Get-PASValue $lane 'After' @()))) {
+            $shared.Installed[[string]$id] = $true
+        }
+    }
+    $lanes = @($lanes | Where-Object { $finished -notcontains $_ })
     $integrationJobs = @(Get-PASParallelFinalizationJobs -Config $Run.Config)
     foreach ($job in $integrationJobs) { [void](Get-PASLaneGate -Signals $shared.Signals -Names @($job.DependsOn)) }
-    if ($integrationJobs.Count) {
+    $doneJobs = @($integrationJobs | Where-Object { Test-PASIntegrationFinished -Job $_ -Config $Run.Config -Directory $Run.Directory } | ForEach-Object { [string]$_.Name })
+    $shared.SkipIntegrations = $doneJobs
+    $left = @($integrationJobs | Where-Object { $doneJobs -notcontains [string]$_.Name })
+    if ($finished.Count -or $doneJobs.Count) {
+        $names = @($finished | ForEach-Object { [string]$_.Name }) + $doneJobs
+        Write-PASRunEvent $Run.Directory 'LanesSkipped' ('Already installed and verified in this run, left as they are: ' + ($names -join ', '))
+    }
+    if ($left.Count) {
         $lanes += ,@{ Name = 'integrations'; Kind = 'Finalization'; Join = $false; Components = @() }
+    }
+    if (-not $lanes.Count) {
+        $Run.Installed = @($shared.Installed.Keys | ForEach-Object { [string]$_ })
+        foreach ($signal in @($shared.Signals.Values)) {
+            $signal.Dispose()
+        }
+        return
     }
     Write-PASRunEvent $Run.Directory 'LanesStarted' ('Installing ' + $lanes.Count + ' server lane(s) at the same time: ' + (($lanes | ForEach-Object { $_.Name }) -join ', '))
     $workers = @()

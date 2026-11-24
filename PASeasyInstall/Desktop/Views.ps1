@@ -666,7 +666,7 @@ function Add-PASUIReviewPage {
     }
     $warnings = @($check.Warnings | Where-Object { $_ })
     if ($warnings.Count) {
-        Add-PASUIChild $Page @((New-PASUIBox 'warn' "Lab shortcuts in use ($($warnings.Count))." 'Documented shortcuts for a disposable lab.' $warnings))
+        Add-PASUIChild $Page @((New-PASUIBox 'warn' "Lab shortcuts in use ($($warnings.Count))." 'Documented shortcuts for a disposable lab.' $warnings -Collapsed))
     }
     if ($S.Advanced) {
         $save = New-PASUIButton 'act-save' 'Save the lab file' 'Btn' -Margin '0,10,0,0'

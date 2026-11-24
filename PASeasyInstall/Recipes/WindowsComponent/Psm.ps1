@@ -293,6 +293,41 @@ function Add-PASeasyPsmPvwaTrust {
     }
 }
 
+function Test-PASeasyPsmLanmanRestartTimeout {
+    # $true when the newest vendor hardening log written since -Since has one problem only: the Server service
+    # (LanmanServer) did not restart within the vendor's 30 seconds. Any other error or failure line: $false.
+    param([Parameter(Mandatory)][datetime]$Since)
+    $root = Join-Path ${env:ProgramFiles(x86)} 'CyberArk\PSM\Hardening\Logs'
+    if (-not (Test-Path -LiteralPath $root -PathType Container)) {
+        return $false
+    }
+    $log = @(Get-ChildItem -LiteralPath $root -File -Filter 'PSMHardening-*.log' -ErrorAction SilentlyContinue |
+            Where-Object { $_.LastWriteTime -ge $Since.AddSeconds(-5) } | Sort-Object LastWriteTime -Descending) | Select-Object -First 1
+    if (-not $log) {
+        return $false
+    }
+    $problems = @(Select-String -LiteralPath $log.FullName -Pattern '\berror\b|\bfail' -ErrorAction SilentlyContinue)
+    $lanman = @($problems | Where-Object { $_.Line -match 'Error restarting LanmanServer' })
+    return ($lanman.Count -ge 1 -and $lanman.Count -eq $problems.Count)
+}
+
+function Wait-PASeasyLanmanServer {
+    # Waits up to three minutes until the Server service (LanmanServer) runs; starts it when it stopped.
+    $service = Get-Service -Name 'LanmanServer' -ErrorAction Stop
+    $deadline = [DateTime]::UtcNow.AddSeconds(180)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $service.Refresh()
+        if ($service.Status -eq 'Running') {
+            return
+        }
+        if ($service.Status -eq 'Stopped') {
+            Start-Service -InputObject $service -ErrorAction SilentlyContinue
+        }
+        Start-Sleep -Seconds 3
+    }
+    throw 'The Server service (LanmanServer) did not start again after the PSM hardening restarted it'
+}
+
 function Invoke-PASeasyPsmStage {
     [CmdletBinding()]
     param([Parameter(Mandatory)][ValidateSet('Prerequisites', 'Install', 'Register', 'Harden', 'PostInstall')][string]$Stage,
@@ -431,8 +466,24 @@ function Invoke-PASeasyPsmStage {
         $invoke.AllowEmptyNativeStderr = $true
         $invoke.AllowPinnedRegImportSuccess = $true
     }
-    try { $result = Invoke-VendorScript @invoke }
-    finally {
+    $vendorStarted = Get-Date
+    try {
+        try { $result = Invoke-VendorScript @invoke }
+        catch {
+            # The vendor's admin share hardening restarts the Server service (LanmanServer) and gives it 30
+            # seconds. On a busy server the restart can take longer: the vendor then logs "Error restarting
+            # LanmanServer", its own check finds that line and reports RunHardening failed, although the share
+            # was hardened. Seen in the lab on 2026-11-24; running the stage again succeeded. So once, and only
+            # when that line is the only error of the hardening log: wait until the service runs, run it again.
+            if ($Stage -ne 'Harden' -or -not (Test-PASeasyPsmLanmanRestartTimeout -Since $vendorStarted)) { throw }
+            Write-Information -MessageData 'PASeasyInstall INFO: PSM hardening reported only the LanmanServer restart timeout; waiting for the service and running the hardening stage once more' -InformationAction Continue
+            Wait-PASeasyLanmanServer
+            Assert-PASeasyPsmNoInteractiveContinuation
+            Protect-PASeasyPsmTempDirectory -AuditRoot $markers
+            Assert-PASeasyPsmTlsBackupTrusted
+            $result = Invoke-VendorScript @invoke
+        }
+    } finally {
         $arguments.Remove('spwdObj')
         $VaultPassword = $null
         # A failed vendor result must not leave interactive credential continuation unnoticed.
