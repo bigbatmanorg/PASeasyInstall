@@ -1,5 +1,14 @@
 # Release notes
 
+## 2.0.15
+
+- **PSM hardening tries again up to three times after a LanmanServer timeout.** Right after the hardening
+  restart, the vendor's hardening can give up waiting 30 seconds for the Server service (LanmanServer), although
+  the service restarted and the admin share was hardened; the step then failed and needed **Fix**. When that is
+  the only error in the vendor's hardening log, the hardening stage now runs again by itself, up to three times
+  with 30 seconds between tries (2.0.12 to 2.0.14 tried once, 2.0.11 and older not at all). Any other
+  hardening error still stops the step at once.
+
 ## 2.0.14
 
 - **Choose a folder... opens the same dialog as Choose files...** On the Media step, folders were picked in the
