@@ -28,7 +28,8 @@ One line per component, with **−** and **+**:
 | PTA (threat analytics) | [PTA](../components/pta.md) |
 
 A new lab starts with one PVWA, one CPM and one PSM. Zero leaves a component out. Up to two of each, with
-**Advanced** up to four; two of each were tested, and the Vault license decides how many can register. A line
+**Advanced** up to four; two of each were tested, and the Vault license decides how many can register. PTA is
+the exception: one per lab (see [PTA](../components/pta.md)). A line
 whose installer was not found on the Media step says *no installer in the media folder*: set it to zero, or go
 back and add the installer.
 

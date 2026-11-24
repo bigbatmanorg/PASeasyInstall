@@ -189,7 +189,11 @@ function Test-PASUIAdvancedApplies {
 
 function Get-PASUIMaxCount {
     # Two of each is what was tested. The advanced view allows the four the installer accepts.
-    param([hashtable]$State)
+    # PTA: one server only. A lab has one PTA; a second one is not supported.
+    param([hashtable]$State, [string]$Type = '')
+    if ($Type -eq 'PTA') {
+        return 1
+    }
     if ($State.Advanced) {
         return 4
     }
@@ -768,6 +772,7 @@ function Get-PASUIStatusText {
         'Blocked' { return 'Blocked by another installation' }
         'Abandoned' { return 'Stopped by you' }
         'Pending' { return 'Waiting' }
+        'LeftOut' { return 'Left out' }
     }
     return $Status
 }
@@ -817,9 +822,23 @@ function Get-PASUIRunProgress {
     $rows = New-Object System.Collections.ArrayList
     $doneAll = 0
     $totalAll = 0
+    $leftOut = @(Get-PASUIRunLeftOut $Snapshot)
     foreach ($component in @($Snapshot.Components)) {
         $id = [string]$component.Id
         $type = [string]$component.Type
+        if ($leftOut -contains $id) {
+            # Left out after it failed (Resume-PASRun -LeaveOut): not installed, and not counted.
+            $address = ''
+            if ($PlanItems.ContainsKey($id)) {
+                $address = [string]$PlanItems[$id].Address
+            }
+            [void]$rows.Add([pscustomobject]@{
+                    Id = $id; Type = $type; Status = 'LeftOut'; Kind = 'idle'; Message = [string]$component.Message
+                    Address = $address; Done = 0; Total = 0; Percent = 0; Current = ''; Waiting = ''
+                    Checking = $false; GaveUp = $false
+                })
+            continue
+        }
         $mine = @($events | Where-Object { [string]$_.Component -eq $id -and [string]$_.Stage })
         $seen = @($mine | ForEach-Object { [string]$_.Stage } | Select-Object -Unique)
         $finished = @($mine | Where-Object { [string]$_.Event -in @('TaskCompleted', 'TaskRevalidated') } | ForEach-Object { Get-PASUIStepOfStage ([string]$_.Stage) $seen } | Select-Object -Unique)
@@ -916,19 +935,76 @@ function Get-PASUIRunProgress {
     }
 }
 
-function Get-PASUIFailure {
-    # The step that stopped a run: Component, Stage, Message and the retry step for Resume-PASRun.
+function Get-PASUIRunLeftOut {
+    # The ids of the components a run left out (Resume-PASRun -LeaveOut).
     param($Snapshot)
-    $failed = @($Snapshot.Events | Where-Object { [string]$_.Status -in @('Failed', 'Unknown') -and [string]$_.Stage }) | Select-Object -Last 1
-    if (-not $failed) {
+    if (-not $Snapshot -or -not $Snapshot.PSObject.Properties['LeftOut']) {
+        return @()
+    }
+    return @(@($Snapshot.LeftOut) | ForEach-Object { [string]$_ } | Where-Object { $_ })
+}
+
+function Get-PASUIFailures {
+    # The steps that stopped a run, one per component (its last failed step), oldest first: Component, Stage,
+    # Status (Failed or Unknown), Message and the retry step for Resume-PASRun. A step that failed and then
+    # finished on a later try is not one of them; neither is a component that was left out.
+    param($Snapshot)
+    $leftOut = @(Get-PASUIRunLeftOut $Snapshot)
+    $result = @()
+    $components = @($Snapshot.Events | Where-Object { [string]$_.Stage -and [string]$_.Component } | ForEach-Object { [string]$_.Component } | Select-Object -Unique)
+    foreach ($id in $components) {
+        if ($leftOut -contains $id) {
+            continue
+        }
+        $mine = @($Snapshot.Events | Where-Object { [string]$_.Component -eq $id -and [string]$_.Stage })
+        $failed = @($mine | Where-Object { [string]$_.Status -in @('Failed', 'Unknown') }) | Select-Object -Last 1
+        if (-not $failed) {
+            continue
+        }
+        $stage = [string]$failed.Stage
+        $later = @($mine | Where-Object { [string]$_.Stage -eq $stage }) | Select-Object -Last 1
+        if ([string]$later.Event -in @('TaskCompleted', 'TaskRevalidated', 'TaskSkipped')) {
+            continue
+        }
+        $result += [pscustomobject]@{
+            Component = $id
+            Stage = $stage
+            Status = [string]$failed.Status
+            Message = [string]$failed.Message
+            RetryStep = ($id + ':' + $stage)
+            Order = [array]::IndexOf(@($Snapshot.Events), $failed)
+        }
+    }
+    return @($result | Sort-Object Order)
+}
+
+function Get-PASUIFailure {
+    # The step that stopped a run last: Component, Stage, Message and the retry step for Resume-PASRun.
+    param($Snapshot)
+    $all = @(Get-PASUIFailures $Snapshot)
+    if (-not $all.Count) {
         return $null
     }
-    return [pscustomobject]@{
-        Component = [string]$failed.Component
-        Stage = [string]$failed.Stage
-        Message = [string]$failed.Message
-        RetryStep = ([string]$failed.Component + ':' + [string]$failed.Stage)
+    return $all[-1]
+}
+
+function Get-PASUILeaveOutCandidates {
+    # The components a stopped run can finish without (Resume-PASRun -LeaveOut): those that failed and those
+    # that were not continued because of them. Empty when one of them is the AD forest, the Vault, the DR
+    # Vault or the first PVWA: the lab cannot be finished without it.
+    param($Snapshot, $Progress)
+    $firstPvwa = [string](@($Snapshot.Components | Where-Object { [string]$_.Type -eq 'PVWA' } | ForEach-Object { [string]$_.Id }) | Select-Object -First 1)
+    $ids = @()
+    foreach ($row in @($Progress.Components)) {
+        if ($row.Kind -ne 'bad' -and -not $row.GaveUp) {
+            continue
+        }
+        if ([string]$row.Type -in @('AD', 'Vault', 'DRVault') -or ([string]$row.Type -eq 'PVWA' -and [string]$row.Id -eq $firstPvwa)) {
+            return @()
+        }
+        $ids += [string]$row.Id
     }
+    return @($ids)
 }
 
 function Format-PASUIWhen {

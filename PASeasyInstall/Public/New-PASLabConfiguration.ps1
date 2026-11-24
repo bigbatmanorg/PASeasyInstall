@@ -2,7 +2,7 @@ function New-PASLabConfiguration {
     <#
     .SYNOPSIS
     Composes the configuration of a lab: the Vault (new Primary, Primary and DR, or an existing Vault)
-    and up to 4 each of PVWA, CPM, PSM, PSMP, HTML5 Gateway and PTA. Nothing is contacted or installed.
+    and up to 4 each of PVWA, CPM, PSM, PSMP, HTML5 Gateway and one PTA. Nothing is contacted or installed.
     .DESCRIPTION
     Returns the configuration as an ordered hashtable. Check it with Test-PASLabConfiguration, look at
     the result with Get-PASLabPlan, save it with Export-PASLabConfiguration and install it with
@@ -17,7 +17,7 @@ function New-PASLabConfiguration {
     Existing: use a Vault that is already installed (-ExistingVaultAddress) and install components only.
     .PARAMETER Instances
     The component servers: @( @{ Type = 'PVWA'; Name = 'PVWA01'; Address = '192.0.2.21'; Username = '' } ).
-    Type is PVWA, CPM, PSM, PSMP, HTML5GW or PTA (up to 4 of each). PTA needs a RHEL-family server with
+    Type is PVWA, CPM, PSM, PSMP, HTML5GW or PTA (up to 4 of each, one PTA). PTA needs a RHEL-family server with
     8 GB, a PVWA in the same lab and a PSMP package in the media; its instance may carry VaultTimezone, the
     time zone of the Vault server as a tz database name (default UTC). HTML5GW is the PSM HTML5 Gateway: a
     container on a Linux server (Docker on Ubuntu, Podman on the RHEL family) that may share the server

@@ -131,6 +131,7 @@ installed. An integration that finished (gateway registration, PTA trust) is not
 again*, `-RetryStep`). See [Runs and resume](durable-runs.md).
 
 A server can be tried again when the run has ended, that is when every other server is finished or has stopped.
+Or it is left out (*Finish without* ..., `-LeaveOut`): the run then finishes the rest without it.
 
 ## What it saves
 

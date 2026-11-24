@@ -193,6 +193,10 @@ function Start-PASDeployment {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param([string]$Config, $Configuration, [hashtable]$CredentialMap = @{}, [hashtable]$SecretMap = @{},
         [string]$DataRoot = (Get-PASDataRoot), [switch]$Foreground, [switch]$PlanOnly)
+    $requested = Read-PASConfiguration -Path $Config -Configuration $Configuration
+    if (@($requested.components | Where-Object { $_ -and $_.type -eq 'PTA' }).Count -gt 1) {
+        throw 'Only one PTA server is supported. Every PTA registers in the Vault as the same user (PTAAppUser), so a second PTA takes the Vault connection over from the first. Keep one PTA in the configuration.'
+    }
     $assessment = Test-PASConfiguration -Config $Config -Configuration $Configuration -CheckMedia
     if (-not $assessment.Valid) { throw ($assessment.Issues -join '; ') }
     $c = $assessment.Configuration
@@ -294,6 +298,82 @@ function Resolve-PASRetrySteps {
     }
     return $result
 }
+# ---- Components left out of a run (Resume-PASRun -LeaveOut). A server that failed can be left out, so that
+#      the run finishes without it: it is not installed, nothing waits for it, and the integrations and the
+#      lab check leave it out too. The ids are kept in left-out.json of the run directory.
+function Get-PASRunLeftOut {
+    # The ids of the components this run leaves out (empty: none).
+    param([Parameter(Mandatory)][string]$RunDirectory)
+    $path = Join-Path $RunDirectory 'left-out.json'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        return @()
+    }
+    $data = Read-PASJson $path
+    return @(@(Get-PASValue $data 'components' @()) | ForEach-Object { [string]$_ } | Where-Object { $_ })
+}
+function Resolve-PASLeaveOut {
+    <# Checks the ids given to -LeaveOut against the run and returns every id the run leaves out from now on
+       (those it left out before, then the new ones). Only a component that nothing else needs can be left
+       out: not the AD forest, the Vault, the DR Vault or the first PVWA (the others sign in through it).
+       A component that this run installed and verified cannot be left out. #>
+    param([Parameter(Mandatory)]$Config, [Parameter(Mandatory)][string]$RunDirectory, [string[]]$LeaveOut = @())
+    $result = @(Get-PASRunLeftOut -RunDirectory $RunDirectory)
+    $firstPvwa = [string](@($Config.components | Where-Object { [string]$_.type -eq 'PVWA' } | ForEach-Object { [string]$_.id }) | Select-Object -First 1)
+    foreach ($id in @($LeaveOut | Where-Object { $_ } | ForEach-Object { [string]$_ })) {
+        $component = @($Config.components | Where-Object { [string]$_.id -eq $id })[0]
+        if (-not $component) {
+            throw "-LeaveOut '$id': this run has no component of that name."
+        }
+        $type = [string]$component.type
+        if ($type -in @('AD', 'Vault', 'DRVault')) {
+            throw "-LeaveOut '$id': a $type cannot be left out, the lab needs it. Correct the cause and try the step again."
+        }
+        if ($type -eq 'PVWA' -and $id -eq $firstPvwa) {
+            throw "-LeaveOut '$id': the first PVWA cannot be left out, the other components sign in through it. Correct the cause and try the step again."
+        }
+        $journal = Join-Path (Join-Path $RunDirectory $id) 'state.json'
+        if (Test-Path -LiteralPath $journal -PathType Leaf) {
+            $state = $null
+            try {
+                $state = Read-PASJournal $journal
+            } catch {
+                $state = $null
+            }
+            if ($state -and [string](Get-PASValue $state 'status' '') -eq 'Succeeded') {
+                throw "-LeaveOut '$id': it is installed and verified, there is nothing to leave out."
+            }
+        }
+        if ($result -notcontains $id) {
+            $result += $id
+        }
+    }
+    return @($result)
+}
+function Save-PASRunLeftOut {
+    # Writes the ids the run leaves out (Resolve-PASLeaveOut) to left-out.json.
+    param([Parameter(Mandatory)][string]$RunDirectory, [string[]]$LeftOut = @())
+    Write-PASJsonAtomic (Join-Path $RunDirectory 'left-out.json') ([ordered]@{ schemaVersion = 1; components = @($LeftOut) })
+}
+function Remove-PASLeftOutComponent {
+    # The configuration of a run without the components it leaves out. A server that has no component left
+    # is not joined to the domain either (and gets no hardening GPO).
+    param([Parameter(Mandatory)]$Config, [string[]]$LeftOut = @())
+    $LeftOut = @($LeftOut | Where-Object { $_ })
+    if (-not $LeftOut.Count) {
+        return $Config
+    }
+    $hostsBefore = @($Config.components | Where-Object { $LeftOut -contains [string]$_.id } | ForEach-Object { [string]$_.host })
+    $Config.components = @($Config.components | Where-Object { $LeftOut -notcontains [string]$_.id })
+    $empty = @($hostsBefore | Where-Object {
+            $name = $_
+            -not @($Config.components | Where-Object { [string]$_.host -eq $name }).Count
+        })
+    $ad = Get-PASValue $Config 'activeDirectory' $null
+    if ($ad -and $empty.Count -and $null -ne (Get-PASValue $ad 'join' $null)) {
+        $ad.join = @(@($ad.join) | Where-Object { $empty -notcontains [string]$_ })
+    }
+    return $Config
+}
 function Resume-PASDeployment {
     <#
     .SYNOPSIS
@@ -307,6 +387,8 @@ function Resume-PASDeployment {
     .PARAMETER RetryStep
     Step ids to execute again, as '<step>' or '<component>:<step>' (for example 'install', 'cpm01:register').
     Only steps whose journal says Failed or Unknown are accepted.
+    .PARAMETER LeaveOut
+    Ids of components that failed and are left out: the run finishes without them (see Resolve-PASLeaveOut).
     .EXAMPLE
     Resume-PASDeployment -RunId 688d8e04f1874d41a75cda4441c00553 -CredentialMap $creds -SecretMap $secrets -Confirm:$false
     .EXAMPLE
@@ -314,7 +396,7 @@ function Resume-PASDeployment {
     #>
     [CmdletBinding(SupportsShouldProcess = $true)]param([Parameter(Mandatory)][string]$RunId,
         [hashtable]$CredentialMap = @{}, [hashtable]$SecretMap = @{}, [string]$DataRoot = (Get-PASDataRoot),
-        [string[]]$RetryStep = @(), [switch]$Foreground, [switch]$RetryFailedPreflight)
+        [string[]]$RetryStep = @(), [switch]$Foreground, [switch]$RetryFailedPreflight, [string[]]$LeaveOut = @())
     $run = Get-PASRunRecord -RunId $RunId -DataRoot $DataRoot
     if (-not $run) { throw 'Run not found' }
     if ($run.status -notin @('Failed', 'Unknown', 'Interrupted', 'LaunchFailed', 'Blocked')) { throw "Cannot resume a run whose status is $($run.status)" }
@@ -323,9 +405,16 @@ function Resume-PASDeployment {
     # Fail here, in the caller's console, when a name is wrong; the controller resolves the names again.
     $RetryStep = @($RetryStep | Where-Object { $_ })
     [void](Resolve-PASRetrySteps -RunDirectory $dir -RetryStep $RetryStep)
-    if (-not $PSCmdlet.ShouldProcess($RunId, 'Resume deployment')) { return $run }
-    $envelope = Join-Path $dir ('credentials-' + [guid]::NewGuid().ToString('N') + '.json')
     $savedConfig = Read-PASConfiguration -Path (Join-Path $dir 'config.json')
+    $leftOut = @(Resolve-PASLeaveOut -Config $savedConfig -RunDirectory $dir -LeaveOut $LeaveOut)
+    $retryLeftOut = @($RetryStep | Where-Object { $_ -match '^([A-Za-z0-9_.-]+):' -and $leftOut -contains $Matches[1] })
+    if ($retryLeftOut.Count) { throw "-RetryStep '$($retryLeftOut[0])': that component is left out of this run." }
+    if (-not $PSCmdlet.ShouldProcess($RunId, 'Resume deployment')) { return $run }
+    if (@($LeaveOut | Where-Object { $_ }).Count) {
+        Save-PASRunLeftOut -RunDirectory $dir -LeftOut $leftOut
+        Write-PASRunEvent $dir 'ComponentsLeftOut' ('Left out of this run, not installed: ' + ($leftOut -join ', ')) '' '' 'Warning'
+    }
+    $envelope = Join-Path $dir ('credentials-' + [guid]::NewGuid().ToString('N') + '.json')
     $CredentialMap = ConvertTo-PASControllerCredentialMap $savedConfig $CredentialMap
     $consoleChild = ($Foreground -and
         @($savedConfig.components | Where-Object { $savedConfig.hosts[[string]$_.host].os -eq 'Linux' }).Count -gt 0)
@@ -905,6 +994,10 @@ function Invoke-PASRunControllerCore {
     }
     $script:PASFrozenMedia = @{}
     foreach ($asset in @($plan.Media)) { $script:PASFrozenMedia[[string]$asset.Path] = [string]$asset.SHA256 }
+    # Components left out (Resume-PASRun -LeaveOut): from here on the run works as if they were not configured.
+    $leftOut = @(Get-PASRunLeftOut -RunDirectory $dir)
+    $config = Remove-PASLeftOutComponent -Config $config -LeftOut $leftOut
+    $planItems = @($plan.Items | Where-Object { $leftOut -notcontains [string]$_.Id })
     if ($InMemoryAuth) { $auth = $InMemoryAuth }else {
         $auth = Read-PASEnvelope $Envelope
         Remove-Item -LiteralPath $Envelope -Force -ErrorAction Stop
@@ -935,6 +1028,7 @@ function Invoke-PASRunControllerCore {
         SshReady = @{}
         RetryFailedPreflight = [bool]$RetryFailedPreflight
         Retry = $retry
+        LeftOut = $leftOut
     }
     try {
         Assert-PASVaultInstallationSecrets -Configuration $config -Secrets $auth.Secrets -ReferencesResolved
@@ -947,7 +1041,7 @@ function Invoke-PASRunControllerCore {
             }
         }
         if (-not $Resume) {
-            foreach ($item in @($plan.Items)) {
+            foreach ($item in $planItems) {
                 Write-PASRunEvent $dir 'TaskCompleted' 'Local configuration and media checks passed' ([string]$item.Id) 'LocalPreflight'
             }
         }
@@ -957,7 +1051,7 @@ function Invoke-PASRunControllerCore {
             # A server that fails stops only what depends on it: the lanes end, what can still be done after
             # them is done for the components that are installed, and then the run reports the failure.
             try {
-                Invoke-PASRunLanes -Run $run -PlanItems @($plan.Items)
+                Invoke-PASRunLanes -Run $run -PlanItems $planItems
             } catch {
                 if (-not $run.ContainsKey('Installed')) {
                     throw
@@ -982,7 +1076,7 @@ function Invoke-PASRunControllerCore {
             }
             # Plan order: every PVWA, then CPM, PSM, PSMP. A failure stops the run here; Resume-PASDeployment
             # re-enters this loop, where finished components are revalidated and the rest is installed.
-            foreach ($item in @($plan.Items | Where-Object { $_.Type -notin @('Vault', 'DRVault', 'AD') })) {
+            foreach ($item in @($planItems | Where-Object { $_.Type -notin @('Vault', 'DRVault', 'AD') })) {
                 $component = @($config.components | Where-Object { $_.id -eq $item.Id })[0]
                 Invoke-PASComponent -Run $run -Component $component
             }
@@ -994,6 +1088,9 @@ function Invoke-PASRunControllerCore {
         Invoke-PASDomainPolicy -Run $run
         $record.status = 'Succeeded'
         $record.message = 'All selected component workflows completed'
+        if ($leftOut.Count) {
+            $record.message = 'Installed without ' + ($leftOut -join ', ') + ' (left out after they failed)'
+        }
         $record.currentComponent = ''
         Write-PASRunEvent $dir 'RunCompleted' $record.message
     } catch {

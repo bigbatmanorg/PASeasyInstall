@@ -412,6 +412,56 @@ Describe 'Desktop model' {
         $progress.Percent | Should -Be 70
         (Get-PASUIFailure $snapshot).RetryStep | Should -Be 'pvwa01:register'
     }
+    It 'tries every failed server again and offers to finish without the servers that failed' {
+        $snapshot = [pscustomobject]@{
+            Status = 'Failed'
+            LeftOut = @()
+            Components = @(
+                [pscustomobject]@{ Id = 'vault'; Type = 'Vault'; Status = 'Succeeded'; Message = '' }
+                [pscustomobject]@{ Id = 'pvwa01'; Type = 'PVWA'; Status = 'Succeeded'; Message = '' }
+                [pscustomobject]@{ Id = 'pta01'; Type = 'PTA'; Status = 'Failed'; Message = 'x' }
+                [pscustomobject]@{ Id = 'pta02'; Type = 'PTA'; Status = 'Failed'; Message = 'x' })
+            Events = @(
+                [pscustomobject]@{ Component = 'pvwa01'; Stage = 'install'; Event = 'TaskFailed'; Status = 'Failed'; Message = 'once' }
+                [pscustomobject]@{ Component = 'pvwa01'; Stage = 'install'; Event = 'TaskCompleted'; Status = 'Complete'; Message = '' }
+                [pscustomobject]@{ Component = 'pta01'; Stage = 'register'; Event = 'TaskFailed'; Status = 'Failed'; Message = 'keytool' }
+                [pscustomobject]@{ Component = 'pta02'; Stage = 'register'; Event = 'TaskFailed'; Status = 'Failed'; Message = 'keytool' })
+        }
+        # pvwa01 failed once and finished on the next try: only the two PTA servers are to be tried again.
+        @(Get-PASUIFailures $snapshot | ForEach-Object { $_.RetryStep }) -join ',' | Should -Be 'pta01:register,pta02:register'
+        (Get-PASUIFailure $snapshot).RetryStep | Should -Be 'pta02:register'
+        $progress = Get-PASUIRunProgress -Snapshot $snapshot -Catalog @{ Vault = 20; PVWA = 10; PTA = 4 }
+        @(Get-PASUILeaveOutCandidates $snapshot $progress) -join ',' | Should -Be 'pta01,pta02'
+        # A lab cannot be finished without its Vault or its first PVWA.
+        $snapshot.Components[1].Status = 'Failed'
+        $progress = Get-PASUIRunProgress -Snapshot $snapshot -Catalog @{ Vault = 20; PVWA = 10; PTA = 4 }
+        @(Get-PASUILeaveOutCandidates $snapshot $progress).Count | Should -Be 0
+    }
+    It 'shows a left-out server as left out and counts none of its steps' {
+        $snapshot = [pscustomobject]@{
+            Status = 'Succeeded'
+            LeftOut = @('pta01')
+            Components = @(
+                [pscustomobject]@{ Id = 'pvwa01'; Type = 'PVWA'; Status = 'Succeeded'; Message = '' }
+                [pscustomobject]@{ Id = 'pta01'; Type = 'PTA'; Status = 'Failed'; Message = 'x' })
+            Events = @([pscustomobject]@{ Component = 'pta01'; Stage = 'register'; Event = 'TaskFailed'; Status = 'Failed'; Message = 'keytool' })
+        }
+        $progress = Get-PASUIRunProgress -Snapshot $snapshot -Catalog @{ PVWA = 10; PTA = 4 }
+        $pta = $progress.Components | Where-Object { $_.Id -eq 'pta01' }
+        $pta.Status | Should -Be 'LeftOut'
+        $pta.Kind | Should -Be 'idle'
+        $progress.Total | Should -Be 10
+        @(Get-PASUIFailures $snapshot).Count | Should -Be 0
+        Get-PASUIStatusText 'LeftOut' | Should -Be 'Left out'
+    }
+    It 'offers one PTA, also in the advanced view' {
+        $state = New-PASUIState
+        Get-PASUIMaxCount $state 'PTA' | Should -Be 1
+        Get-PASUIMaxCount $state 'PSM' | Should -Be 2
+        $state.Advanced = $true
+        Get-PASUIMaxCount $state 'PTA' | Should -Be 1
+        Get-PASUIMaxCount $state 'PVWA' | Should -Be 4
+    }
     It 'reads the media from every folder and file that was added, and from the path that is typed' {
         $state = New-PASUIState
         Add-PASUIMediaSource -State $state -Paths @('D:\Media\', ' "D:\x\license.xml" ') | Should -Be 2
@@ -952,6 +1002,17 @@ Describe 'PTA' {
         $items.Count | Should -Be 1
         $items[0].Name | Should -Be 'PTA-Installer-Rls-v15.2.2.zip'
         $items[0].Version | Should -Be '15.2.2'
+    }
+    It 'warns about a second PTA and refuses to install it' {
+        $two = $script:ptaLab + @(@{ Type = 'PTA'; Name = 'pta02'; Address = '192.0.2.38' })
+        $cfg = New-PASLabConfiguration -Environment PtaTwo -VaultMode Primary -PrimaryAddress 192.0.2.31 -ControllerAddress 198.51.100.250 `
+            -Media $script:ptaSelection -SecurityProfile Lab -AcceptEula -Instances $two
+        $check = Test-PASLabConfiguration -Configuration $cfg
+        $check.Issues | Should -BeNullOrEmpty
+        ($check.Warnings -join ' ') | Should -Match 'Only one PTA server is supported'
+        # A plan can still be read (an installation started before this rule is opened and finished).
+        @((Get-PASLabPlan -Configuration $cfg).Items | Where-Object Type -eq 'PTA').Count | Should -Be 2
+        { & (Get-Module -Name PASeasyInstall) { param($c) Start-PASDeployment -Configuration $c -PlanOnly } $cfg } | Should -Throw '*Only one PTA server is supported*'
     }
     It 'takes the signing key from the PSMP package, comes last and gets the Vault time zone' {
         $cfg = New-PASLabConfiguration -Environment PtaLab -VaultMode Primary -PrimaryAddress 192.0.2.31 -ControllerAddress 198.51.100.250 `

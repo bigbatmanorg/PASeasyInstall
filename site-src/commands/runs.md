@@ -22,7 +22,7 @@ Lists the installation runs of this controller, or shows one run with its compon
 
 Without -RunId: one line per run, newest first, with RunId, Name (the environment), Status, StartedUtc, FinishedUtc and Message.
 
-With -RunId: the run in detail, with RunId, Name, Status, CurrentComponent, Message, LastStep, StartedUtc, FinishedUtc, CompletedEvents, ErrorEvents, Components (Id, Type, Status, Message), Events (the last -Tail events, see Get-PASRunEvent), OperationallyVerified and RunDirectory (the folder that holds the run's files).
+With -RunId: the run in detail, with RunId, Name, Status, CurrentComponent, Message, LastStep, StartedUtc, FinishedUtc, CompletedEvents, ErrorEvents, Components (Id, Type, Status, Message), LeftOut (the ids of components left out with Resume-PASRun -LeaveOut), Events (the last -Tail events, see Get-PASRunEvent), OperationallyVerified and RunDirectory (the folder that holds the run's files).
 
 Status of a run: Launching or Running while the controller works; Succeeded; or stopped as Failed, Unknown (an outcome on a server could not be determined), Blocked, Interrupted (the controller process ended), LaunchFailed or Abandoned (see Stop-PASRun). A stopped run is continued with Resume-PASRun. Succeeded means every installer step finished and was verified; Test-PASHealth checks that the lab works end to end.
 
@@ -109,7 +109,8 @@ What happens on resume:
 
 - steps that finished are verified again, not repeated;
 - a step that was still running on a server is picked up where it is, never started a second time;
-- a step that ended Failed or Unknown is NOT repeated on its own. Look at the server and at Get-PASRunEvent -Failed, correct the cause, then name the step with -RetryStep.
+- a step that ended Failed or Unknown is NOT repeated on its own. Look at the server and at Get-PASRunEvent -Failed, correct the cause, then name the step with -RetryStep;
+- or leave the servers that failed out with -LeaveOut: the run then finishes without them.
 
 The command checks the run and asks for confirmation. Only then it asks for the server accounts and passwords of the run's configuration that -CredentialMap, -SecretMap or -LabPassword do not supply (passwords are never stored, so they are needed again). With -WhatIf nothing is asked.
 
@@ -117,6 +118,7 @@ The command checks the run and asks for confirmation. Only then it asks for the 
 |---|---|
 | `-RunId` | Run id (32 hexadecimal characters). |
 | `-RetryStep` | Steps to execute again, as '&lt;step&gt;' or '&lt;component&gt;:&lt;step&gt;', e.g. 'install' or 'cpm01:register'. Only steps that ended Failed or Unknown are accepted. Get-PASStageCatalog lists the step names. |
+| `-LeaveOut` | Ids of components that failed and that this run finishes without, e.g. 'pta01'. A left-out component is not installed and not connected; what is installed and the integrations (HTML5 Gateway entry, PTA trust, domain hardening GPOs) are finished without it, and Test-PASHealth on the run leaves it out. The AD forest, the Vault, the DR Vault and the first PVWA cannot be left out, nor a component that is installed and verified. It stays left out when the run is continued again; install it later with a new run. |
 | `-RetryFailedPreflight` | Runs a failed read-only preflight of a Linux server again, for example after you installed a missing package there. |
 | `-CredentialMap` | Server accounts: @{ &lt;server id&gt; = PSCredential }. Missing ones are asked for. |
 | `-SecretMap` | Passwords as SecureString: @{ VaultAdmin = ...; VaultMaster = ...; DRPassword = ...; ADSafeMode = ...; DomainJoinPassword = ... }. Missing ones are asked for. |
@@ -135,6 +137,12 @@ Resume-PASRun -RunId $id -RetryStep 'pvwa01:install' -LabPassword $lab
 ```
 
 Continues a lab run and executes the failed install step of pvwa01 again.
+
+```powershell
+Resume-PASRun -RunId $id -LeaveOut pta01 -LabPassword $lab -Wait
+```
+
+Finishes a lab run whose PTA server failed, without that server.
 
 ```powershell
 Get-PASRun -Last 1 | Resume-PASRun -RetryFailedPreflight -Wait

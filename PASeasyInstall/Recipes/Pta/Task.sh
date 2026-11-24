@@ -86,13 +86,29 @@ case "$stage" in
     # Names without DNS: PVWA under the name of its certificate, and this server under its real address.
     if [[ $pvwa_ip =~ ^[0-9.]+$ ]] && ! getent hosts "$pvwa_host" >/dev/null; then echo "$pvwa_ip $pvwa_host" >> /etc/hosts; fi
     if [[ $address =~ ^[0-9.]+$ ]] && ! getent hosts "$(hostname)" | grep -q "^$address "; then echo "$address $(hostname -f) $(hostname -s)" >> /etc/hosts; fi
-    # PTA's Java must trust the PVWA certificate (a lab PVWA has its own).
+    # PTA's Java must trust the PVWA certificate (a lab PVWA has its own). With several PVWAs the file is a
+    # bundle of all their certificates; keytool -importcert takes one certificate at a time, so the bundle is
+    # split (keytool -printcert -rfc prints every certificate in it) and each one is imported under its own alias.
     certificate=$(setting PVWATrustCertificateTarget)
     if [[ -n $certificate && -f $certificate ]]; then
+        split=$(mktemp -d)
         for java in /opt/pta/jvm/*/; do
-            "$java/bin/keytool" -delete -alias paseasy-pvwa -keystore "$java/lib/security/cacerts" -storepass changeit >/dev/null 2>&1 || true
-            "$java/bin/keytool" -importcert -alias paseasy-pvwa -file "$certificate" -keystore "$java/lib/security/cacerts" -storepass changeit -noprompt >/dev/null
+            keytool="$java/bin/keytool"; store="$java/lib/security/cacerts"
+            rm -f "$split"/pvwa-*.pem
+            "$keytool" -printcert -rfc -file "$certificate" 2>/dev/null |
+                awk -v dir="$split" '/-----BEGIN CERTIFICATE-----/ { n++; out = sprintf("%s/pvwa-%d.pem", dir, n) } out { print > out } /-----END CERTIFICATE-----/ { close(out); out = "" }'
+            found=$(find "$split" -name 'pvwa-*.pem' | wc -l)
+            [[ $found -gt 0 ]] || { echo "keytool finds no certificate in $certificate" >&2; exit 7; }
+            for alias in $("$keytool" -list -keystore "$store" -storepass changeit 2>/dev/null | sed -n 's/^\(paseasy-pvwa[-0-9]*\),.*/\1/p'); do
+                "$keytool" -delete -alias "$alias" -keystore "$store" -storepass changeit >/dev/null 2>&1 || true
+            done
+            for n in $(seq 1 "$found"); do
+                alias=paseasy-pvwa; [[ $n -eq 1 ]] || alias="paseasy-pvwa-$n"
+                out=$("$keytool" -importcert -alias "$alias" -file "$split/pvwa-$n.pem" -keystore "$store" -storepass changeit -noprompt 2>&1) ||
+                    { echo "keytool cannot import PVWA certificate $n of $certificate into $store: $out" >&2; exit 7; }
+            done
         done
+        rm -rf "$split"
     fi
     for attempt in $(seq 1 30); do
         curl --silent --insecure --max-time 5 --output /dev/null https://localhost:8443/installer/ && break

@@ -24,7 +24,7 @@ Some examples:
 | Vault, PVWA with CPM, PSM, PSM for SSH with HTML5 Gateway | 4 |
 | Vault, DR Vault, PVWA, CPM, PSM, PSM for SSH, HTML5 Gateway, PTA, each on its own server | 8 (the full lab of the tests) |
 
-Without **Advanced** each counter goes up to 2; with it, up to 4. Two of each were tested. The Vault license
+Without **Advanced** each counter goes up to 2; with it, up to 4. PTA: one, a lab has one PTA. Two of each were tested. The Vault license
 decides how many components can register.
 
 ## Sizes that worked

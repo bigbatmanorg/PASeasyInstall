@@ -158,7 +158,8 @@ PTA and the controller) took about 19 minutes from **Install the lab** to the en
 ## When something stops
 
 The window shows the step that stopped and the installer's own error text, with **Try this step again**,
-**Continue without repeating it** and **Save the logs as a ZIP**.
+**Finish without** *the servers that failed* (they are left out, the rest of the lab is finished) and **Save the
+logs as a ZIP**.
 
 ![An installation that stopped: the step, the error text and what you can do](site-src/assets/window/17-run-failed.png)
 
@@ -169,6 +170,7 @@ Get-PASRun                                           # all runs, newest first
 Get-PASRunEvent -RunId <id> -Failed                  # what failed
 Resume-PASRun -RunId <id>                            # finished steps are checked again, the rest is installed
 Resume-PASRun -RunId <id> -RetryStep cpm01:install   # also run this failed step again
+Resume-PASRun -RunId <id> -LeaveOut pta01            # finish the lab without the server that failed
 Stop-PASRun -RunId <id>                              # abandon the run; the server locks are kept
 Export-PASDiagnostics -RunId <id>                    # a ZIP without passwords for a bug report
 ```

@@ -117,13 +117,19 @@ function New-PASMockLaneTimeline {
            first PVWA is registered; the registrations run one at a time. A step that has to wait says so
            (event VaultWaiting), as the real one does.
        Steps: @{Id; Type; Host; Address; Stage} in plan order. Done: 'id|stage' of steps finished before (resume).
-       With -Fail the first installation step fails and the run ends there. Returns @{ Events; End; Outcome }. #>
-    param([object[]]$Steps = @(), [double]$Start, [bool]$Fail, [bool]$Warn, [string[]]$Joined = @(), [hashtable]$Done = @{})
+       With -Fail the first installation step fails and the run ends there; with -FailType too, the last step
+       of the first component of that type fails instead (lab name 'fail-PTA'). Returns @{ Events; End; Outcome }. #>
+    param([object[]]$Steps = @(), [double]$Start, [bool]$Fail, [bool]$Warn, [string[]]$Joined = @(), [hashtable]$Done = @{}, [string]$FailType = '')
     $seconds = Get-PASMockStageSeconds
     $pending = @($Steps | Where-Object { -not $Done.ContainsKey([string]$_.Id + '|' + [string]$_.Stage) })
     $failKey = ''
     if ($Fail -and $pending.Count) {
         $failing = @($pending | Where-Object { $_.Stage -match 'install' })[0]
+        if ($FailType) {
+            $ofType = @($pending | Where-Object { [string]$_.Type -eq $FailType })
+            $first = @($ofType | ForEach-Object { [string]$_.Id } | Select-Object -First 1)
+            $failing = @($ofType | Where-Object { [string]$_.Id -eq [string]$first[0] }) | Select-Object -Last 1
+        }
         if (-not $failing) {
             $failing = $pending[[int][Math]::Floor($pending.Count / 2)]
         }
@@ -417,6 +423,7 @@ function Get-PASMockSnapshot {
         CompletedEvents = @($events | Where-Object { $_.Event -eq 'TaskCompleted' }).Count
         ErrorEvents = @($events | Where-Object { $_.Status -eq 'Failed' }).Count
         RunDirectory = [string]$run.RunDirectory
+        LeftOut = @($run.LeftOut | Where-Object { $_ })
         Components = @(Get-PASMockComponents -Run $run -Events $events -RunStatus $clock.Status)
         Events = @($events | Select-Object -Last $Tail)
     }
@@ -472,7 +479,11 @@ function Install-PASLab {
     $parallel = Test-PASMockParallel $cfg
     $joined = @(Get-PASMockJoinedHosts $cfg)
     if ($parallel) {
-        $timeline = New-PASMockLaneTimeline -Steps $steps -Start 0.3 -Fail ($name -match '(?i)fail') -Warn ($name -match '(?i)warn') -Joined $joined
+        $failType = ''
+        if ($name -match '(?i)fail-(PVWA|CPM|PSMP|PSM|HTML5GW|PTA)') {
+            $failType = $Matches[1].ToUpperInvariant()
+        }
+        $timeline = New-PASMockLaneTimeline -Steps $steps -Start 0.3 -Fail ($name -match '(?i)fail') -Warn ($name -match '(?i)warn') -Joined $joined -FailType $failType
     } else {
         $timeline = New-PASMockTimeline -Steps $steps -Start 0.3 -Fail ($name -match '(?i)fail') -Warn ($name -match '(?i)warn')
     }
@@ -493,6 +504,7 @@ function Install-PASLab {
     $null = Export-PASLabConfiguration -Configuration $cfg -Path (Join-Path $runDirectory 'config.json') -Force
     $script:Runs[$runId] = @{
         Name = $name
+        LeftOut = @()
         StartUtc = [datetime]::UtcNow
         Items = $items
         Steps = $steps
@@ -558,7 +570,7 @@ function Resume-PASRun {
     <# Simulated: a run that failed or was stopped continues with the stages that did not complete,
        this time without the simulated failure. Returns the run id. #>
     [CmdletBinding(SupportsShouldProcess = $true)]
-    param([Parameter(Mandatory)][string]$RunId, $RetryStep, [hashtable]$CredentialMap, [hashtable]$SecretMap, [securestring]$LabPassword)
+    param([Parameter(Mandatory)][string]$RunId, $RetryStep, [string[]]$LeaveOut = @(), [hashtable]$CredentialMap, [hashtable]$SecretMap, [securestring]$LabPassword)
     $run = Get-PASMockRun $RunId
     $clock = Get-PASMockClock $run
     if (-not $clock.Finished -or $clock.Status -eq 'Succeeded') {
@@ -578,13 +590,16 @@ function Resume-PASRun {
             $completed[$entry.Component + '|' + $entry.Stage] = $true
         }
     }
-    $remaining = @($run.Steps | Where-Object { -not $completed.ContainsKey($_.Id + '|' + $_.Stage) })
+    # Left out (-LeaveOut): its steps are not run again, and the run finishes without it.
+    $run.LeftOut = @(@($run.LeftOut) + @($LeaveOut) | Where-Object { $_ } | Select-Object -Unique)
+    $steps = @($run.Steps | Where-Object { $run.LeftOut -notcontains $_.Id })
+    $remaining = @($steps | Where-Object { -not $completed.ContainsKey($_.Id + '|' + $_.Stage) })
     $now = ([datetime]::UtcNow - $run.StartUtc).TotalSeconds
     [void]$kept.Add(@{ At = $now; Component = 'controller'; Stage = ''; Event = 'RunResumed'; Level = 'Information'
             Message = 'Simulated run resumed'
         })
     if ($run.Parallel) {
-        $timeline = New-PASMockLaneTimeline -Steps @($run.Steps) -Start ($now + 0.3) -Fail $false -Warn $false -Joined @($run.Joined) -Done $completed
+        $timeline = New-PASMockLaneTimeline -Steps $steps -Start ($now + 0.3) -Fail $false -Warn $false -Joined @($run.Joined) -Done $completed
     } else {
         $timeline = New-PASMockTimeline -Steps $remaining -Start ($now + 0.3) -Fail $false -Warn $false
     }

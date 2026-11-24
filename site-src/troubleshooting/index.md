@@ -5,9 +5,9 @@ Messages that were really seen while building labs, and what to do. Start with w
 === "In the window"
 
     The installation page says **The installation stopped.**, names the step and the component, and shows the
-    installer's own error text. Correct the cause, then press **Try this step again**, or **Continue without
-    repeating it** when the step did finish on the server after all. **Save the logs as a ZIP** keeps the logs. See
-    [The installation page](../gui/run.md).
+    installer's own error text. Correct the cause, then press **Try this step again**. When a server cannot be
+    installed now, **Finish without** *its name* finishes the rest of the lab without it. **Save the logs as a ZIP**
+    keeps the logs. See [The installation page](../gui/run.md).
 
 === "From the prompt"
 
@@ -24,6 +24,7 @@ it:
 ```powershell
 Resume-PASRun -RunId <id>                             # check finished steps, install the rest
 Resume-PASRun -RunId <id> -RetryStep cpm01:install    # also run this failed step again
+Resume-PASRun -RunId <id> -LeaveOut pta01             # finish the lab without the server that failed
 ```
 
 Why it works like this: [Runs and resume](../concepts/durable-runs.md).

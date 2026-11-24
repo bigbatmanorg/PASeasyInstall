@@ -42,20 +42,40 @@ installed to the end, and a server that could not go on says *Not continued: a s
 (see [Servers at the same time](../concepts/parallel.md#when-a-server-fails)). Nothing is undone.
 
 The buttons appear when the run has ended: the other servers finish first, and the line of the failed server
-says so meanwhile. **Try this step again** and **Continue without repeating it** leave every server that is
-installed and verified as it is. Only the server that stopped is started again: its finished steps are looked
-at once (*Checking what is already installed*), then the failed step runs.
+says so meanwhile. When several servers failed, the box shows the step and the error text of each one. The
+buttons leave every server that is installed and verified as it is. Only the servers that stopped are started
+again: their finished steps are looked at once (*Checking what is already installed*), then the failed step runs.
 
 Look at the server and correct the cause. Then:
 
 | Button | What it does |
 |---|---|
-| **Try this step again** | Runs the failed step again, then continues the installation. Use it when you corrected the cause. |
-| **Continue without repeating it** | Continues the installation without running the failed step again. Finished steps are only checked. Use it when the step did finish on the server after all. |
+| **Try this step again** (with several failed servers: **Try the failed steps again**) | Runs the failed step of every server that stopped again, then continues the installation. Use it when you corrected the cause. |
+| **Finish without** *the servers that failed* | Leaves those servers out, after you confirm, and finishes the rest of the lab without them (see below). |
+| **Continue the installation** | Continues without running a step again. Only offered when no step failed: after an interrupted installation, or when the result of a step is unclear and the server may still be working on it. |
 | **Save the logs as a ZIP** | Writes the journals of the installation into a ZIP without passwords, for a bug report. |
 
 A failed step is never repeated on its own. That is on purpose: an installer whose outcome is not known must
-not simply run twice.
+not simply run twice. So continuing without trying the failed step again would only stop at the same step
+again; the window does not offer it then.
+
+### Finish without the servers that failed
+
+When a server cannot be installed now, for example a PTA server, **Finish without** *its name* finishes the lab
+without it. The servers that failed, and those that were not continued because of them, are left out:
+
+- they are not installed and nothing waits for them any more;
+- what can be done without them is finished: the HTML5 Gateway entry in PVWA, the PTA trust of PVWA (only for
+  the PTA servers that are installed) and the hardening GPOs of a new domain;
+- the installation ends as finished, with the box *The lab is installed without ...*, and their lines say
+  *Left out: not installed*. **Check the lab** leaves them out too.
+
+The servers stay as they are; nothing is undone on them. A left-out server stays left out of this installation:
+add it later with a new one. The Vault, the DR Vault, the domain controller and the first PVWA cannot be left
+out, the lab needs them; the button is then not offered. From the prompt this is
+`Resume-PASRun -RunId <id> -LeaveOut pta01`.
+
+![A lab finished without the PTA server that failed](../assets/window/21-run-left-out.png)
 
 If the window was closed in between, it asks for the accounts and passwords again before it continues.
 

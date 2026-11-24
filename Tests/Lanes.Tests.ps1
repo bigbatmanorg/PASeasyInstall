@@ -391,3 +391,71 @@ Describe 'A damaged package in the media' {
         }
     }
 }
+
+Describe 'A run that leaves failed servers out' {
+    BeforeAll {
+        $script:leaveDir = Join-Path ([IO.Path]::GetTempPath()) ('pas-leave-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $script:leaveDir
+        function New-LeaveConfig {
+            New-LaneConfig -DomainMode Create -Join @('h-web', 'h-web2') -Components @(
+                @('ad', 'AD', 'h-dc'), @('vault', 'Vault', 'h-vault'), @('pvwa01', 'PVWA', 'h-web'), @('pvwa02', 'PVWA', 'h-web2'),
+                @('psm01', 'PSM', 'h-psm'), @('gw01', 'HTML5GW', 'h-gw'), @('pta01', 'PTA', 'h-pta'), @('pta02', 'PTA', 'h-pta2'))
+        }
+        function Invoke-Leave([string[]]$Ids) {
+            InModuleScope PASeasyInstall -Parameters @{ Config = (New-LeaveConfig); Directory = $script:leaveDir; Ids = $Ids } {
+                param($Config, $Directory, $Ids)
+                Resolve-PASLeaveOut -Config $Config -RunDirectory $Directory -LeaveOut $Ids
+            }
+        }
+    }
+    AfterAll {
+        Remove-Item -LiteralPath $script:leaveDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    It 'accepts the servers nothing else needs and refuses the Vault, the forest and the first PVWA' {
+        (@(Invoke-Leave @('pta01', 'pta02')) -join ',') | Should -Be 'pta01,pta02'
+        (@(Invoke-Leave @('pvwa02')) -join ',') | Should -Be 'pvwa02'
+        { Invoke-Leave @('vault') } | Should -Throw '*Vault cannot be left out*'
+        { Invoke-Leave @('ad') } | Should -Throw '*AD cannot be left out*'
+        { Invoke-Leave @('pvwa01') } | Should -Throw '*first PVWA*'
+        { Invoke-Leave @('nope') } | Should -Throw '*no component of that name*'
+    }
+    It 'refuses a server that is installed and keeps what was left out before' {
+        $dir = Join-Path $script:leaveDir 'psm01'
+        $null = New-Item -ItemType Directory -Path $dir -Force
+        Set-Content -LiteralPath (Join-Path $dir 'state.json') -Value (@{ status = 'Succeeded' } | ConvertTo-Json) -Encoding UTF8
+        { Invoke-Leave @('psm01') } | Should -Throw '*installed and verified*'
+        InModuleScope PASeasyInstall -Parameters @{ Directory = $script:leaveDir } {
+            param($Directory)
+            Save-PASRunLeftOut -RunDirectory $Directory -LeftOut @('pta01')
+            @(Get-PASRunLeftOut -RunDirectory $Directory) -join ',' | Should -Be 'pta01'
+        }
+        (@(Invoke-Leave @('pta02')) -join ',') | Should -Be 'pta01,pta02'
+    }
+    It 'runs without them: no lane, no PTA trust, the gateway waits only for what is installed' {
+        $result = InModuleScope PASeasyInstall -Parameters @{ Config = (New-LeaveConfig) } {
+            param($Config)
+            $trimmed = Remove-PASLeftOutComponent -Config $Config -LeftOut @('pta01', 'pta02', 'pvwa02')
+            $items = @($trimmed.components | ForEach-Object { [pscustomobject]@{ Id = $_.id; Type = $_.type } })
+            @{
+                Lanes = @(Get-PASRunLanes -Config $trimmed -PlanItems $items | ForEach-Object { $_.Name })
+                Jobs = @(Get-PASParallelFinalizationJobs -Config $trimmed)
+                Join = @($trimmed.activeDirectory.join)
+            }
+        }
+        ($result.Lanes -join ',') | Should -Be 'ad,vault,h-web,h-psm,h-gw'
+        ($result.Jobs | ForEach-Object { $_.Name }) -join ',' | Should -Be 'GatewayRegistration'
+        ($result.Jobs[0].DependsOn -join ',') | Should -Not -Match 'pta|pvwa02'
+        # A server with no component left is not joined to the domain.
+        ($result.Join -join ',') | Should -Be 'h-web'
+    }
+}
+
+Describe 'PTA trusts every PVWA' {
+    It 'splits the PVWA certificate bundle and imports each certificate on its own' {
+        $task = Get-Content -LiteralPath (Join-Path $PASRepoRoot 'PASeasyInstall/Recipes/Pta/Task.sh') -Raw
+        $task | Should -Match 'keytool" -printcert -rfc -file "\$certificate"'
+        $task | Should -Match 'paseasy-pvwa-\$n'
+        # keytool -importcert takes one certificate: the bundle itself is never imported.
+        $task | Should -Not -Match 'importcert[^\n]*-file "\$certificate"'
+    }
+}

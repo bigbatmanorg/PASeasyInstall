@@ -1,5 +1,29 @@
 # Release notes
 
+## 2.0.17
+
+- **PTA registers in a lab with two or more PVWAs.** The PTA server gets the certificates of every PVWA as one
+  bundle, and `register` imported that bundle into the trust stores of PTA's Java whole. Java's `keytool
+  -importcert` takes one certificate at a time, so with two PVWAs `register` failed after a second, and its output
+  showed only *Warning: use -cacerts option to access cacerts keystore*. The bundle is now split and each
+  certificate imported on its own; an import error now shows keytool's own message.
+- **Finish without the servers that failed.** When a server cannot be installed now, the window offers
+  **Finish without** *its name* (from the prompt: `Resume-PASRun -LeaveOut pta01`). The servers that failed, and
+  those that were not continued because of them, are left out: nothing waits for them, the HTML5 Gateway entry,
+  the PTA trust and the hardening GPOs of a new domain are done without them, and the installation ends as
+  finished, *The lab is installed without ...*. **Check the lab** leaves them out too. The Vault, the DR Vault,
+  the domain controller and the first PVWA cannot be left out.
+- **No more loop after a failed step.** *Continue without repeating it* started the installation again without
+  the failed step, which stopped at the same step every time. The window offers **Continue the installation** only
+  when no step failed (an interrupted installation, or a step whose result is unclear). **Try this step again**
+  (with several failed servers: **Try the failed steps again**) now retries the failed step of every server that
+  stopped, not only the last one.
+- **One PTA per lab.** Every PTA registers in the Vault as the same user (`PTAAppUser`), so a second PTA takes the
+  Vault connection over from the first; PVWA counts one PTA. Tried on two PTA servers of one lab: both
+  configurations ended without an error, but only the one registered last signed in to the Vault afterwards. The
+  window offers one PTA, and a new installation with more than one is refused (`Test-PASLabConfiguration` warns).
+  An installation started earlier with two PTAs can still be opened and finished.
+
 ## 2.0.16
 
 - **Install the lab is at the top of the Install step.** The button was below the plan, the lab shortcuts and the

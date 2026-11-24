@@ -1047,10 +1047,14 @@ function Test-PASUIRunWatched {
 
 function Resume-PASUIRun {
     # Continues a stopped installation, in the background; -RetryStep repeats the step that failed.
-    param([hashtable]$Accounts, [string]$RetryStep = '')
+    # -LeaveOut finishes it without the components named.
+    param([hashtable]$Accounts, [string[]]$RetryStep = @(), [string[]]$LeaveOut = @())
     $arguments = @{ RunId = [string]$S.RunId; CredentialMap = $Accounts.Credentials; SecretMap = $Accounts.Secrets }
-    if ($RetryStep) {
-        $arguments.RetryStep = @($RetryStep)
+    if (@($RetryStep | Where-Object { $_ }).Count) {
+        $arguments.RetryStep = @($RetryStep | Where-Object { $_ })
+    }
+    if (@($LeaveOut | Where-Object { $_ }).Count) {
+        $arguments.LeaveOut = @($LeaveOut | Where-Object { $_ })
     }
     Set-PASUINotice 'busy' 'Continuing the installation...'
     Start-PASUITask -ArgumentList @(, $arguments) -ScriptBlock {
@@ -1140,6 +1144,10 @@ function Set-PASUILabFromFile {
     }
     foreach ($type in $script:PASUIComponentTypes) {
         $S.Counts[$type] = @($types | Where-Object { $_ -eq $type }).Count
+    }
+    # An older lab file may name more PTA servers than the one a lab can have: only the first is kept.
+    if ([int]$S.Counts['PTA'] -gt 1) {
+        $S.Counts['PTA'] = 1
     }
     # A CPM that shares its address with a PVWA was installed on the PVWA server.
     $pvwaAddresses = @($Plan.Items | Where-Object { [string]$_.Type -eq 'PVWA' } | ForEach-Object { [string]$_.Address })
@@ -1308,7 +1316,7 @@ function Invoke-PASUIClick {
         }
         '^cnt-(PVWA|CPM|PSM|PSMP|HTML5GW|PTA)-(inc|dec)$' {
             $count = [int]$S.Counts[$Matches[1]]
-            if ($Matches[2] -eq 'inc' -and $count -lt (Get-PASUIMaxCount $S)) {
+            if ($Matches[2] -eq 'inc' -and $count -lt (Get-PASUIMaxCount $S $Matches[1])) {
                 $count++
             }
             if ($Matches[2] -eq 'dec' -and $count -gt 0) {
@@ -1349,11 +1357,30 @@ function Invoke-PASUIClick {
             return
         }
         '^act-retry$' {
-            $failure = Get-PASUIFailure $S.Run
-            $S.RetryStep = [string]$failure.RetryStep
-            Request-PASUIAccounts 'Try this step again' 'The accounts are needed again to continue the installation.' (Get-PASUIRunRequirements) {
+            # Every step that stopped the run is tried again, on each server that failed.
+            $S.RetryStep = @(Get-PASUIFailures $S.Run | ForEach-Object { [string]$_.RetryStep })
+            Request-PASUIAccounts 'Try again' 'The accounts are needed again to continue the installation.' (Get-PASUIRunRequirements) {
                 param($accounts)
-                Resume-PASUIRun -Accounts $accounts -RetryStep ([string]$S.RetryStep)
+                Resume-PASUIRun -Accounts $accounts -RetryStep @($S.RetryStep)
+            }
+            return
+        }
+        '^act-leaveout$' {
+            $progress = Get-PASUIRunProgress -Snapshot $S.Run -Catalog $Catalog -PlanItems $S.RunPlan
+            $S.LeaveOut = @(Get-PASUILeaveOutCandidates $S.Run $progress)
+            if (-not $S.LeaveOut.Count) {
+                return
+            }
+            $names = $S.LeaveOut -join ', '
+            $what = $names + ' are left out of this lab: they are not installed and not connected to the Vault, and the lab check leaves them out.'
+            if ($S.LeaveOut.Count -eq 1) {
+                $what = $names + ' is left out of this lab: it is not installed and not connected to the Vault, and the lab check leaves it out.'
+            }
+            Show-PASUIConfirm ('Finish without ' + $names + '?') ($what + ' Everything else is finished. This cannot be undone for this installation; add a left-out server later with a new one.') 'Finish without them' {
+                Request-PASUIAccounts 'Finish the installation' 'The accounts are needed again to finish the installation.' (Get-PASUIRunRequirements) {
+                    param($accounts)
+                    Resume-PASUIRun -Accounts $accounts -LeaveOut @($S.LeaveOut)
+                }
             }
             return
         }
