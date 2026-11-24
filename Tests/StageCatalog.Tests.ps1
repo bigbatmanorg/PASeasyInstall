@@ -60,3 +60,33 @@ Describe 'Stage catalog of the Vault' {
         ($stages -join ',') | Should -Be 'media-upload,preflight,extract,prerequisites,install,register,verify'
     }
 }
+
+Describe 'Steps that announce a registration to the other servers of a parallel run' {
+    It 'are real steps of the generated workflow of <Type>' -ForEach @(@{ Type = 'PVWA' }, @{ Type = 'CPM' }, @{ Type = 'PSM' }, @{ Type = 'PSMP' }) {
+        $generated = @(Get-GeneratedStepIds $Type)
+        $gate = InModuleScope PASeasyInstall -Parameters @{ Type = $Type } {
+            param($Type)
+            $config = @{ components = @(@{ id = 'fixture'; type = $Type; host = 'host01'; options = @{} }); activeDirectory = @{ mode = 'None'; join = @() } }
+            Get-PASLaneComponentGate -Config $config -Component $config.components[0]
+        }
+        foreach ($step in @($gate.StepSignals.Keys)) { $generated | Should -Contain $step }
+    }
+    It 'come after the last PSM step that signs in to the Vault (PTA must not take the Vault between the passes)' {
+        $runDirectory = Join-Path $TestDrive ('run-' + [guid]::NewGuid().ToString('N'))
+        $path = InModuleScope PASeasyInstall -Parameters @{ RunDirectory = $runDirectory } {
+            param($RunDirectory)
+            $component = @{ id = 'fixture'; type = 'PSM'; host = 'host01'; media = 'C:\media\installer.zip'; options = @{} }
+            New-PASComponentWorkflow -Component $component -Configuration @{ activeDirectory = @{ mode = 'None'; join = @() } } -RunDirectory $RunDirectory
+        }
+        $steps = @((Import-PowerShellDataFile -Path $path).Steps)
+        $lastVault = -1
+        for ($i = 0; $i -lt $steps.Count; $i++) { if ($steps[$i].RequiresVaultSession) { $lastVault = $i } }
+        $lastVault | Should -BeGreaterThan -1
+        $gate = InModuleScope PASeasyInstall {
+            $config = @{ components = @(@{ id = 'fixture'; type = 'PSM'; host = 'host01'; options = @{} }); activeDirectory = @{ mode = 'None'; join = @() } }
+            Get-PASLaneComponentGate -Config $config -Component $config.components[0]
+        }
+        $signalled = @($gate.StepSignals.Keys)[0]
+        [string]$steps[$lastVault].Id | Should -Be $signalled
+    }
+}

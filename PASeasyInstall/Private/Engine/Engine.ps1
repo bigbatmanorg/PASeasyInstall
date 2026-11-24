@@ -139,7 +139,7 @@ function Get-PASRemoteLockedMessage {
     if ($owner -notmatch '^[A-Za-z0-9_-]{6,80}$') {
         return "PAExecLocked: server $server ('$LockKey') is locked, but the lock does not name its run. Check that no installation is running there, then delete the lock folder $folder on $server."
     }
-    return "PAExecLocked: server $server ('$LockKey') is locked by run $owner. Either resume that run (Resume-PASRun -RunId $owner), or release it (Stop-PASRun -RunId $owner), or, if that run no longer exists on this controller, delete the lock folder $folder on $server."
+    return "PAExecLocked: server $server ('$LockKey') is locked by run $owner. Either resume that run (Resume-PASRun -RunId $owner), or abandon it (Stop-PASRun -RunId $owner) and, once the server is restored, release its locks (Stop-PASRun -RunId $owner -ReleaseLocksAfterReset -CredentialMap <accounts>), or, if that run no longer exists on this controller, delete the lock folder $folder on $server."
 }
 function Invoke-PASRemoteLock {
     # Target lock: one run per server. Acquired when a workflow starts, released when it succeeds.

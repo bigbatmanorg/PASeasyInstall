@@ -22,7 +22,9 @@ PSM is installed with the vendor's own stage script (`Execute-Stage.ps1`):
 
 | Step | What it does |
 |---|---|
-| `management`, `media-upload`, `preflight`, `extract` | As for [PVWA](pvwa.md) |
+| `management`, `media-upload` | As for [PVWA](pvwa.md) |
+| `pvwa-trust-certificate` | Lab: copies the public certificate of PVWA to the server, verified by its SHA-256 |
+| `preflight`, `extract` | As for PVWA |
 | `prerequisites` | The vendor's prerequisites stage: Remote Desktop Session Host and others |
 | `install` | The vendor's installation stage |
 | `register` | The vendor's registration stage. Waits for the Vault, the first PVWA and every CPM |
@@ -31,7 +33,8 @@ PSM is installed with the vendor's own stage script (`Execute-Stage.ps1`):
 | `verify` | The PSM service runs and the users `PSMConnect` and `PSMAdminConnect` exist |
 
 **Restarts.** The vendor stages ask for restarts. After each stage the server is restarted when the stage asked
-for it, and the same stage is run again until it reports that no restart is needed. In the window the restart
+for it, and the same stage is run again (up to three passes, steps `<stage>-pass2` and `<stage>-pass3`) until it
+reports that no restart is needed. In the window the restart
 and the continuation count as part of the step. No autologon password is stored for these restarts.
 
 After the last stage the PSM service is started if it stopped: after a restart it ends itself when it cannot
@@ -40,6 +43,8 @@ reach the Vault at once.
 **Trust to PVWA.** The vendor's registration calls the PVWA API (`ApiKeyManager`) and needs trusted
 communication to the PVWA server. In a lab the PVWA certificate is self-signed, so the installer copies the
 public certificate from the PVWA server and adds it to the trusted roots of the PSM server before PSM registers.
+PSM calls PVWA under the computer name PVWA registered in the Vault; with the Lab profile the PSM server gets a
+hosts entry for every PVWA name it cannot resolve.
 
 **Why PSM registers before its hardening.** CyberArk documents the order post-installation, hardening,
 registration. In the test lab (15.2) the registration on a PSM server that was hardened already did all its

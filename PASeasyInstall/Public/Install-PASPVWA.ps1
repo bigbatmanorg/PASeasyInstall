@@ -24,6 +24,7 @@ function Install-PASPVWA {
     The PVWA installer ZIP, or a folder or CyberArk bundle ZIP that contains it.
     .PARAMETER Name
     Name of the environment (letters, digits, dot, dash, underscore). Runs are listed under it.
+    Default: MyPAM.
     .PARAMETER Credential
     Local administrator of the server (or a domain account that is administrator there). Asked for
     when missing. The default account name is Administrator; to use another account pass it here.
@@ -35,6 +36,7 @@ function Install-PASPVWA {
     Secure (default): WinRM over HTTPS with a trusted certificate, and PVWA uses the certificate you
     name with -CertificateThumbprint. Lab: accepts self-signed WinRM certificates and creates a
     self-signed PVWA certificate. Every lab deviation is listed as a warning.
+    Only the Lab profile was tested; Secure is not qualified.
     .PARAMETER Options
     Further recipe options as a hashtable. They are stored in the configuration (components[].options)
     and win over the defaults. Supported for PVWA: pvwaUrl, tlsCertificateThumbprint,

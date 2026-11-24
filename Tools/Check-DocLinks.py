@@ -54,7 +54,7 @@ used = set()
 for page in pages:
     for m in re.finditer(r'\(([^)\s]+\.png)\)', open(page, encoding='utf-8').read()):
         used.add(os.path.normpath(os.path.join(os.path.dirname(page), m.group(1))))
-for folder in ('Docs/images', 'site-src/assets'):
+for folder in ('site-src/assets',):
     for f in glob.glob(os.path.join(root, folder, '**', '*.png'), recursive=True):
         if os.path.normpath(f) not in used:
             print('UNUSED IMAGE  %s' % os.path.relpath(f, root))

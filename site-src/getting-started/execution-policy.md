@@ -23,6 +23,6 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command Start-PASeasyInstall
 
 ## On the servers
 
-Every PowerShell process PASeasyInstall starts, on the controller and on the servers, is started with
+Every PowerShell process PASeasyInstall starts, on the controller and on the Windows servers, is started with
 `-ExecutionPolicy Bypass`. So an installation also works on a server whose local policy is `AllSigned`. A policy
 set by Group Policy on a server still applies.

@@ -30,6 +30,7 @@ function Install-PASPSMP {
     The PSMP installer ZIP, or a folder or CyberArk bundle ZIP that contains it.
     .PARAMETER Name
     Name of the environment (letters, digits, dot, dash, underscore). Runs are listed under it.
+    Default: MyPAM.
     .PARAMETER Credential
     The root account of the Linux server and its password. Asked for when missing. PSMP is installed
     as root; another account is refused.
@@ -40,6 +41,7 @@ function Install-PASPSMP {
     .PARAMETER SecurityProfile
     Secure (default): the SSH host key of the server must already be known. Lab: the host key is
     trusted on first use. Every lab deviation is listed as a warning.
+    Only the Lab profile was tested; Secure is not qualified.
     .PARAMETER Options
     Further recipe options as a hashtable. They are stored in the configuration (components[].options)
     and win over the defaults. Supported for PSMP: serverId, signingKeyFingerprint.

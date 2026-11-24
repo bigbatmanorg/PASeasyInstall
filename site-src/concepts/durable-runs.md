@@ -52,7 +52,9 @@ stored. What happens then is decided by what the journals and the servers say:
 - a step that was started is found again by its id. It is never started a second time;
 - a step that ended **Failed** or **Unknown** is **not** repeated on its own.
 
-In a run that installs the servers at the same time, resume starts every lane again.
+In a run that installs the servers at the same time, resume starts every lane again; the lanes of finished
+servers only check their steps. The signals between the lanes are set again only by those checks, never from
+the old journal alone.
 
 ## Repeating a failed step
 
@@ -65,7 +67,9 @@ Resume-PASRun -RunId <run id> -RetryStep install           # the step install wh
 ```
 
 Only steps whose journal says Failed or Unknown are accepted; any other name is an error, so nothing is repeated
-by accident. `Get-PASStageCatalog` lists the step names of a component type. In the window this is the button
+by accident. When the action of a step finished and only its read-only check was cut off (for example the
+network dropped while the check was being started), `-RetryStep` repeats only the check, and only when the old
+check is shown not to be running. `Get-PASStageCatalog` lists the step names of a component type. In the window this is the button
 **Try this step again**.
 
 `-RetryFailedPreflight` runs a failed read-only check of a Linux server again, for example after you installed a
@@ -93,9 +97,12 @@ confirmed.
 ## Giving a run up
 
 ```powershell
-Stop-PASRun -RunId <run id> # locks remain protected
-# Only after restoring/rebuilding all affected lab VMs:
+Stop-PASRun -RunId <run id>                     # the server locks stay
+Stop-PASRun -RunId <run id> -Force              # also ends a controller that is still working
+# Only after you reset or rebuilt the servers of that run:
 Stop-PASRun -RunId <run id> -ReleaseLocksAfterReset -CredentialMap $creds
 ```
 
-marks the run Abandoned. **Remote locks remain by default** because detached workers can survive a controller stop. Explicit release is only for already reset/rebuilt disposable lab VMs. No installed software is removed. See [Locks](coordination.md).
+marks the run Abandoned. The target locks on the servers stay unless you pass `-ReleaseLocksAfterReset`,
+because the steps started on a server can outlive the controller. No installed software is removed. See
+[Locks](coordination.md#stop-pasrun-keeps-the-locks).

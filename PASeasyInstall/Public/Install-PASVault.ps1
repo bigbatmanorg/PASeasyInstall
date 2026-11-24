@@ -32,6 +32,7 @@ function Install-PASVault {
     for it. Default: the local address that routes to -ComputerName.
     .PARAMETER Name
     Name of the environment (letters, digits, dot, dash, underscore). Runs are listed under it.
+    Default: MyPAM.
     .PARAMETER Credential
     Local administrator of the Primary Vault server. Asked for when missing. The default account name
     is Administrator; to use another account pass it here.
@@ -50,6 +51,7 @@ function Install-PASVault {
     Secure (default): WinRM over HTTPS with a trusted certificate, no RDP to the hardened Vault.
     Lab: accepts self-signed WinRM certificates and keeps RDP from the controller to the Vault open.
     Every lab deviation is listed as a warning.
+    Only the Lab profile was tested; Secure is not qualified.
     .PARAMETER LicenseFile
     Vault license (.xml). Default: the license found in -MediaPath.
     .PARAMETER RecoveryPublicKey

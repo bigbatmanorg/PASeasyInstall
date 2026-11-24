@@ -19,6 +19,9 @@
   authorise that key. With the Lab profile the host key of the server is trusted on first use and written to the
   log; the Secure profile requires a host key that is known already.
 - **The hardened Vault** accepts management connections only from the address of the controller.
+- **Certificates in a lab.** With the Lab profile, CPM, PSM, the gateway and PTA trust exactly the self-signed
+  PVWA certificate, and the first PVWA server trusts the self-signed certificate PTA presents. Each is listed
+  as a deviation ([Lab and Secure profiles](profiles.md#the-lab-shortcuts)).
 
 ## Hardening
 
@@ -35,5 +38,9 @@ A lab can be installed [without hardening](profiles.md#installing-without-harden
 
 ## What is not proven
 
-Only the **Lab** profile was tested. It relaxes several checks on purpose; they are listed on
-[Lab and Secure profiles](profiles.md). Do not take a lab built this way as a model for production.
+Only the **Lab** profile was tested, with CyberArk 15.0 and 15.2. It relaxes several checks on purpose; they
+are listed on [Lab and Secure profiles](profiles.md). Do not take a lab built this way as a model for
+production.
+
+The **Secure** profile is a legacy surface of the commands and is not qualified: no lab was ever installed
+with it. Its stricter checks are written down, but nothing shows that an installation with it works.

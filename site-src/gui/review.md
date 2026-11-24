@@ -1,20 +1,21 @@
 # Step 4: Install
 
-Read what will be installed, then press Install. Until you press it and confirm, nothing is changed on any
-server.
+*Review and install.* Read what will be installed, then press **Install the lab**. Until you press it and
+confirm, nothing is changed on any server.
 
-![The Install step: the plan and the lab shortcuts](../assets/window/12-review.png)
+![The Install step: the plan, the lab shortcuts and the Install button](../assets/window/12-review.png)
 
 ## The plan
 
-One line per component: what it is, on which server, and which installer file is used. The line at the top says
-how long the installation takes, roughly.
+The line at the top says roughly how long the installation takes. Below it, one line per component: its
+number, what it is, on which server (address and name), and which installer file is used.
 
 The numbers are the order of the plan, not a waiting line: the servers are installed at the same time
 ([Servers at the same time](../concepts/parallel.md)).
 
-If the plan has problems, they are listed in plain words and the **Install the lab** button stays disabled until
-they are solved. Go **Back**, correct the entry and come here again.
+If the plan has problems, the page says *The plan has problems. Nothing can be installed until they are solved*
+and lists them under **To solve**; there is no Install button then. Go **Back**, correct the entry and come here
+again.
 
 ## Lab shortcuts in use
 
@@ -26,22 +27,23 @@ If you switched off *Apply the vendor hardening* on the Servers step, a box abov
 
 ![The warning that the servers will not be hardened](../assets/window/13-review-not-hardened.png)
 
-## Advanced: the same from PowerShell
+## Save the lab file
 
-With **Advanced** on, a card shows the commands that build the same lab from the prompt, and **Save the lab
-file** writes the lab as a JSON file. The file holds your choices, never a password. Open it again with
-**Open a saved lab file** on the start page, with `Start-PASeasyInstall -Config <file>`, or install it with
-`Install-PASLab -Path <file>`.
+The card **Keep these entries** has **Save the lab file...**: it writes the lab and its servers as a JSON file,
+without any password. Open it again with **Open a saved lab file** on the start page, with
+`Start-PASeasyInstall -Config <file>`, or install it from the prompt with `Install-PASLab -Path <file>`.
+
+With **Advanced** on, the card **The same from PowerShell** takes its place: it shows the commands that build the
+same lab from the prompt, with the same save button below them.
 
 ## Install the lab
 
-**Install the lab** asks once more before it starts. The question names the number of servers, and it repeats
-the warning when the servers will not be hardened.
+**Install the lab** asks once more before it starts (*Install the lab?*). The question names the number of
+servers, and it repeats the warning when the servers will not be hardened.
 
 ![The question before the installation starts](../assets/window/14-install-confirm.png)
 
-After **Install** the window stays usable while the installation is started (that takes up to a minute or two:
-the installers are checked and the servers are asked once more whether they answer). Then the
-[installation page](run.md) opens.
+After **Install** the window says *Starting the installation...* and stays usable while the installer checks
+the plan and the installer files and starts its own process. Then the [installation page](run.md) opens.
 
 An installation cannot be undone from the window. To start again, reset the servers to their clean state.

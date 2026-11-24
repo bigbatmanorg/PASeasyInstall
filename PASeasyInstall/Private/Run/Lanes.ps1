@@ -9,12 +9,12 @@
 #             Vault           the Primary Vault is installed, hardened and verified (set from the start when
 #                             the run installs none). The DR Vault is not waited for.
 #             PvwaRegistered  the first PVWA finished its step 'register'
-#             Registered:<id> PVWA or CPM <id> finished its step 'register'
+#             Registered:<id> PVWA, CPM, PSM or PSMP <id> finished its step 'register'
 #             Cert:<id>       PVWA <id> has its HTTPS certificate (its first step, 'certificate')
 #             Done:<id>       component <id> is installed and verified
 #             Fail:<signal>   the lane that would have set <signal> failed: who waits for it gives up
 #             Cancel          the lanes are being taken down (set only when the run ends)
-#   What waits for what (see Docs\PARALLEL.md):
+#   What waits for what (see site-src/concepts/parallel.md):
 #             a joined server          Domain, before its join
 #             a component that trusts
 #             the PVWA certificate     Cert of every PVWA, before it starts (CPM, PSM, HTML5 Gateway, PTA)
@@ -22,7 +22,7 @@
 #             to the Vault             Vault; every component except the first PVWA also PvwaRegistered;
 #                                      everything except PVWA and CPM also Registered of every CPM
 #                                      (the vendor's order: PVWA, CPM, then the rest); PTA waits for Done of
-#                                      every PVWA
+#                                      every PVWA and registers last, after every PSM and PSMP
 #             the DR Vault             nothing but the milestones of the Primary Vault (its keys, then
 #                                      'primary-ready'); nothing waits for the DR Vault
 #           One Vault sign-in at a time is the Vault lock that every such step takes (Engine\Locks.ps1).
@@ -100,12 +100,14 @@ function Get-PASLaneComponentGate {
          VaultAfter   names of the signals its Vault steps wait for
          StepSignals  @{ <step id> = names of the signals that step sets }
          DoneSignals  names of the signals set when the component is installed and verified
-       The registrations follow the vendor's order: the first PVWA, the other PVWAs, every CPM, then the rest. #>
+       The registrations follow the vendor's order: the first PVWA, the other PVWAs, every CPM, then the rest;
+       PTA is the last one. #>
     param([Parameter(Mandatory)]$Config, [Parameter(Mandatory)][hashtable]$Component)
     $id = [string]$Component.id
     $type = [string]$Component.type
     $pvwas = @($Config.components | Where-Object { $_.type -eq 'PVWA' } | ForEach-Object { [string]$_.id })
     $cpms = @($Config.components | Where-Object { $_.type -eq 'CPM' } | ForEach-Object { [string]$_.id })
+    $sessions = @($Config.components | Where-Object { $_.type -in @('PSM', 'PSMP') } | ForEach-Object { [string]$_.id })
     $gate = @{ StartAfter = @(); VaultAfter = @('Vault'); StepSignals = @{}; DoneSignals = @('Done:' + $id) }
     if ([string](Get-PASValue (Get-PASValue $Component 'options' $null) 'pvwaTrustFrom' '')) {
         $gate.StartAfter = @($pvwas | ForEach-Object { 'Cert:' + $_ })
@@ -132,11 +134,25 @@ function Get-PASLaneComponentGate {
         # The PTA configuration names the PVWA and signs in through it: the PVWA servers must be finished.
         $gate.VaultAfter += @($pvwas | ForEach-Object { 'Done:' + $_ })
         $gate.VaultAfter += @($cpms | ForEach-Object { 'Registered:' + $_ })
+        # PTA registers last. Its configuration holds the Vault for about three minutes, while PSM still has
+        # its hardening after its registration and the gateway registration waits for PSM: PSM and PSM for
+        # SSH go first (an order only, as for CPM: a PSM that fails does not hold PTA back).
+        $gate.VaultAfter += @($sessions | ForEach-Object { 'Registered:' + $_ })
     } else {
         if ($pvwas.Count) {
             $gate.VaultAfter += 'PvwaRegistered'
         }
         $gate.VaultAfter += @($cpms | ForEach-Object { 'Registered:' + $_ })
+        if ($type -eq 'PSMP') {
+            $gate.StepSignals['register'] = @('Registered:' + $id)
+            $gate.DoneSignals += 'Registered:' + $id
+        } elseif ($type -eq 'PSM') {
+            # The PSM registration is a vendor checkpoint run up to three times (register, register-pass2,
+            # register-pass3; Planning.ps1), each with the Vault lock. PSM has registered after the last pass:
+            # announced earlier, PTA would take the Vault between the passes and hold PSM up for minutes.
+            $gate.StepSignals['register-pass3'] = @('Registered:' + $id)
+            $gate.DoneSignals += 'Registered:' + $id
+        }
     }
     return $gate
 }
@@ -163,7 +179,7 @@ function New-PASLaneSignals {
         $signals['Registered:' + [string]$pvwa.id] = New-Object System.Threading.ManualResetEvent -ArgumentList $false
         $signals['Cert:' + [string]$pvwa.id] = New-Object System.Threading.ManualResetEvent -ArgumentList $false
     }
-    foreach ($cpm in @($components | Where-Object { $_.type -eq 'CPM' })) {
+    foreach ($cpm in @($components | Where-Object { $_.type -in @('CPM', 'PSM', 'PSMP') })) {
         $signals['Registered:' + [string]$cpm.id] = New-Object System.Threading.ManualResetEvent -ArgumentList $false
     }
     foreach ($component in @($components | Where-Object { $_.type -notin @('AD', 'Vault', 'DRVault') })) {

@@ -1,5 +1,34 @@
 # Release notes
 
+## 2.0.11
+
+PTA is connected after an installation, and it no longer delays PSM. Tested in the lab on 2026-11-24 with a
+full lab of nine servers (Vault, DR Vault, PVWA, CPM, PSM, PSM for SSH, HTML5 Gateway, PTA and the controller).
+
+- **PTA shows as connected.** PVWA reaches PTA under the host name that PTA registers in the Vault: the name in
+  PTA's own certificate, which is the real computer name of the PTA server. When that name differed from the
+  name entered in the window (for example `labpta01` against `pta01`), PVWA could not resolve it, PVWA System
+  Health showed PTA as not connected and the lab check said *No PTA is registered in the Vault*. The PTA trust
+  step now adds the hosts entry for the name in the certificate on the first PVWA server, and its check makes a
+  real HTTPS call to PTA by that name, as PVWA does.
+- **PTA registers last.** The vendor's PTA configuration holds the Vault for about three minutes. PTA now waits
+  until PSM and PSM for SSH have registered, so PSM (which still has its hardening after the registration, and
+  which the HTML5 Gateway registration waits for) is no longer held up. A PSM that fails does not hold PTA back.
+- **The lab check names the cause.** When the Vault knows a PTA but PVWA cannot reach it, the lab check says so,
+  with PVWA's error, instead of *No PTA is registered in the Vault*.
+- **A step that succeeded is no longer reported as Unknown.** When a step's worker on the server wrote its
+  result and ended in the very moment the controller looked at it, the controller could see the old status and
+  no process, and stopped the run as *Unknown* (seen once in the lab, on a PSM install pass after its restart).
+  The controller now reads the status again before it decides that a step was interrupted (Windows and Linux).
+- **PSM finishes its registration before PTA starts.** The PSM registration is a vendor checkpoint that runs up
+  to three times; PTA now waits for the last of them.
+- **Stop the installation works.** The button of the installation page (Advanced) stopped nothing: it called
+  `Stop-PASRun` without `-Force`, which refuses a running installation. It now ends the installation, and its
+  question says what that means: the installation cannot be continued, and the servers stay locked until they
+  are restored.
+- **Documentation rewritten** against the code, with new screenshots of a real installation. The demo video is
+  gone.
+
 ## 2.0.10
 
 Recovery after a failed or stopped installation, tested in the lab on 2026-11-24.

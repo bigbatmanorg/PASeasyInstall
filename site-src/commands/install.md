@@ -23,7 +23,7 @@ The text of every command below is its own help (`Get-Help <command> -Full`).
 
 Installs everything a lab configuration describes: Vault, DR, PVWA, CPM, PSM, PSMP, HTML5 Gateway, PTA, Active Directory.
 
-Takes a configuration file (written by Export-PASLabConfiguration or saved by the desktop wizard) or a configuration object (from New-PASLabConfiguration). The servers are installed at the same time. A step that registers a component with the Vault waits until the Vault is installed; the registrations then run one at a time: every PVWA, every CPM, then the other components. A configuration with execution.mode Sequential installs one component after the other instead: Active Directory, domain joins, Vault and DR, then PVWA, CPM, PSM, PSMP.
+Takes a configuration file (written by Export-PASLabConfiguration or saved by the desktop wizard) or a configuration object (from New-PASLabConfiguration). The servers are installed at the same time. A step that signs in to the Vault waits until the Primary Vault is installed; the registrations then run one at a time, in this order: the first PVWA, the other PVWAs, every CPM, then PSM and PSMP, and PTA last. The HTML5 Gateway is entered into the PVWA configuration when PVWA, PSM and the gateway are installed. A server that fails stops only what depends on it. A configuration with execution.mode Sequential installs one component after the other instead: Active Directory, domain joins, Vault and DR, then PVWA, CPM, PSM, PSMP, HTML5 Gateway, PTA.
 
 The command validates the configuration and the installer media and asks for confirmation. Only then it asks for every server account and password that -CredentialMap, -SecretMap or -LabPassword do not supply. With -WhatIf nothing is asked and nothing is contacted. Get-PASCredentialRequirement lists what a configuration needs; Get-PASLabPlan shows what would be installed.
 
@@ -83,14 +83,14 @@ Passwords are kept in memory only. They are never written to a file, a log or a 
 | `-DRComputerName` | IP address or DNS name of the server that becomes the DR Vault. Leave it out for a Primary only. |
 | `-MediaPath` | Folder that holds the CyberArk Vault installer media: the full bundle ZIP, or the Server, PACLI, Disaster Recovery and "Vault Ansible Role" ZIPs, with license.xml, recpub.key and the VC++ runtimes. |
 | `-ControllerAddress` | IPv4 address of this controller as the Vault servers see it. The hardened Vault firewall is opened for it. Default: the local address that routes to -ComputerName. |
-| `-Name` | Name of the environment (letters, digits, dot, dash, underscore). Runs are listed under it. |
+| `-Name` | Name of the environment (letters, digits, dot, dash, underscore). Runs are listed under it. Default: MyPAM. |
 | `-Credential` | Local administrator of the Primary Vault server. Asked for when missing. The default account name is Administrator; to use another account pass it here. |
 | `-DRCredential` | Local administrator of the DR server. The account name must be the same as on the Primary; the password may differ. Asked for when missing. |
 | `-VaultAdminPassword` | Password to set for the Vault user Administrator. Printable ASCII without double quotes. |
 | `-MasterPassword` | Password to set for the Vault user Master. Printable ASCII without double quotes. |
 | `-DRPassword` | Password to set for the Vault DR user. Only with -DRComputerName. |
 | `-LabPassword` | One password for every server account and every Vault password. Only with -SecurityProfile Lab. |
-| `-SecurityProfile` | Secure (default): WinRM over HTTPS with a trusted certificate, no RDP to the hardened Vault. Lab: accepts self-signed WinRM certificates and keeps RDP from the controller to the Vault open. Every lab deviation is listed as a warning. |
+| `-SecurityProfile` | Secure (default): WinRM over HTTPS with a trusted certificate, no RDP to the hardened Vault. Lab: accepts self-signed WinRM certificates and keeps RDP from the controller to the Vault open. Every lab deviation is listed as a warning. Only the Lab profile was tested; Secure is not qualified. |
 | `-LicenseFile` | Vault license (.xml). Default: the license found in -MediaPath. |
 | `-RecoveryPublicKey` | Recovery public key file (recpub.key), or the folder that contains it. Default: the key found in -MediaPath. |
 | `-Wait` | Shows the progress until the run ends and returns the final run (see Wait-PASRun). |
@@ -132,11 +132,11 @@ Passwords are kept in memory only. PASeasyInstall builds labs. Production use is
 | `-ComputerName` | IP address or DNS name of the server to install PVWA on. |
 | `-VaultAddress` | IP address or DNS name of the Vault the component registers with. |
 | `-MediaPath` | The PVWA installer ZIP, or a folder or CyberArk bundle ZIP that contains it. |
-| `-Name` | Name of the environment (letters, digits, dot, dash, underscore). Runs are listed under it. |
+| `-Name` | Name of the environment (letters, digits, dot, dash, underscore). Runs are listed under it. Default: MyPAM. |
 | `-Credential` | Local administrator of the server (or a domain account that is administrator there). Asked for when missing. The default account name is Administrator; to use another account pass it here. |
 | `-VaultAdminPassword` | Password of the Vault user Administrator, used to register the component. Asked for when missing. |
 | `-LabPassword` | One password for the server account and the Vault Administrator. Only with -SecurityProfile Lab. |
-| `-SecurityProfile` | Secure (default): WinRM over HTTPS with a trusted certificate, and PVWA uses the certificate you name with -CertificateThumbprint. Lab: accepts self-signed WinRM certificates and creates a self-signed PVWA certificate. Every lab deviation is listed as a warning. |
+| `-SecurityProfile` | Secure (default): WinRM over HTTPS with a trusted certificate, and PVWA uses the certificate you name with -CertificateThumbprint. Lab: accepts self-signed WinRM certificates and creates a self-signed PVWA certificate. Every lab deviation is listed as a warning. Only the Lab profile was tested; Secure is not qualified. |
 | `-Options` | Further recipe options as a hashtable. They are stored in the configuration (components[].options) and win over the defaults. Supported for PVWA: pvwaUrl, tlsCertificateThumbprint, createLabCertificate, installDirectory, applicationDirectory, applicationName, vaultPort. |
 | `-PvwaUrl` | HTTPS URL users will open, with one application path, e.g. https://pvwa01.pam.lab/PasswordVault (option pvwaUrl). Default: https://&lt;ComputerName&gt;/PasswordVault when -ComputerName is a DNS name, otherwise https://&lt;computer name of the server&gt;/PasswordVault. |
 | `-CertificateThumbprint` | Thumbprint of the HTTPS certificate for PVWA. The certificate with its private key must already be in the LocalMachine\My store of the server (option tlsCertificateThumbprint). Required with the Secure profile. With the Lab profile a self-signed certificate is created when you leave it out. |
@@ -179,11 +179,11 @@ Passwords are kept in memory only. PASeasyInstall builds labs. Production use is
 | `-ComputerName` | IP address or DNS name of the server to install CPM on. |
 | `-VaultAddress` | IP address or DNS name of the Vault the component registers with. |
 | `-MediaPath` | The CPM installer ZIP, or a folder or CyberArk bundle ZIP that contains it. |
-| `-Name` | Name of the environment (letters, digits, dot, dash, underscore). Runs are listed under it. |
+| `-Name` | Name of the environment (letters, digits, dot, dash, underscore). Runs are listed under it. Default: MyPAM. |
 | `-Credential` | Local administrator of the server (or a domain account that is administrator there). Asked for when missing. The default account name is Administrator; to use another account pass it here. |
 | `-VaultAdminPassword` | Password of the Vault user Administrator, used to register the component. Asked for when missing. |
 | `-LabPassword` | One password for the server account and the Vault Administrator. Only with -SecurityProfile Lab. |
-| `-SecurityProfile` | Secure (default): WinRM over HTTPS with a trusted certificate. Lab: accepts self-signed WinRM certificates. Every lab deviation is listed as a warning. |
+| `-SecurityProfile` | Secure (default): WinRM over HTTPS with a trusted certificate. Lab: accepts self-signed WinRM certificates. Every lab deviation is listed as a warning. Only the Lab profile was tested; Secure is not qualified. |
 | `-Options` | Further recipe options as a hashtable. They are stored in the configuration (components[].options) and win over the defaults. Supported for CPM: installDirectory, cpmUser, vaultPort, registrationMode (Clean or Upgrade), hardeningScript. |
 | `-PvwaCertificateFile` | Public certificate file (.cer, no private key) that CPM must trust to reach PVWA over HTTPS (options pvwaTrustCertificateFile and pvwaTrustCertificateSHA256; the SHA-256 is computed here). Secure profile: a self-signed CA certificate. Lab profile: the self-signed PVWA certificate itself is accepted too, as the audited deviation CPM.AllowPinnedLeafTrust. Leave it out when the server already trusts the PVWA certificate. |
 | `-Wait` | Shows the progress until the run ends and returns the final run (see Wait-PASRun). |
@@ -219,11 +219,11 @@ Passwords are kept in memory only. PASeasyInstall builds labs. Production use is
 | `-ComputerName` | IP address or DNS name of the server to install PSM on. |
 | `-VaultAddress` | IP address or DNS name of the Vault the component registers with. |
 | `-MediaPath` | The PSM installer ZIP, or a folder or CyberArk bundle ZIP that contains it. |
-| `-Name` | Name of the environment (letters, digits, dot, dash, underscore). Runs are listed under it. |
+| `-Name` | Name of the environment (letters, digits, dot, dash, underscore). Runs are listed under it. Default: MyPAM. |
 | `-Credential` | Local administrator of the server (or a domain account that is administrator there). Asked for when missing. The default account name is Administrator; to use another account pass it here. |
 | `-VaultAdminPassword` | Password of the Vault user Administrator, used to register the component. Asked for when missing. |
 | `-LabPassword` | One password for the server account and the Vault Administrator. Only with -SecurityProfile Lab. |
-| `-SecurityProfile` | Secure (default): WinRM over HTTPS with a trusted certificate. Lab: accepts self-signed WinRM certificates. Every lab deviation is listed as a warning. |
+| `-SecurityProfile` | Secure (default): WinRM over HTTPS with a trusted certificate. Lab: accepts self-signed WinRM certificates. Every lab deviation is listed as a warning. Only the Lab profile was tested; Secure is not qualified. |
 | `-Options` | Further recipe options as a hashtable. They are stored in the configuration (components[].options) and win over the defaults. Supported for PSM: installDirectory, vaultPort. |
 | `-Wait` | Shows the progress until the run ends and returns the final run (see Wait-PASRun). |
 | `-PlanOnly` | Validates the input and returns the plan. Asks nothing and contacts no server. |
@@ -261,11 +261,11 @@ Passwords are kept in memory only. PASeasyInstall builds labs. Production use is
 | `-ComputerName` | IP address or DNS name of the server to install PSMP on. |
 | `-VaultAddress` | IP address or DNS name of the Vault the component registers with. |
 | `-MediaPath` | The PSMP installer ZIP, or a folder or CyberArk bundle ZIP that contains it. |
-| `-Name` | Name of the environment (letters, digits, dot, dash, underscore). Runs are listed under it. |
+| `-Name` | Name of the environment (letters, digits, dot, dash, underscore). Runs are listed under it. Default: MyPAM. |
 | `-Credential` | The root account of the Linux server and its password. Asked for when missing. PSMP is installed as root; another account is refused. |
 | `-VaultAdminPassword` | Password of the Vault user Administrator, used to register the component. Asked for when missing. |
 | `-LabPassword` | One password for the server account and the Vault Administrator. Only with -SecurityProfile Lab. |
-| `-SecurityProfile` | Secure (default): the SSH host key of the server must already be known. Lab: the host key is trusted on first use. Every lab deviation is listed as a warning. |
+| `-SecurityProfile` | Secure (default): the SSH host key of the server must already be known. Lab: the host key is trusted on first use. Every lab deviation is listed as a warning. Only the Lab profile was tested; Secure is not qualified. |
 | `-Options` | Further recipe options as a hashtable. They are stored in the configuration (components[].options) and win over the defaults. Supported for PSMP: serverId, signingKeyFingerprint. |
 | `-AcceptEula` | Confirms that you read and accept the CyberArk end user license agreement of the PSMP installer. Required: without it the configuration is not valid. |
 | `-Wait` | Shows the progress until the run ends and returns the final run (see Wait-PASRun). |
@@ -300,11 +300,11 @@ Passwords are kept in memory only. PASeasyInstall builds labs. Production use is
 | `-ComputerName` | IP address or DNS name of the Windows server that becomes the domain controller. |
 | `-DomainName` | DNS name of the new forest root domain, e.g. pam.lab. |
 | `-NetBiosName` | NetBIOS name of the domain. Default: the first label of -DomainName in upper case (PAM for pam.lab). |
-| `-Name` | Name of the environment (letters, digits, dot, dash, underscore). Runs are listed under it. |
+| `-Name` | Name of the environment (letters, digits, dot, dash, underscore). Runs are listed under it. Default: MyPAM. |
 | `-Credential` | Local administrator of the server. Asked for when missing. The default account name is Administrator; to use another account pass it here. |
 | `-SafeModePassword` | Directory Services Restore Mode (DSRM) password to set. Asked for when missing. |
 | `-LabPassword` | One password for the server account and the DSRM password. Only with -SecurityProfile Lab. |
-| `-SecurityProfile` | Secure (default): WinRM over HTTPS with a trusted certificate. Lab: accepts self-signed WinRM certificates. Every lab deviation is listed as a warning. |
+| `-SecurityProfile` | Secure (default): WinRM over HTTPS with a trusted certificate. Lab: accepts self-signed WinRM certificates. Every lab deviation is listed as a warning. Only the Lab profile was tested; Secure is not qualified. |
 | `-Wait` | Shows the progress until the run ends and returns the final run (see Wait-PASRun). |
 | `-PlanOnly` | Validates the input and returns the plan. Asks nothing and contacts no server. |
 

@@ -64,8 +64,9 @@ function Get-PackageProblems {
     $problems = New-Object System.Collections.ArrayList
     $forbiddenExtensions = @('.zip', '.exe', '.msi', '.dll', '.key', '.pvk', '.pfx', '.p12', '.cer', '.crt', '.pem', '.lic', '.nupkg')
     $textExtensions = @('.ps1', '.psm1', '.psd1', '.json', '.css', '.txt', '.md', '.sh', '.xml', '.j2', '.ini', '.iss', '.xaml')
-    # Written as character codes so that this script does not contain the value it searches for.
-    $labPassword = -join [char[]](67, 121, 98, 101, 114, 97, 114, 107, 48, 49, 33)
+    # The lab password of the person who builds the package, when set: it must not be in the package. It is
+    # read from the environment and is never written into this repository.
+    $labPassword = [string]$env:PASEASY_LAB_PASSWORD
     $patterns = @(
         @{ Name = 'private key'; Regex = '-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----' },
         @{ Name = 'lab address'; Regex = '\b10\.0\.1[12]0\.\d' },
@@ -92,7 +93,7 @@ function Get-PackageProblems {
             continue
         }
         $text = [IO.File]::ReadAllText($file.FullName)
-        if ($text.Contains($labPassword)) {
+        if ($labPassword.Length -ge 4 -and $text.Contains($labPassword)) {
             [void]$problems.Add("$relative : lab password")
         }
         foreach ($pattern in $patterns) {

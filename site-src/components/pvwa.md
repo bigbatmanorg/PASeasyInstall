@@ -24,7 +24,7 @@ name of the server; users reach the portal at `https://<name>/PasswordVault`.
 | `management` | Registers a restricted WinRM endpoint for the configured administrator |
 | `media-upload` | Copies the PVWA package, verified by its SHA-256 |
 | `preflight` | Checks the server and the package |
-| `certificate` | Lab: creates the self-signed HTTPS certificate now, long before IIS is installed. A CPM, gateway or PTA on another server copies the public certificate and starts its own installation at once |
+| `certificate` | Lab: creates the self-signed HTTPS certificate now, long before IIS is installed. A CPM, PSM, HTML5 Gateway or PTA on another server copies the public certificate and starts its own installation at once |
 | `extract` | Unpacks the package and finds the vendor scripts |
 | `prerequisites` | The vendor's prerequisites script: IIS and the Windows features PVWA needs |
 | `install` | The vendor's installation |
@@ -41,7 +41,7 @@ is completely prepared before it needs the Vault.
 Sign in at `https://<computer name>/PasswordVault` as `Administrator`.
 
 - The computer with the browser must resolve the PVWA name; a hosts entry is enough. The lab check
-  (`Test-PASHealth`, *Check the lab*) needs no such entry.
+  (`Test-PASHealth`, **Check the lab**) needs no such entry.
 - With the Lab profile the certificate is self-signed: accept it in the browser or import it.
 
 ## Options

@@ -17,7 +17,7 @@ The text of every command below is its own help (`Get-Help <command> -Full`).
 
 | Command | What it does |
 |---|---|
-| [`New-PASLabConfiguration`](#new-paslabconfiguration) | Composes the configuration of a lab: the Vault (new Primary, Primary and DR, or an existing Vault) and any number of PVWA, CPM, PSM and PSMP servers. Nothing is contacted or installed. |
+| [`New-PASLabConfiguration`](#new-paslabconfiguration) | Composes the configuration of a lab: the Vault (new Primary, Primary and DR, or an existing Vault) and up to 4 each of PVWA, CPM, PSM, PSMP, HTML5 Gateway and PTA. Nothing is contacted or installed. |
 | [`Test-PASLabConfiguration`](#test-paslabconfiguration) | Checks a lab configuration: structure, topology rules and, with -CheckMedia, the installer files. |
 | [`Get-PASLabPlan`](#get-paslabplan) | Shows what a configuration would install: one item per component with its server, installer and order. |
 | [`Export-PASLabConfiguration`](#export-paslabconfiguration) | Saves a lab configuration as a JSON file. The file never contains a password. |
@@ -27,7 +27,7 @@ The text of every command below is its own help (`Get-Help <command> -Full`).
 
 ## New-PASLabConfiguration
 
-Composes the configuration of a lab: the Vault (new Primary, Primary and DR, or an existing Vault) and any number of PVWA, CPM, PSM and PSMP servers. Nothing is contacted or installed.
+Composes the configuration of a lab: the Vault (new Primary, Primary and DR, or an existing Vault) and up to 4 each of PVWA, CPM, PSM, PSMP, HTML5 Gateway and PTA. Nothing is contacted or installed.
 
 Returns the configuration as an ordered hashtable. Check it with Test-PASLabConfiguration, look at the result with Get-PASLabPlan, save it with Export-PASLabConfiguration and install it with Install-PASLab. The configuration never contains a password.
 
@@ -44,11 +44,11 @@ The only thing this command may write is a copy of an installer that you selecte
 | `-ExistingVaultAddress` | Address of the existing Vault (VaultMode Existing). |
 | `-Username` | Default Windows account name for the servers. Default: Administrator. |
 | `-LinuxUsername` | Default Linux account name. Default: root (PSMP is installed as root). |
-| `-Media` | The installers to use: @{ Vault = item; PACLI = item; DR = item; PVWA = item; CPM = item; PSM = item; PSMP = item; License = item; RecoveryKey = item }. An item is an object from Get-PASMediaInventory, @{ Path = ...; Entry = ... } or a plain file path. Get-PASMediaSelection builds this hashtable. |
-| `-ExecutionMode` | Parallel (default): the servers are installed at the same time; the steps that sign in to the Vault wait until the Vault is installed and then run one at a time. Sequential: one component after the other. |
+| `-Media` | The installers to use: @{ Vault = item; PACLI = item; DR = item; PVWA = item; CPM = item; PSM = item; PSMP = item; HTML5GW = item; PTA = item; License = item; RecoveryKey = item }. Only the ones the lab needs. An item is an object from Get-PASMediaInventory, @{ Path = ...; Entry = ... } or a plain file path. Get-PASMediaSelection builds this hashtable. |
+| `-ExecutionMode` | Parallel (default): the servers are installed at the same time; the steps that sign in to the Vault wait until the Primary Vault is installed and then run one at a time (PVWA, CPM, PSM and PSMP, PTA last). Sequential: one component after the other. |
 | `-PrimaryUsername` | Windows account name for the Primary Vault server, if it differs from -Username. |
 | `-DRUsername` | Windows account name for the DR Vault server, if it differs from the Primary. |
-| `-SecurityProfile` | Secure (default) or Lab. Lab adds the explicit, audited deviations a template-built lab needs: self-signed WinRM certificates, RDP to the Vault from the controller, a self-signed PVWA certificate that CPM pins. |
+| `-SecurityProfile` | Secure (default) or Lab. Lab adds the explicit, audited deviations a template-built lab needs: self-signed WinRM certificates, RDP to the Vault from the controller, a self-signed PVWA certificate that CPM pins. Only the Lab profile was tested; Secure is not qualified. |
 | `-AcceptEula` | Confirms that you read and accept the CyberArk end user license agreement of the PSMP, HTML5 Gateway and PTA installers. Required when the lab contains a PSMP, an HTML5 Gateway or PTA. |
 | `-DomainMode` | None (default): the servers stay in their workgroup. New: a new Active Directory forest is created on the server at -DomainControllerAddress. Existing: an existing domain is used. With New and Existing the Windows servers of PVWA, CPM and PSM are joined to the domain before they are installed (they restart once). Vault servers are never joined. With New, the CyberArk hardening GPOs of the vendor packages are imported into the new domain and applied to the joined servers after the installation. An existing domain is not changed: import those GPOs there yourself. |
 | `-DomainName` | DNS name of the domain, for example pam.lab. |
@@ -205,7 +205,7 @@ Lists the installation stages of a component type, in the order they run.
 
 Returns one object per stage with Component, Stage and Order. The stage names are the step ids you see as Stage in Get-PASRunEvent and that Resume-PASRun -RetryStep accepts.
 
-The list is read from what the installer really runs: the Vault and DR workflow files of the module, and the step list the workflow generator uses for PVWA, CPM, PSM, PSMP and AD. DomainJoin lists the steps that join one server to the domain. Not listed, because they depend on the run: the extra passes and restarts of a PSM stage (&lt;stage&gt;-pass2, &lt;stage&gt;-reboot), the upload of a certificate pinned by CPM (pvwa-trust-certificate) and the steps the controller performs itself (ssh-bootstrap, media-select).
+The list is read from what the installer really runs: the Vault and DR workflow files of the module, and the step list the workflow generator uses for PVWA, CPM, PSM, PSMP, HTML5GW, PTA and AD. DomainJoin lists the steps that join one server to the domain. Not listed, because they depend on the run: the extra passes and restarts of a PSM stage (&lt;stage&gt;-pass2, &lt;stage&gt;-reboot), the upload of a certificate pinned by CPM (pvwa-trust-certificate) and the steps the controller performs itself (ssh-bootstrap, media-select).
 
 | Parameter | Meaning |
 |---|---|

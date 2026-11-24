@@ -1,54 +1,67 @@
 # Step 2: Lab
 
-Choose your lab topology and component counts directly. **There are no Starter, Standard, Full or
-other deployment workflow presets.**
+*Choose the lab components.* Pick the Vault and set how many of each component to install. There are no
+ready-made labs to choose from: the card **Vault and components** is the only selector.
 
-## Vault topology
+![The Lab step: the Vault choice, the component counters and the server options](../assets/window/06-lab.png)
 
-Select **New Vault** (one Primary) or **New Vault with DR** (Primary + Disaster Recovery). Both
-choices use fresh, disposable lab servers. The **Advanced** toggle also makes **Use existing Vault**
-available for experienced lab operators; the normal path is a new Primary.
+## The Vault
 
-## Component counts
+- **New Vault**: one Vault server.
+- **New Vault with DR**: a Vault and a DR Vault that replicates it.
+- **Use existing Vault (advanced)**, only with **Advanced** on: no Vault is installed, the components are added
+  to a Vault you already have. Choose at least one component then.
 
-Use `+` and `−` to select how many PVWA, CPM, PSM, PSM for SSH (PSMP), HTML5 Gateway
-and PTA instances to install. Zero leaves that component out. The normal limit is two per component;
-Advanced raises the limit to four. Your Vault license and the available media can impose lower limits.
+Both new Vault choices need fresh servers. More: [Vault](../components/vault.md), [DR Vault](../components/dr.md).
 
-- A gateway requires a PVWA; it may share a PSMP server, or use its own Linux server.
-- PTA requires a PVWA and a suitable RHEL-family server.
-- PVWA and CPM can share a Windows server, or use separate servers.
+## The components
 
-There is a single path through the wizard: **Media → Lab → Servers → Install**.
-The media and component selection decide the resulting server topology automatically. No special
-workflow selector or CLI command entry is required.
+One line per component, with **−** and **+**:
 
-The earlier screenshots of preset cards do not represent this version; new screenshots will be
-collected during the S01 real-WPF lab validation.
+| Line | Component |
+|---|---|
+| PVWA (web portal) | [PVWA](../components/pvwa.md) |
+| CPM (password changes) | [CPM](../components/cpm.md) |
+| PSM (session recording) | [PSM](../components/psm.md) |
+| PSMP (SSH sessions) | [PSM for SSH](../components/psmp.md) |
+| HTML5 Gateway (sessions in the browser) | [HTML5 Gateway](../components/html5gw.md) |
+| PTA (threat analytics) | [PTA](../components/pta.md) |
+
+A new lab starts with one PVWA, one CPM and one PSM. Zero leaves a component out. Up to two of each, with
+**Advanced** up to four; two of each were tested, and the Vault license decides how many can register. A line
+whose installer was not found on the Media step says *no installer in the media folder*: set it to zero, or go
+back and add the installer.
+
+Next does not go on while something does not fit. The window says what, for example:
+
+- PTA connects to PVWA: add a PVWA. PTA also needs a PSMP package in the media (it holds the CyberArk package
+  signing key), even without a PSMP in the lab.
+- The HTML5 Gateway opens PSM sessions and is entered into PVWA: add a PVWA, and with a new Vault also a PSM. It also needs the PACLI
+  package in the media.
+- A component that has no installer in the media.
 
 ## Server for CPM
 
-In every lab, *Install CPM on the PVWA server (one server less)* is switched on. Switch it off to give CPM a
-server of its own; the Servers step then has one more line. A CPM on its own server is installed at the same
-time as PVWA.
+In a lab with PVWA and CPM, **Install CPM on the PVWA server (one server less)** is switched on. Switch it off
+to give CPM a server of its own; the Servers step then has one more line.
 
 ## Server for the HTML5 Gateway
 
-In a lab with PSM for SSH and an HTML5 Gateway, *Install the HTML5 Gateway on the PSM for SSH server (one server
-less)* is switched on. Switch it off to give the gateway a Linux server of its own; the Servers step then has
-one more line.
+In a lab with PSMP and an HTML5 Gateway, **Install the HTML5 Gateway on the PSM for SSH server (one server
+less)** is switched on. Switch it off to give the gateway a Linux server of its own; the Servers step then has
+one more line. Without a PSMP in the lab the gateway always has a server of its own.
 
 ## Active Directory (Advanced only)
 
 - **No domain**: the servers stay as they are.
 - **New domain**: one more server becomes the domain controller of a new forest. The PVWA, CPM and PSM servers
   join it before they are installed (they restart once), and at the end the CyberArk hardening GPOs from the
-  vendor packages are imported and applied to them. Enter the DNS name of the domain, for example `pam.lab`.
-- **A domain I already have**: the PVWA, CPM and PSM servers join it. Nothing in that domain is changed, and its
-  GPOs are not touched. On the Servers step you enter the address of one of its DNS servers and a domain account
-  that may join computers.
+  vendor packages are imported and applied to them.
+- **A domain I already have**: the PVWA, CPM and PSM servers join it. Its GPOs are not touched. On the Servers
+  step you enter the address of one of its DNS servers and a domain account that may join computers.
 
-Vault servers are never joined to a domain. More: [Active Directory](../components/ad.md).
+With a domain, enter its **DNS name of the domain**, for example `pam.lab`. Vault servers are never joined to
+a domain. More: [Active Directory](../components/ad.md).
 
 ## Name of the lab
 

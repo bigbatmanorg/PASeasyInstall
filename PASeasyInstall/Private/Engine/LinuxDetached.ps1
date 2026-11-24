@@ -136,7 +136,11 @@ if [ "$state" = Running ] || [ "$state" = Succeeded ] || [ "$state" = Failed ]; 
 fi
 if [ "$state" = Running ]; then
  pid=$(jq -r .pid "$D/status.json"); boot=$(jq -r .bootId "$D/status.json")
- if [ "$boot" != "$(cat /proc/sys/kernel/random/boot_id)" ] || [ ! -r "/proc/$pid/cmdline" ] || ! tr '\0' ' ' <"/proc/$pid/cmdline" | grep -Fq -- "$D"; then state=Interrupted; fi
+ if [ "$boot" != "$(cat /proc/sys/kernel/random/boot_id)" ] || [ ! -r "/proc/$pid/cmdline" ] || ! tr '\0' ' ' <"/proc/$pid/cmdline" | grep -Fq -- "$D"; then
+  # The worker writes its final status, then ends: when it ended after the first read, take that final status.
+  again=$(jq -r --arg id "${D##*/}" --argjson pid "$pid" --arg boot "$boot" 'if .schemaVersion==2 and .attemptId==$id and .pid==$pid and .bootId==$boot and (.state=="Succeeded" or .state=="Failed") then .state else "" end' "$D/status.json" 2>/dev/null || true)
+  if [ -n "$again" ]; then state=$again; else state=Interrupted; fi
+ fi
 fi
 if [ "$state" = Dispatched ]; then
  if ! jq -e --arg id "${D##*/}" --arg boot "$(cat /proc/sys/kernel/random/boot_id)" '.schemaVersion==2 and .attemptId==$id and .stagedBootId==$boot' "$D/status.json" >/dev/null; then jq '.state="Interrupted" | .reason="staged boot identity missing or changed"' "$D/status.json"; exit 0; fi

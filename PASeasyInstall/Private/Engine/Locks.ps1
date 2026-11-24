@@ -4,7 +4,7 @@
 #                   (Invoke-PASRunController). It ends with the process, so a dead controller never blocks.
 #   2. Target lock  a lock folder on the server that names the RunId installing it (Invoke-PASRemoteLock in
 #                   Engine.ps1). It is kept when a run fails, on purpose: the same run takes it again on
-#                   resume, and no other run touches a half-installed server. Stop-PASDeployment releases it.
+#                   resume, and no other run touches a half-installed server. Stop-PASRun -ReleaseLocksAfterReset releases it after the server was restored.
 #   3. Vault lock   the named mutex below: only one controller process on this machine works with an
 #                   authenticated Vault session at a time. It is always released in a finally block,
 #                   never kept after a failure, and leaves no files.

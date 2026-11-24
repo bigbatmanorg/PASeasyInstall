@@ -25,6 +25,7 @@ function Install-PASDomainController {
     NetBIOS name of the domain. Default: the first label of -DomainName in upper case (PAM for pam.lab).
     .PARAMETER Name
     Name of the environment (letters, digits, dot, dash, underscore). Runs are listed under it.
+    Default: MyPAM.
     .PARAMETER Credential
     Local administrator of the server. Asked for when missing. The default account name is
     Administrator; to use another account pass it here.
@@ -35,6 +36,7 @@ function Install-PASDomainController {
     .PARAMETER SecurityProfile
     Secure (default): WinRM over HTTPS with a trusted certificate. Lab: accepts self-signed WinRM
     certificates. Every lab deviation is listed as a warning.
+    Only the Lab profile was tested; Secure is not qualified.
     .PARAMETER Wait
     Shows the progress until the run ends and returns the final run (see Wait-PASRun).
     .PARAMETER PlanOnly

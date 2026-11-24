@@ -1,6 +1,6 @@
 # PASeasyInstall: contributor and coding-agent notes
 
-PASeasyInstall builds **CyberArk PAM self-hosted labs** (Vault, DR, PVWA, CPM, PSM, PSMP, AD) from one Windows
+PASeasyInstall builds **CyberArk PAM self-hosted labs** (Vault, DR, PVWA, CPM, PSM, PSMP, HTML5 Gateway, PTA, AD) from one Windows
 PowerShell 5.1 controller, with PowerShell commands or a desktop wizard. It is intended for labs. Production
 use is at your own risk. Read `Docs/DESIGN.md` first: it explains the layout and what a run does.
 
@@ -48,10 +48,10 @@ use is at your own risk. Read `Docs/DESIGN.md` first: it explains the layout and
 ## Build and test
 
 ```powershell
-.\Tools\Check-Source.ps1                      # parser, both manifests, export list == Public folder (no remote operations)
+.\Tools\Check-Source.ps1                      # parser, manifest, export list == Public folder (no remote operations)
 .\Tools\Invoke-CITests.ps1                    # Check-Source, then the Pester suite CI runs
 Invoke-Pester -Path .\Tests                   # Pester 5; some tests are Windows-only
-.\Tools\Build-PortableRelease.ps1             # both Gallery packages and the portable ZIP, under .\dist
+.\Tools\Build-PortableRelease.ps1             # the Gallery package and the portable ZIP, under .\dist
 ```
 
 Tests share `Tests/TestHelpers.ps1` (repository paths, `Import-PASTestModule`). Private functions are reached with
@@ -62,3 +62,13 @@ UI development without servers: `.\Start-PASeasyInstall.ps1 -Backend Mock`. The 
 `powershell -STA -File PASeasyInstall\Desktop\App.ps1 -Backend Mock -SelfTest <scenario.json>` presses its own buttons
 through UI Automation, checks what it shows and saves every screen as a PNG (see `Desktop/SelfTest.ps1`); it needs no
 desktop session.
+
+## Documentation
+
+The site is `site-src/` (Zensical, `zensical.toml`, strict build); the command pages under `site-src/commands/`
+follow the comment-based help of `PASeasyInstall/Public/*.ps1`. Check links and command names with
+`python3 Tools/Check-DocLinks.py .`. The screenshots in `site-src/assets/window/` are real screens of the window,
+saved by a `-SelfTest` walk (`snapshots` and `hideBadge` in the scenario): a walk with the Live backend against
+lab servers for the normal path, the Mock backend for screens a good run does not show (a failed step, the
+Advanced view, the accounts dialog). Use documentation addresses (192.0.2.x) or lab addresses in pictures, never
+customer data. `Docs/DESIGN.md` explains the code, `Docs/VALIDATION.md` records what was tested in a lab.

@@ -5,10 +5,11 @@ function Install-PASLab {
     .DESCRIPTION
     Takes a configuration file (written by Export-PASLabConfiguration or saved by the desktop wizard)
     or a configuration object (from New-PASLabConfiguration). The servers are installed at the same
-    time. A step that registers a component with the Vault waits until the Vault is installed; the
-    registrations then run one at a time: every PVWA, every CPM, then the other components. A
-    configuration with execution.mode Sequential installs one component after the other instead:
-    Active Directory, domain joins, Vault and DR, then PVWA, CPM, PSM, PSMP.
+    time. A step that signs in to the Vault waits until the Primary Vault is installed; the
+    registrations then run one at a time, in this order: the first PVWA, the other PVWAs, every CPM,
+    then PSM and PSMP, and PTA last. The HTML5 Gateway is entered into the PVWA configuration when PVWA,
+    PSM and the gateway are installed. A server that fails stops only what depends on it. A configuration with execution.mode Sequential installs one component after the other instead:
+    Active Directory, domain joins, Vault and DR, then PVWA, CPM, PSM, PSMP, HTML5 Gateway, PTA.
 
     The command validates the configuration and the installer media and asks for confirmation. Only
     then it asks for every server account and password that -CredentialMap, -SecretMap or -LabPassword

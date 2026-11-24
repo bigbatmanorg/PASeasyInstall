@@ -169,8 +169,14 @@ Describe 'What a component of a parallel run waits for' {
     It 'starts a component that trusts the PVWA certificate only when every PVWA has one' {
         ((Get-Gate 'cpm01').StartAfter -join ',') | Should -Be 'Cert:pvwa01,Cert:pvwa02'
     }
-    It 'configures PTA only when every PVWA is finished' {
-        ((Get-Gate 'pta01').VaultAfter -join ',') | Should -Be 'Vault,Done:pvwa01,Done:pvwa02,Registered:cpm01'
+    It 'configures PTA only when every PVWA is finished, and after every PSM' {
+        ((Get-Gate 'pta01').VaultAfter -join ',') | Should -Be 'Vault,Done:pvwa01,Done:pvwa02,Registered:cpm01,Registered:psm01'
+    }
+    It 'lets PSM announce its registration, so that PTA registers last' {
+        # After the last of the three passes of its registration, not after the first.
+        ((Get-Gate 'psm01').StepSignals['register-pass3'] -join ',') | Should -Be 'Registered:psm01'
+        (Get-Gate 'psm01').StepSignals.ContainsKey('register') | Should -BeFalse
+        (Get-Gate 'psm01').DoneSignals | Should -Contain 'Registered:psm01'
     }
 }
 
@@ -224,6 +230,19 @@ Describe 'Signals and waiting of a parallel run' {
             # PTA publishes only its completion for PtaTrust; DR does not gate other lanes.
             @(Get-PASLaneOwedSignals -Config $Config -Lane $lane['h-pta']) | Should -Contain 'Done:pta01'
             @(Get-PASLaneOwedSignals -Config $Config -Lane $lane['dr']).Count | Should -Be 0
+
+            # PSM fails: its registration was only an order, so PTA still registers.
+            $pta = @($Config.components | Where-Object { $_.id -eq 'pta01' })[0]
+            $ptaNeeds = (Get-PASLaneComponentGate -Config $Config -Component $pta).VaultAfter
+            $signals = New-PASLaneSignals -Config $Config
+            try {
+                foreach ($name in 'Vault', 'Done:pvwa01', 'Registered:cpm01') { [void]$signals[$name].Set() }
+                $needs = @(Set-PASLaneFailed -Signals $signals -Owed (Get-PASLaneOwedSignals -Config $Config -Lane $lane['h-psm']) -Consumed @(Get-PASLaneConsumedSignals -Config $Config))
+                $needs | Should -Not -Contain 'Registered:psm01'
+                Wait-PASVaultGate (Get-PASLaneGate $signals $ptaNeeds) | Should -BeFalse
+            } finally {
+                foreach ($signal in @($signals.Values)) { $signal.Dispose() }
+            }
 
             # CPM fails: its registration was only an order, so PSM goes on.
             $signals = New-PASLaneSignals -Config $Config
