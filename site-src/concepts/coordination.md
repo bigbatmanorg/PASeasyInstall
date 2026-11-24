@@ -22,8 +22,9 @@ again when you resume it. Another run that reaches the server stops as **Blocked
 
 ```text
 PAExecLocked: server 192.0.2.22 ('cpm01') is locked by run <run id>. Either resume that run
-(Resume-PASRun -RunId <run id>), or release it (Stop-PASRun -RunId <run id>), or, if that run no longer
-exists on this controller, delete the lock folder <folder> on 192.0.2.22.
+(Resume-PASRun -RunId <run id>), or abandon it (Stop-PASRun -RunId <run id>) and, once the server is
+restored, release its locks (Stop-PASRun -RunId <run id> -ReleaseLocksAfterReset -CredentialMap <accounts>),
+or, if that run no longer exists on this controller, delete the lock folder <folder> on 192.0.2.22.
 ```
 
 On a Linux server that the other run already hardened, the sign-in with the password may fail before the lock

@@ -71,7 +71,7 @@ not be in one place: add one after the other, by typing a path or with **Choose 
 
 ![Media step: two places were added, and the window lists what it found in them](site-src/assets/window/04-media-sources.png)
 
-**2. Lab.** Choose **Primary Vault** or **Primary + DR Vault**, then set with **+** and **−** how many PVWA, CPM,
+**2. Lab.** Choose **New Vault** or **New Vault with DR**, then set with **+** and **−** how many PVWA, CPM,
 PSM, PSM for SSH, HTML5 Gateway and PTA servers you want. CPM can share the PVWA server and the HTML5 Gateway the
 PSM for SSH server. **Advanced** (top right) adds an Active Directory domain, an existing Vault and a few more
 options.
@@ -209,6 +209,11 @@ What was tested in a lab, and how: [Docs/VALIDATION.md](Docs/VALIDATION.md).
 .\Tools\Build-PortableRelease.ps1           # the Gallery package and the portable ZIP, under .\dist
 ```
 
+```bash
+python3 Tools/Build-CommandPages.py .       # site-src/commands/*.md from the comment-based help
+python3 Tools/Check-DocLinks.py .           # links, images and command names of README.md and the site
+```
+
 ```text
 PASeasyInstall/            the module (no dependencies)
   Public/                  one file per command
@@ -226,5 +231,7 @@ Rules for contributors: [AGENTS.md](AGENTS.md).
 
 ## License
 
-MIT, see [LICENSE](LICENSE). CyberArk and the names of CyberArk products are trademarks of CyberArk Software Ltd.
+MIT, see [LICENSE](LICENSE). Parts of the step engine and of the Vault recipes come from the MIT-licensed
+projects PSSteps and PAS Installer; their license texts ship with the module
+(`PASeasyInstall/THIRD_PARTY_*_LICENSE.txt`). CyberArk and the names of CyberArk products are trademarks of CyberArk Software Ltd.
 They are used here only to describe what this tool installs.

@@ -1,7 +1,6 @@
 # PASeasyInstall — Lab release qualification report
 
-**Source ZIP / SHA256:**
-**Source revision and modified diff:**
+**Source revision (git commit) and any local changes:**
 **Controller OS / PowerShell / Pester:**
 **Proxmox version / allowed nodes, VMIDs, template+snapshot IDs:**
 **Media version(s) and package digest metadata (no licensed media files):**

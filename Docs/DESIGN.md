@@ -66,6 +66,7 @@ of a workflow. An **attempt** is one execution of a step on the server.
 | `controller.lock` | the run lock (empty file, held open by the controller) |
 | `credentials-<guid>.json` | DPAPI envelope; exists only until the controller has read it |
 | `Payloads\<target>\` | frozen recipe copies, `Workflows\<target>.psd1`, `inventory.psd1` |
+| `Payloads\VaultFrozen\` | frozen copy of `Recipes/Vault` for the whole run, with `freeze.json` (SHA-256 of every file) |
 | `vault-inventory.psd1`, `join-<server>-inventory.psd1`, `trust-<pta>-inventory.psd1`, ... | inventories of the Vault sequence, domain joins and integrations |
 | `<target>\state.json`, `<target>\events.jsonl` | journal and events of one engine target |
 | `milestones\<name>.json` | published by Vault steps that another target waits for (`primary-keys`, `primary-ready`, `test-safe-created`) |
@@ -110,7 +111,7 @@ certificate bundle). Nothing else coordinates runs.
   stay one after the other. One more lane, `integrations`, runs gateway registration and PTA trust.
 - **Signals** (`ManualResetEvent`s, set once): `Domain` (forest installed), `Vault` (Primary installed,
   hardened and verified), `Cert:<pvwa>` (its step `certificate`), `PvwaRegistered` (the first PVWA finished
-  `register`), `Registered:<id>` (a PVWA, CPM, PSM or PSMP finished `register`), `Done:<id>` (every component,
+  `register`), `Registered:<id>` (a PVWA, CPM, PSM or PSMP finished `register`; PSM: its last pass, `register-pass3`), `Done:<id>` (every component,
   installed and verified), `Fail:<signal>` for every need, and `Cancel` (the lanes are taken down). A signal
   nothing in the run will produce (no forest, no Vault, no PVWA) is set from the start.
 - **Gates** (`Get-PASLaneComponentGate`): `StartAfter` (before the component starts) and `VaultAfter` (before
@@ -157,7 +158,8 @@ certificate bundle). Nothing else coordinates runs.
 - **Resume** (`Resume-PASRun`): allowed for Failed, Unknown, Interrupted, LaunchFailed, Blocked. The controller
   refuses if `ConfigDigest` or `MediaDigest` changed. Module files may change (there is no source digest).
   The engine pins a digest of workflow + scripts + inventory per target: PVWA, CPM, PSM, PSMP, HTML5GW, PTA, AD
-  and the integrations run from the frozen copies in `Payloads\`, Vault targets read the module (see debt).
+  and the integrations run from the frozen copies in `Payloads\<target>\`, the Vault targets from
+  `Payloads\VaultFrozen\` (checked against its `freeze.json`). An update of the module does not change a started run.
   Succeeded steps are only revalidated (read-only). A step that was dispatched is reconciled by its attempt id,
   never started twice.
 - **Retry**: a Failed or Unknown step is not repeated on resume. `-RetryStep <step>` or `<component>:<step>`
@@ -241,14 +243,9 @@ to PTA under each of those names; a missing hosts entry fails there. When PVWA's
 - Transient vendor failures (for example a LanmanServer restart timeout in PSM hardening) need an operator
   `-RetryStep`, by design.
 - Anti-tamper ACL code (owner/ACL checks of staging folders) is duplicated in about 8 places; not consolidated.
-- Unused PTA shell branches still exist in `Recipes/LinuxComponent/Task.sh` and `Verify.sh`; PTA has its own
-  recipe in `Recipes/Pta` now.
 - Install paths are hard-coded (`C:\` drive, `C:\ProgramData\...`, `/opt/paeasyinstall`).
-- Vault recipes are read from the module at resume, not from a per-run copy: editing them blocks the resume of
-  Vault targets (digest mismatch).
 - On-disk and remote names still say `PAExec` / `paeasyinstall` (stage root, task path, lock folders, endpoint name).
 - Error-prefix strings `PAExecUnknown:` / `PAExecLocked:` / `PASLaneStopped:` are used for control flow instead
   of typed errors.
-- Some code comments and messages still name the internal commands (`Stop-PASDeployment`) or a parallel
-  design page that no longer exists.
+- A few code comments still name the internal commands (`Start-/Resume-/Stop-PASDeployment`).
 - Much of `Private/` is dense one-line code from 1.0; only new code follows "one statement per line".

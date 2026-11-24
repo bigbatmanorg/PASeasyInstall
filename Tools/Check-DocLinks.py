@@ -1,6 +1,6 @@
 # Checks every relative link and image of README.md and the site pages: the file must exist, and an anchor must
 # be a heading (or an explicit { #id }) of the target page. Also lists commands named in the docs that do not exist.
-# Usage: check_links.py <repository root>
+# Usage: python3 Tools/Check-DocLinks.py <repository root>
 import os, re, sys, glob
 root = sys.argv[1]
 
@@ -44,6 +44,8 @@ for page in pages:
 commands = {os.path.basename(f)[:-4] for f in glob.glob(os.path.join(root, 'PASeasyInstall', 'Public', '*.ps1'))}
 verbs = 'Install|Get|New|Test|Export|Import|Resume|Stop|Wait|Start'
 for page in pages:
+    if os.path.basename(page) == 'release-notes.md':
+        continue  # names the 1.0 commands that 2.0 replaced, on purpose
     text = open(page, encoding='utf-8').read()
     for name in sorted(set(re.findall(r'\b((?:%s)-PAS\w+)' % verbs, text))):
         if name not in commands:
