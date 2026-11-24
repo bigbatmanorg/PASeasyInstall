@@ -231,7 +231,6 @@ function Get-PASPsmpVariantForOs {
     if (($Id -in @('rhel', 'rocky', 'almalinux', 'centos', 'ol') -or
             $IdLike -match '(^|\s)rhel(\s|$)') -and
         $major -in @('8', '9')) { return 'RHELinux' + $major }
-    if ($Id -match '^sles' -and $major -eq '15') { return 'SLES15' }
     return ''
 }
 
@@ -254,7 +253,7 @@ function Select-PASPsmpMediaForHost {
     if ($r.ExitCode -ne 0 -or -not $osId) { throw "Cannot read the operating system of $($HostRecord.address): $($r.Output)" }
     $want = Get-PASPsmpVariantForOs $osId $osVer ([string]$os['ID_LIKE'])
     $pretty = if ($os['PRETTY_NAME']) { [string]$os['PRETTY_NAME'] }else { "$osId $osVer" }
-    if (-not $want) { throw "PSMP does not support $pretty on $($HostRecord.address) (supported: Ubuntu 22/24, RHEL-family 8/9, SLES 15)." }
+    if (-not $want) { throw "PSMP does not support $pretty on $($HostRecord.address) (supported: Ubuntu 22.04/24.04, RHEL/Rocky 8/9)." }
     if ($want -eq $have) { return }
     $wantName = $name -replace ('(?i)SSHProxy-' + [regex]::Escape($have) + '-'), ('SSHProxy-' + $want + '-')
     $found = ''

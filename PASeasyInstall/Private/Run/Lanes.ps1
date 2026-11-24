@@ -9,7 +9,7 @@
 #             Vault           the Primary Vault is installed, hardened and verified (set from the start when
 #                             the run installs none). The DR Vault is not waited for.
 #             PvwaRegistered  the first PVWA finished its step 'register'
-#             Registered:<id> PVWA, CPM, PSM or PSMP <id> finished its step 'register'
+#             Registered:<id> PVWA, CPM, PSM or PSMP <id> finished its step 'register' (PSM: 'register-pass3')
 #             Cert:<id>       PVWA <id> has its HTTPS certificate (its first step, 'certificate')
 #             Done:<id>       component <id> is installed and verified
 #             Fail:<signal>   the lane that would have set <signal> failed: who waits for it gives up

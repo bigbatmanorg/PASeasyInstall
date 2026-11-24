@@ -1,5 +1,5 @@
 # Renders the command reference pages of the site from the comment-based help of the public commands.
-# Usage: gen_commands.py <repository root>
+# Usage: python3 Tools/Build-CommandPages.py <repository root>
 import re, sys, os
 root = sys.argv[1]
 

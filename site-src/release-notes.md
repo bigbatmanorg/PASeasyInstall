@@ -1,5 +1,23 @@
 # Release notes
 
+## 2.0.13
+
+A clean-up release: what is in the repository is what the tool uses. Nothing changes in how a lab is installed.
+
+- **Dead code removed.** The PSM for SSH recipe (`Recipes/LinuxComponent`) still carried an older PTA
+  installation that nothing called any more; PTA has its own recipe (`Recipes/Pta`) since 2.0.4. About 600
+  lines of shell code are gone; the PSM for SSH steps are unchanged.
+- **Obsolete helper files removed:** an old agent prompt and structure check for lab validation, a one-time
+  source reformatter, and duplicate copies of the third-party license texts and their provenance record (the
+  license texts still ship with the module; the README names the projects).
+- **The PSM for SSH server check no longer names SLES 15.** Its message listed SLES 15 as supported, but the
+  installation steps accept only Ubuntu 22.04/24.04 and RHEL/Rocky 8/9; a SLES server is now refused at the
+  check with the right list.
+- **Documentation brought up to date** with the code: the Vault steps of a run also run from copies kept with
+  the run (an update of PASeasyInstall does not change a started run), the full text of the *locked by run*
+  message, when PSM counts as registered (after its last pass), the Vault choices of the window in the README,
+  the lab validation folder and the development section of the README.
+
 ## 2.0.12
 
 From the owner's lab run of 2026-11-24 (2.0.11, nine servers).

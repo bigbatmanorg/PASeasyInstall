@@ -128,8 +128,8 @@ finished, then continue the run.
 
 ### "Cannot resume: workflow, scripts or inventory changed since run began"
 
-PASeasyInstall was updated, or its files were changed, after the run started. A server is never continued with
-different scripts. Reset that server to its clean state and start a new run.
+The copies of the scripts that the run keeps in its `Payloads` folder were changed after the run started. A
+server is never continued with different scripts. Reset that server to its clean state and start a new run.
 
 ### "The configuration of this run changed" / "The installer media changed"
 

@@ -26,7 +26,7 @@ They leave no file and end with the process.
 | `Vault` | the Primary Vault is installed, hardened and verified (set from the start when the run installs no Vault) |
 | `Cert:<pvwa>` | that PVWA has its HTTPS certificate (its first step) |
 | `PvwaRegistered` | the first PVWA finished its step `register` |
-| `Registered:<id>` | that PVWA, CPM, PSM or PSM for SSH finished its step `register` |
+| `Registered:<id>` | that PVWA, CPM, PSM or PSM for SSH finished its step `register` (PSM: its last pass, `register-pass3`) |
 | `Done:<id>` | that component is installed and verified |
 
 Most signals are **needs**: who waits for one is not installed when it never comes. `Registered:<id>` is only

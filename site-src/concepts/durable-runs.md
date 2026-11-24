@@ -84,9 +84,8 @@ missing package there.
 - **The configuration and the installers may not change.** Resume compares them with what the run saved and
   refuses a difference. Start a new run instead.
 - **The scripts of a server may not change either.** Each server's steps and scripts are fixed when the server
-  is first worked on. PVWA, CPM, PSM and the Linux components run from copies kept with the run; the Vault steps
-  are read from the module, so after an update of PASeasyInstall a run that stopped in the Vault part cannot be
-  continued. Reset that server and start a new run.
+  is first worked on: every server, the Vault included, runs from copies kept with the run. An update of
+  PASeasyInstall does not change a run that already started.
 
 ## Restarts of a server
 
