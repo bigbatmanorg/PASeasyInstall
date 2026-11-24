@@ -7,7 +7,7 @@ function Get-PASStageCatalog {
     see as Stage in Get-PASRunEvent and that Resume-PASRun -RetryStep accepts.
 
     The list is read from what the installer really runs: the Vault and DR workflow files of the
-    module, and the step list the workflow generator uses for PVWA, CPM, PSM, PSMP and AD.
+    module, and the step list the workflow generator uses for PVWA, CPM, PSM, PSMP, HTML5GW, PTA and AD.
     DomainJoin lists the steps that join one server to the domain.
     Not listed, because they depend on the run: the extra passes and restarts of a PSM stage
     (<stage>-pass2, <stage>-reboot), the upload of a certificate pinned by CPM (pvwa-trust-certificate)

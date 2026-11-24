@@ -6,8 +6,8 @@ Installs a **new Primary Vault** on a dedicated Windows Server 2022 that is not 
 Install-PASVault -ComputerName 192.0.2.11 -MediaPath D:\CyberArk -SecurityProfile Lab -Wait
 ```
 
-In a lab configuration: `-VaultMode Primary -PrimaryAddress 192.0.2.11`. In the window: *New Vault* or
-*New Vault with DR* on the Lab step.
+In a lab configuration: `-VaultMode Primary -PrimaryAddress 192.0.2.11`. In the window: **New Vault** or
+**New Vault with DR** on the Lab step.
 
 ## What it needs
 
@@ -39,7 +39,8 @@ In a lab configuration: `-VaultMode Primary -PrimaryAddress 192.0.2.11`. In the 
 | `verify-primary` | After the restart: the server is up, the Vault services run, a sign-in with PACLI works |
 
 The other servers of a lab are installed while this runs. Their registrations start when `verify-primary` has
-finished (with a DR Vault: when the [DR Vault](dr.md) is replicating).
+finished. They do not wait for a [DR Vault](dr.md). With a DR Vault, the Primary also creates a small test safe
+(`create-test-safe`) once the DR Vault replicates, to prove the replication.
 
 ## After the installation
 

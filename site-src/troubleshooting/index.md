@@ -4,8 +4,10 @@ Messages that were really seen while building labs, and what to do. Start with w
 
 === "In the window"
 
-    The installation page shows the step that stopped and the installer's own error text. See
-    [When it stopped](../gui/run.md#stopped).
+    The installation page says **The installation stopped.**, names the step and the component, and shows the
+    installer's own error text. Correct the cause, then press **Try this step again**, or **Continue without
+    repeating it** when the step did finish on the server after all. **Save the logs as a ZIP** keeps the logs. See
+    [The installation page](../gui/run.md).
 
 === "From the prompt"
 
@@ -27,6 +29,25 @@ Resume-PASRun -RunId <id> -RetryStep cpm01:install    # also run this failed ste
 Why it works like this: [Runs and resume](../concepts/durable-runs.md).
 
 ## Before the installation
+
+### Nothing is recognised on the Media step
+
+The window says **No CyberArk installer was recognised.** The folder holds an unpacked copy, or files whose
+names were changed. Add the folder with the ZIP files as downloaded from CyberArk. Files are recognised by
+their names.
+
+### A package is marked as damaged
+
+On the Media step a part shows **DAMAGED: not a complete ZIP file**, or **Not used, because damaged**. The
+package was cut off while it was downloaded or copied. When another copy is there, the window uses it and says
+so. When the damaged one is the only copy, download it again, or add another folder or file that holds a good
+copy with **Add**. In the test lab the HTML5 Gateway package inside one 15.2 bundle was damaged; a 15.0 gateway
+package added as a second place worked.
+
+### "Several copies of the VC++ runtime were found"
+
+The media you added holds `VC_redist.x86.exe` or `VC_redist.x64.exe` more than once outside the packages. Keep
+one copy of each, or add the media folder itself instead of its parent.
 
 ### The server check says a server does not answer
 
@@ -53,17 +74,8 @@ it runs as root. Enter `root`.
 ### "Accept the CyberArk license agreement ..."
 
 The lab has a PSM for SSH, an HTML5 Gateway or PTA, and the license agreement of their installers was not
-accepted. Tick the box on the Servers step of the window, or pass `-AcceptEula` to `New-PASLabConfiguration` or
-`Install-PASPSMP`.
-
-### "Several copies of the VC++ runtime were found"
-
-The media you added holds `VC_redist.x86.exe` or `VC_redist.x64.exe` more than once outside the packages. Keep
-one copy of each.
-
-### Nothing is recognised on the Media step
-
-The folder holds an unpacked copy. Add the folder with the ZIP files as downloaded from CyberArk.
+accepted. Tick the box under **Vault** on the Servers step of the window, or pass `-AcceptEula` to
+`New-PASLabConfiguration` or `Install-PASPSMP`.
 
 ### "The controller could not be started ..." (Windows DPAPI) { #the-controller-could-not-be-started-windows-dpapi }
 
@@ -74,34 +86,36 @@ or through remote desktop.
 
 ### "Environment '...' is being deployed right now by run ..."
 
-Another installation of the same lab name is working on this controller. Wait for it
+Another installation of the same lab name is running on this controller. Wait for it
 (`Wait-PASRun -RunId <id>`), or stop it with `Stop-PASRun -RunId <id> -Force`.
 
 ## During the installation
 
 ### "PAExecLocked: server ... is locked by run ..." (the run is Blocked)
 
-An earlier run started on this server and did not finish. It left its lock there on purpose, so that no other
-run touches a half-installed server. Choose one:
+An earlier run worked on this server and did not finish. It left a lock folder there on purpose, so that no
+other run touches a half-installed server. Choose one:
 
 - Continue the earlier run: `Resume-PASRun -RunId <that run id>`.
-- Abandon the run while retaining its locks: `Stop-PASRun -RunId <that run id>`.
-- Only **after the affected lab VMs are restored/rebuilt** may you explicitly clean stale locks: `Stop-PASRun -RunId <that run id> -ReleaseLocksAfterReset -CredentialMap $creds`. Never infer remote worker termination from controller termination.
-- If you reset the servers to their clean state, the lock is gone with it; start a new run.
+- Give the earlier run up: `Stop-PASRun -RunId <that run id>`. The run is marked Abandoned; its locks stay.
+- Reset the servers to their clean snapshot. Then, and only then, release the locks:
+  `Stop-PASRun -RunId <that run id> -ReleaseLocksAfterReset -CredentialMap $creds`, and start a new run. A
+  worker on a server can outlive its controller, so never release locks of servers you did not reset.
 
-Then resume the blocked run. More: [Locks](../concepts/coordination.md).
+More: [Locks](../concepts/coordination.md).
 
-### "Nothing was started for this step" on other servers
+### "Not continued: a server it depends on failed"
 
-One server failed. The servers that were waiting for their turn at the Vault gave up; nothing was started for
-them. That is how a run that installs the servers at the same time stops. Look for the step that really
-failed (`Get-PASRunEvent -RunId <id> -Failed`), correct it, and resume: every server continues.
+The window shows this for the other servers when one server failed; from the prompt the message is
+`PASLaneStopped: ... Nothing was started for this step.` The servers that were waiting for the failed one
+gave up, and nothing was started for them. Look for the step that really failed
+(`Get-PASRunEvent -RunId <id> -Failed`), correct it, and try that step again: every server continues.
 
 ### "SSH observation timed out; target work was not stopped" { #ssh-observation-timed-out }
 
-The controller did not get an answer from a Linux server within two minutes, and the state of the step is
-Unknown. Seen once, while five servers were being installed; the cause is not known. Look at the server: if it
-answers again, run the step again by name:
+The controller did not get an answer from a Linux server in time, and the state of the step is Unknown. Seen
+once, while five servers were being installed; the cause is not known. Look at the server: if it answers
+again, run the step again by name:
 
 ```powershell
 Resume-PASRun -RunId <id> -RetryStep <component id>:<step>
@@ -109,19 +123,19 @@ Resume-PASRun -RunId <id> -RetryStep <component id>:<step>
 
 ### "Vault ... is in use by another PASeasyInstall controller on this machine"
 
-Another run on this controller was signed in to the Vault for more than three minutes. Wait until it is past
-that step, then resume.
+Another run or a lab check on this controller held the Vault longer than this step waited. Wait until it has
+finished, then continue the run.
 
 ### "Cannot resume: workflow, scripts or inventory changed since run began"
 
-PASeasyInstall was updated, or the source was changed, after the run started. A server is never continued with
+PASeasyInstall was updated, or its files were changed, after the run started. A server is never continued with
 different scripts. Reset that server to its clean state and start a new run.
 
 ### "The configuration of this run changed" / "The installer media changed"
 
 A run installs exactly what was planned. Put the original files back, or start a new run.
 
-### Linux: "unzip required"
+### Linux: "unzip required and could not be installed"
 
 The server has no `unzip` and its package sources could not be reached to install it. Make them reachable, or
 install `unzip` yourself, then:
@@ -136,23 +150,30 @@ Another PSM for SSH server with the same host name is registered. Give each one 
 server is gone, remove its users `PSMPApp_<host>`, `PSMPGW_<host>` and `PSMP_ADB_<host>` in PVWA
 (Administration, Users), then run the step again.
 
-### HTML5 Gateway stops at `extract`
-
-The gateway package inside the 15.2 big ZIP is cut short. Use the complete 15.0 package; see
-[HTML5 Gateway](../components/html5gw.md#media).
-
 ### The controller was closed or restarted during an installation
 
 Nothing to do in a hurry. The step that was running goes on, on the server. Look at the run
-(`Get-PASRun -RunId <id>`, or open it in the window). If it is Interrupted, resume it. What ran is found again
-and not repeated.
+(`Get-PASRun -RunId <id>`, or open it from the start page of the window). If it is Interrupted, continue it.
+What ran is found again and not repeated.
 
 ## After the installation
 
 ### A component is not connected in the lab check { #a-component-is-not-connected-in-the-lab-check }
 
 The server is off, cannot reach the Vault on port 1858, or the Vault was restarted underneath it. Check the
-service of the component on its server, then the network. For PVWA see the next entry.
+service of the component on its server, then the network. For PVWA and PTA see the next entries.
+
+### "PTA is registered in the Vault, but PVWA cannot reach it ..."
+
+PVWA reaches PTA under the host name PTA registered in the Vault, which is the name in PTA's certificate. The
+installation adds a hosts entry for that name on the first PVWA server and checks it with a real HTTPS call.
+If you see this message, that name does not lead to PTA from the PVWA server (for example, PTA's address or
+host name changed, or another PVWA server is used): add the name to DNS or to the hosts file of the PVWA
+server, and make sure PVWA reaches PTA on port 443.
+
+Labs installed with version 2.0.10 or earlier, whose PTA host name differs from the name typed in the window,
+show PTA as not connected and the older message "No PTA is registered in the Vault". Add the hosts entry on the
+PVWA server by hand, or build the lab again.
 
 ### PVWA: "PASWS383E Vault is currently under maintenance mode"
 

@@ -324,8 +324,9 @@ namespace PASeasyInstall {
                     Total = [int]$_.ComponentTotalCount
                 } })
         $rows = @()
+        $unreadable = @{}
         foreach ($id in @('PVWA', 'CPM', 'SessionManagement', 'PTA')) {
-            try { $d = Invoke-RestMethod -Uri ($api + '/ComponentsMonitoringDetails/' + $id) -Headers $headers -TimeoutSec $TimeoutSeconds -ErrorAction Stop }catch { continue }
+            try { $d = Invoke-RestMethod -Uri ($api + '/ComponentsMonitoringDetails/' + $id) -Headers $headers -TimeoutSec $TimeoutSeconds -ErrorAction Stop }catch { $unreadable[$id] = [string]$_.Exception.Message; continue }
             foreach ($x in @($d.ComponentsDetails)) {
                 $rows += [pscustomobject]@{
                     Component = $id
@@ -342,7 +343,15 @@ namespace PASeasyInstall {
         $expectedTypes = @($c.components | Where-Object { $_ } | ForEach-Object { [string]$_.type })
         foreach ($t in @('PVWA', 'CPM', 'PTA')) {
             if ($expectedTypes -contains $t -and
-                -not @($rows | Where-Object { $_.Component -eq $t }).Count) { [void]$issues.Add("No $t is registered in the Vault") }
+                -not @($rows | Where-Object { $_.Component -eq $t }).Count) {
+                $counted = @($result.Summary | Where-Object { $_.Component -eq $t })[0]
+                if ($t -eq 'PTA' -and $counted -and $counted.Total -gt 0 -and $unreadable.ContainsKey('PTA')) {
+                    # PVWA asks PTA itself for these details, under the name PTA registered (its host name).
+                    [void]$issues.Add("PTA is registered in the Vault ($($counted.Connected) of $($counted.Total) connected), but PVWA cannot reach it: PVWA must resolve the host name of the PTA server and trust its certificate ($($unreadable['PTA']))")
+                } else {
+                    [void]$issues.Add("No $t is registered in the Vault")
+                }
+            }
         }
         # Every instance of the configuration must be registered: two PVWAs in the configuration, two in the Vault.
         foreach ($t in @('PVWA', 'CPM')) {
@@ -403,7 +412,9 @@ function Get-PASRunDataSecretHits {
     param([string]$Text)
     $hits = @()
     if ($Text -match '-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----') { $hits += 'private key' }
-    if ($Text.Contains(( -join [char[]](67, 121, 98, 101, 114, 97, 114, 107, 48, 49, 33)))) { $hits += 'lab password' }
+    # The lab password the operator gave this process (never a password written into the source).
+    $labPassword = [string]$env:PASEASY_LAB_PASSWORD
+    if ($labPassword.Length -ge 4 -and $Text.Contains($labPassword)) { $hits += 'lab password' }
     if ($Text -match '"cipher"\s*:\s*"[0-9a-fA-F]{40,}') { $hits += 'DPAPI credential cipher' }
     if ($Text -match '(?i)"(password|secret|apikey)"\s*:\s*"[^"]{4,}"') { $hits += 'password field' }
     return $hits

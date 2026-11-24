@@ -534,9 +534,9 @@ function Get-PASRunEvent {
 }
 
 function Stop-PASRun {
-    <# Simulated: a running run ends now with status Abandoned. #>
+    <# Simulated: a running run ends now with status Abandoned (the real command needs -Force for that). #>
     [CmdletBinding(SupportsShouldProcess = $true)]
-    param([Parameter(Mandatory)][string]$RunId)
+    param([Parameter(Mandatory)][string]$RunId, [switch]$Force)
     $run = Get-PASMockRun $RunId
     $clock = Get-PASMockClock $run
     if ($clock.Finished) {

@@ -2,7 +2,7 @@ function New-PASLabConfiguration {
     <#
     .SYNOPSIS
     Composes the configuration of a lab: the Vault (new Primary, Primary and DR, or an existing Vault)
-    and any number of PVWA, CPM, PSM and PSMP servers. Nothing is contacted or installed.
+    and up to 4 each of PVWA, CPM, PSM, PSMP, HTML5 Gateway and PTA. Nothing is contacted or installed.
     .DESCRIPTION
     Returns the configuration as an ordered hashtable. Check it with Test-PASLabConfiguration, look at
     the result with Get-PASLabPlan, save it with Export-PASLabConfiguration and install it with
@@ -41,11 +41,13 @@ function New-PASLabConfiguration {
     Default Linux account name. Default: root (PSMP is installed as root).
     .PARAMETER Media
     The installers to use: @{ Vault = item; PACLI = item; DR = item; PVWA = item; CPM = item; PSM = item;
-    PSMP = item; License = item; RecoveryKey = item }. An item is an object from Get-PASMediaInventory,
+    PSMP = item; HTML5GW = item; PTA = item; License = item; RecoveryKey = item }. Only the ones the lab
+    needs. An item is an object from Get-PASMediaInventory,
     @{ Path = ...; Entry = ... } or a plain file path. Get-PASMediaSelection builds this hashtable.
     .PARAMETER ExecutionMode
     Parallel (default): the servers are installed at the same time; the steps that sign in to the Vault wait
-    until the Vault is installed and then run one at a time. Sequential: one component after the other.
+    until the Primary Vault is installed and then run one at a time (PVWA, CPM, PSM and PSMP, PTA last).
+    Sequential: one component after the other.
     .PARAMETER PrimaryUsername
     Windows account name for the Primary Vault server, if it differs from -Username.
     .PARAMETER DRUsername
@@ -54,6 +56,7 @@ function New-PASLabConfiguration {
     Secure (default) or Lab. Lab adds the explicit, audited deviations a template-built lab needs:
     self-signed WinRM certificates, RDP to the Vault from the controller, a self-signed PVWA
     certificate that CPM pins.
+    Only the Lab profile was tested; Secure is not qualified.
     .PARAMETER AcceptEula
     Confirms that you read and accept the CyberArk end user license agreement of the PSMP, HTML5 Gateway and PTA installers.
     Required when the lab contains a PSMP, an HTML5 Gateway or PTA.

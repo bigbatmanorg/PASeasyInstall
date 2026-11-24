@@ -8,7 +8,7 @@ Install-PASCPM -ComputerName 192.0.2.22 -VaultAddress 192.0.2.11 -MediaPath D:\C
 ```
 
 In a lab configuration: `@{ Type = 'CPM'; Name = 'CPM01'; Address = '192.0.2.21' }`. An instance with the
-address of the PVWA instance shares its server. In the window: *Install CPM on the PVWA server* on the Lab step.
+address of the PVWA instance shares its server. In the window: **Install CPM on the PVWA server (one server less)** on the Lab step, on by default.
 
 ## What it needs
 
@@ -18,6 +18,8 @@ address of the PVWA instance shares its server. In the window: *Install CPM on t
   Vault. With the Lab profile the installer copies the public certificate of the lab PVWA and CPM trusts exactly
   that certificate (shown as the lab shortcut `CPM.AllowPinnedLeafTrust`). With `Install-PASCPM` alone, pass it
   with `-PvwaCertificateFile`.
+- **To reach PVWA by name.** The CPM scanner calls PVWA under the computer name PVWA registered in the Vault.
+  With the Lab profile the CPM server gets a hosts entry for every PVWA name it cannot resolve.
 
 ## Steps
 

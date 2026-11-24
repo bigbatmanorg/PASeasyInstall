@@ -2,7 +2,7 @@
 
 An installation is a **run**. It executes in its own process on the controller and has a run id of 32
 characters. These commands list, follow, continue and give up runs. They read the files of the run; only
-`Resume-PASRun` and `Stop-PASRun -CredentialMap` contact servers.
+`Resume-PASRun` and `Stop-PASRun -ReleaseLocksAfterReset` contact servers.
 
 See also [Runs and resume](../concepts/durable-runs.md) and [Locks](../concepts/coordination.md).
 
@@ -146,7 +146,7 @@ Abandons a run, retaining target locks unless the lab machines were reset.
 
 A run that stopped (Failed, Unknown, Blocked, Interrupted, LaunchFailed) keeps a lock folder on every server it did not finish, so that no other run touches a half-installed server. Stop-PASRun marks the run abandoned, but keeps the locks by default. A detached remote worker can outlive its controller. Restore or rebuild affected VMs before explicitly releasing the locks.
 
-- A run that is still running is refused, unless you add -Force: then the controller process of this run is stopped first.
+- A run that is still running is refused, unless you add -Force: then the controller process of this run is stopped first (only a process whose id and start time match the run). The steps already started on the servers may go on, and the target locks stay.
 - The run is marked Abandoned. An abandoned run cannot be resumed.
 - Pass -ReleaseLocksAfterReset AND -CredentialMap only after restoring/rebuilding the affected lab VMs. Locks still held by another run are never released. Without both parameters the locks remain.
 
@@ -162,10 +162,16 @@ Returns RunId, Status, PreviousStatus, ControllerStopped and Locks (Target, Comp
 | `-ReleaseLocksAfterReset` | Explicitly release locks after all affected lab targets have been reset/rebuilt. Not safe otherwise. |
 
 ```powershell
-Stop-PASRun -RunId 83cf015f78bd4743a54e6d0a9d0dd301 -CredentialMap @{ vault01 = (Get-Credential Administrator) }
+Stop-PASRun -RunId 83cf015f78bd4743a54e6d0a9d0dd301
 ```
 
-Gives up a failed run but leaves the remote target locks in place.
+Gives up a failed run. Contacts no server; the target locks stay and are listed.
+
+```powershell
+Stop-PASRun -RunId 83cf015f78bd4743a54e6d0a9d0dd301 -ReleaseLocksAfterReset -CredentialMap @{ cpm01 = (Get-Credential Administrator) }
+```
+
+After you reset or rebuilt the lab servers of that run: gives the run up and removes the lock folders of this run that are still there. A lock that names another run is left alone.
 
 ```powershell
 Get-PASRun | Where-Object Status -eq 'Running' | Stop-PASRun -Force

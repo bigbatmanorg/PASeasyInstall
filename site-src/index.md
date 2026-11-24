@@ -11,15 +11,7 @@ CyberArk installer media, name the servers and press **Install**. It installs, r
 Vault (or a Primary and DR pair), PVWA, CPM, PSM, PSM for SSH, and optionally the HTML5 Gateway, PTA and an Active
 Directory domain. Use the window, or one PowerShell command per step.
 
-<video id="pas-video" controls muted playsinline preload="metadata" width="100%" poster="assets/video/PASeasyInstall-demo-poster.png" aria-label="PASeasyInstall in 27 seconds">
-  <source src="assets/video/PASeasyInstall-demo.mp4" type="video/mp4">
-  Your browser cannot play this video. <a href="assets/video/PASeasyInstall-demo.mp4">Download it (MP4, 1 MB)</a>.
-</video>
-
-*PASeasyInstall in 27 seconds: media, lab, servers, install, lab check. An animated overview with simplified
-screens; the real window is shown page by page in [The window](gui/index.md).*
-
-![The installation page: every server is installed at the same time](assets/window/15-run-installing.png)
+![A finished lab of nine servers: every component is connected to the Vault](assets/window/19-lab-check.png)
 
 !!! warning "Made for labs"
     Training, demos, proofs of concept, testing upgrades and integrations. Production use is at your own risk.
@@ -40,7 +32,7 @@ screens; the real window is shown page by page in [The window](gui/index.md).*
 
 -   **[Your first lab](getting-started/first-lab.md)**
 
-    From five empty servers to a running lab, step by step, with the window or from the prompt.
+    From empty servers to a running lab, step by step, with the window or from the prompt.
 
 -   **[The window, page by page](gui/index.md)**
 
@@ -58,15 +50,16 @@ screens; the real window is shown page by page in [The window](gui/index.md).*
 | [CPM](components/cpm.md) | Windows Server 2022 | On the PVWA server or on its own |
 | [PSM](components/psm.md) | Windows Server 2022 | The vendor's restarts are handled for you |
 | [PSM for SSH](components/psmp.md) | Ubuntu 22.04/24.04, RHEL/Rocky 8/9 | |
-| [HTML5 Gateway](components/html5gw.md) | Linux with Docker or Podman | Experimental |
-| [PTA](components/pta.md) | RHEL/Rocky 8/9 with 8 GB | Experimental |
+| [HTML5 Gateway](components/html5gw.md) | Linux with Docker or Podman | Can share the PSM for SSH server |
+| [PTA](components/pta.md) | RHEL/Rocky/Alma 8/9 with 8 GB | Registered with the Vault and PVWA |
 | [Active Directory](components/ad.md) | Windows Server 2022 | A new domain, or joining one you have |
 
 ## How an installation runs
 
 - **Nothing happens before Install.** Finding media, planning and checking the servers change nothing.
 - **The servers are installed at the same time.** Only the steps that sign in to the Vault wait: until the Vault
-  is installed, and then one at a time. A Full lab with a DR Vault took 23 minutes in the test lab.
+  is installed, and then one at a time (PVWA, CPM, PSM and PSM for SSH, PTA last). A lab of nine servers with a
+  DR Vault, PTA and the HTML5 Gateway took about 19 minutes in the test lab.
   [Servers at the same time](concepts/parallel.md)
 - **An installation survives.** It runs in its own process and every step is recorded on the server. Close the
   window, restart the controller: the run goes on or is continued. A failed step is never repeated on its own.
@@ -79,9 +72,10 @@ screens; the real window is shown page by page in [The window](gui/index.md).*
 ## What was tested
 
 CyberArk PAM Self-Hosted 15.0 and 15.2 on Windows Server 2022, Ubuntu 24.04 and Rocky Linux 9, always with the
-**Lab** security profile. The Secure profile has never been run. The window was tested by script, also with real
-installations, but not tried by hand on a real desktop for every screen. The list of what was tested, and how, is
-in the repository: [Docs/STATUS.md](https://github.com/bigbatmanorg/PASeasyInstall/blob/main/Docs/STATUS.md).
+**Lab** security profile, on real servers from clean operating systems. The window was tested by walking it with
+real installations; the pictures on these pages are screens of such a run. The `Secure` profile of the commands is
+not qualified. The lab test record is in the repository:
+[Docs/VALIDATION.md](https://github.com/bigbatmanorg/PASeasyInstall/blob/main/Docs/VALIDATION.md).
 
 **Next:** [What you need](getting-started/requirements.md) · [Your first lab](getting-started/first-lab.md) ·
 [Commands](commands/index.md) · [Troubleshooting](troubleshooting/index.md) · [Release notes](release-notes.md)

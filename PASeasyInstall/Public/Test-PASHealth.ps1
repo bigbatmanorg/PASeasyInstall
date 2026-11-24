@@ -8,15 +8,21 @@ function Test-PASHealth {
       -PvwaCertificateFile is given or the configuration's CPM pins one (lab self-signed PVWA);
       when the PVWA name does not resolve on this controller, the check connects to the PVWA address
       of the configuration and sends the name, so no DNS record or hosts entry is needed;
-    - which components the Vault reports as logged on (PVWA, CPM, PSM, PSMP and PTA);
-    - "PASWS383E Vault is currently under maintenance mode". This usually means PVWA started before the
-      Vault was up; recycle the PasswordVaultWebAccessPool app pool on the PVWA server.
+    - which components the Vault reports as logged on (PVWA, CPM, PSM, PSMP and PTA), and that every
+      PVWA, CPM, PSM and PSMP of the configuration is registered;
+    - PTA: PVWA reads the PTA details from PTA itself, under the host name PTA registered (the name in
+      its certificate). When that call fails although PTA is registered, the issue is "PTA is registered
+      in the Vault (x of y connected), but PVWA cannot reach it": the PVWA server must resolve that name
+      and trust the PTA certificate;
+    - "PASWS383E Vault is currently under maintenance mode" at sign-in. This usually means PVWA started
+      before the Vault was up; recycle the PasswordVaultWebAccessPool app pool on the PVWA server.
+
     With -DRCredential it also reads the DR server's last PADR replication cycle over WinRM. With DR
     configured, component password rotation fails while DR is not replicating (CASTM057E).
 
     The session is serialised with running installations through the same Vault lock the installer
-    uses, and is always logged off. Credentials are used in memory only and are never written anywhere.
-    Nothing is changed in the lab.
+    uses (it waits up to 60 seconds for it), and is always logged off. Credentials are used in memory
+    only and are never written anywhere. Nothing is changed in the lab.
 
     Returns Healthy, CheckedUtc, Environment, ApiBaseUri, PvwaLogin, TlsValidation, Components,
     Summary, DR, Issues and Message.

@@ -113,6 +113,13 @@ Describe 'UI backend contract' {
             Import-PASTestModule
         }
     }
+    It 'stops a running installation with Stop-PASRun -Force (without it the command refuses a running run)' {
+        $text = Get-Content -LiteralPath (Join-Path $uiRoot 'App.ps1') -Raw
+        $calls = @([regex]::Matches($text, 'Stop-PASRun\s[^\r\n]*') | ForEach-Object { $_.Value })
+        $calls.Count | Should -BeGreaterThan 0
+        foreach ($call in $calls) { $call | Should -Match '-Force' }
+        $text | Should -Not -Match 'You can continue the installation later'
+    }
     It 'lists only public commands of the PASeasyInstall module' {
         . (Join-Path $uiRoot 'Backend/Backend.Contract.ps1')
         $public = @((Get-Command -Module PASeasyInstall).Name)

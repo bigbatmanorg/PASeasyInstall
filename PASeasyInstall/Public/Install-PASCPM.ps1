@@ -25,6 +25,7 @@ function Install-PASCPM {
     The CPM installer ZIP, or a folder or CyberArk bundle ZIP that contains it.
     .PARAMETER Name
     Name of the environment (letters, digits, dot, dash, underscore). Runs are listed under it.
+    Default: MyPAM.
     .PARAMETER Credential
     Local administrator of the server (or a domain account that is administrator there). Asked for
     when missing. The default account name is Administrator; to use another account pass it here.
@@ -35,6 +36,7 @@ function Install-PASCPM {
     .PARAMETER SecurityProfile
     Secure (default): WinRM over HTTPS with a trusted certificate. Lab: accepts self-signed WinRM
     certificates. Every lab deviation is listed as a warning.
+    Only the Lab profile was tested; Secure is not qualified.
     .PARAMETER Options
     Further recipe options as a hashtable. They are stored in the configuration (components[].options)
     and win over the defaults. Supported for CPM: installDirectory, cpmUser, vaultPort,

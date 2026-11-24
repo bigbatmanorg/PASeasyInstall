@@ -1,4 +1,44 @@
-# Lab validation, November 2026 (2.0.9 and 2.0.10)
+# Lab validation
+
+What was tested on real servers, newest first. Every run started from clean operating systems (Proxmox
+snapshots), with CyberArk PAM Self-Hosted media supplied locally; no CyberArk file is part of this repository.
+The run journals, lab check results and screenshots are kept by the owner outside the repository.
+
+## 2.0.11, 2026-11-24: full lab through the window, PTA connected
+
+| Item | Value |
+|---|---|
+| Lab | 9 servers: controller (Windows Server 2022), Vault, DR Vault, PVWA, PSM, CPM on its own server (all Windows Server 2022), PSM for SSH and HTML5 Gateway (Ubuntu 24.04, own servers), PTA (Rocky Linux 9.9, 8 GB) |
+| Media | PAM Self-Hosted 15.2 bundle (Vault 15.2.5, PVWA 15.2.3, CPM/PSM 15.2.4, PSMP 15.2.1, PTA 15.2.2), HTML5 Gateway 15.0 added as a second media folder (the gateway ZIP inside the 15.2 bundle was damaged) |
+| How | The window, walked by its `-SelfTest` mode with the Live backend, as a separate local user on the controller: media, lab (Primary + DR, one of each component, CPM and gateway on own servers), servers, server check, install, lab check. The names typed in the window (`pta01`, ...) differ from the real host names (`labpta01`, ...) as in the owner's run |
+| Unit tests | 706 passed, 0 failed (Windows PowerShell 5.1, Pester 5.9); `Check-Source` passes |
+
+**The problem (owner's run with 2.0.10, 21 minutes):** every component was installed and verified, but the lab
+check said *No PTA is registered in the Vault*. The Vault counted PTA (0 of 1 connected). PVWA asks PTA for its
+status under the host name PTA registered in the Vault (`https://labpta01/api/getauthtoken`), and PVWA could not
+resolve that name: the PTA trust step had written a hosts entry only for the name typed in the window (`pta01`).
+PVWA answered the lab check's PTA request with HTTP 503, and the lab check reported that as "not registered".
+Adding the hosts entry by hand on PVWA made PTA *connected* at once, which confirmed the cause.
+
+The same run showed PTA registering before PSM: PTA's vendor configuration holds the Vault for about three
+minutes while PSM waited, and the gateway registration waits for PSM.
+
+| Run | Code | Result | Time | Notes |
+|---|---|---|---|---|
+| Owner's run (8ff16e08…) | 2.0.10 | Lab check: *No PTA is registered in the Vault* | 21 min | Registration order PVWA, CPM, PSMP, **PTA (3 min), PSM** |
+| Run 1 (a0aaa6d9…) | PTA trust by certificate name, PTA after PSM/PSMP | **Healthy**, PTAAppUser 15.2.2 connected; walk 0 failures | 21 min | PTA took the Vault between PSM's first and second registration pass: PSM's two 12-second passes waited 3 minutes |
+| Run 2 (0af8f7e7…) | + PSM announces its registration after the last pass | Stopped *Unknown* at PSM `install-pass2` | – | The step had succeeded on the server (`status.json` Succeeded at 13:26:51.69); the controller read the old status, then saw no process and called it interrupted. A race in the status probe, older than this release. PTA correctly went on without PSM. |
+| Run 3 (253ee51e…) | + status read again before *Interrupted* (Windows and Linux) | **Healthy**, all 5 component users connected, PTA 1 of 1; walk 0 failures | **19 min** | Order PVWA, CPM, PSM (3 passes), PSMP, PTA; PTA trust 12 s with its HTTPS check by name |
+
+Each defect has a regression test: PTA's gate and PSM's signal against the generated workflow
+(`Tests/StageCatalog.Tests.ps1`, `Tests/Lanes.Tests.ps1`), the status race (`Tests/DetachedStatusRace.Tests.ps1`,
+fails without the fix), and the window's Stop button (`Tests/UIDesktop.Tests.ps1`: it called `Stop-PASRun`
+without `-Force`, which refuses a running installation; found while the documentation was rewritten).
+
+Not proven by these runs: the Linux side of the status race (same fix, checked with `bash -n` and the jq
+expression, not provoked), a lab with two PVWAs and PTA (the PTA trust is made on the first PVWA only).
+
+## 2.0.9 and 2.0.10, 2026-11-23/24
 
 
 **Date:** 2026-11-23, 18:10–22:50 UTC · **Scope:** disposable CyberArk 15.2 labs only
@@ -14,7 +54,7 @@
 | Evidence | Kept by the owner outside the repository: one journal zip per run, lab health check per run, screenshots of the window, fault-injection logs |
 | Unit tests | Candidate as delivered: 684 passed, **3 failed**. Final branch: **696 passed, 0 failed**. `Check-Source` passes. |
 
-## Result per scenario (final code)
+### Result per scenario (final code)
 
 | Scenario | Result | Run ID | Key evidence |
 |---|---|---|---|
@@ -29,7 +69,7 @@
 
 A/B check with unchanged 2.0.8 (`main`) on the S01 topology (e93e0778): Succeeded. Its PSM simply won the NLA race (D6).
 
-## Defects found and fixed on the branch (each has a regression test)
+### Defects found and fixed on the branch (each has a regression test)
 
 | ID | Severity | Where | Problem → fix |
 |---|---|---|---|
@@ -42,7 +82,7 @@ A/B check with unchanged 2.0.8 (`main`) on the S01 topology (e93e0778): Succeede
 | D7 | P0 | **2.0.8 regression** | The DR test Safe is created earlier since 2.0.8, so it was replicated before the final wait started, and the wait never completed. Every Primary+DR lab would fail. The wait now searches the whole PADR log for the run-unique Safe and still requires a fresh cycle after it. |
 | D8 | P0 | candidate, Lanes.ps1 | The new plan check rejected any lab with two PVWAs as a "cyclic dependency". Deadlock detection now works per component. |
 
-## Remaining risks / not proven
+### Remaining risks / not proven
 
 - **P2:** S08: releasing the PSMP lock after a VM reset uses only the controller key, which the restored VM no longer trusts. Harmless (the reset VM has no lock), but the message is misleading. The blocked PSMP lane failed on password sign-in (the old run had hardened PSMP) before it reached its lock check.
 - **P2:** The server check of 3 Windows servers takes 4–7 minutes. The window stays responsive.
@@ -50,11 +90,11 @@ A/B check with unchanged 2.0.8 (`main`) on the S01 topology (e93e0778): Succeede
 - **Not exercised:** browser PSM/HTML5 session, PTA audit ingestion, other OS/media versions, real AD with an existing domain.
 - Transient vendor failures (such as the LanmanServer restart timeout in PSM hardening) still need an operator `-RetryStep`, by design.
 
-## Release decision
+### Release decision
 
 **Lab build candidate: PASS**, for the branch `lab/stabilized-candidate` (2.0.8 + candidate + 8 fixes), **not** for the ZIP as delivered. The ZIP as delivered fails S05 (two PVWAs refused) and S02 (DR test Safe; that part is inherited from 2.0.8), and can leave PSMP runs unrecoverable. 2.0.8 itself fails every Primary+DR lab (D7) and intermittently the PSM (D6).
 
-## Addendum 2026-11-24: recovery path (released as 2.0.10)
+### Addendum 2026-11-24: recovery path (released as 2.0.10)
 
 | Test | Fault | Result | Run ID |
 |---|---|---|---|

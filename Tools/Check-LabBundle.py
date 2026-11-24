@@ -16,7 +16,6 @@ necessary = (
     'PASeasyInstall/Desktop/Views.ps1',
     'LabValidation/scenarios.json',
     'LabValidation/AGENT-PROMPT.md',
-    'Docs/LAB-STABILIZATION.md',
     'Tests/StabilityRefactor.Tests.ps1',
 )
 for relative in necessary:

@@ -65,14 +65,14 @@ The HTML5 Gateway, PTA, domain joins and the hardening GPOs are installed as par
 | [`Get-PASRunEvent`](runs.md#get-pasrunevent) | The progress events of a run; `-Failed` shows what failed |
 | [`Wait-PASRun`](runs.md#wait-pasrun) | Follows a run until it ends |
 | [`Resume-PASRun`](runs.md#resume-pasrun) | Continues a run that stopped; `-RetryStep` runs a failed step again |
-| [`Stop-PASRun`](runs.md#stop-pasrun) | Abandons a run, preserving target locks unless explicitly cleaned after VM reset |
+| [`Stop-PASRun`](runs.md#stop-pasrun) | Gives a run up. The server locks stay; `-ReleaseLocksAfterReset` removes them after you reset the servers |
 
 ## Checks and diagnostics
 
 | Command | What it does |
 |---|---|
 | [`Test-PASPreflight`](checks.md#test-paspreflight) | Checks, without changing anything, that the servers are ready |
-| [`Test-PASHealth`](checks.md#test-pashealth) | Checks an installed lab: PVWA sign-in, connected components, DR replication |
+| [`Test-PASHealth`](checks.md#test-pashealth) | Checks an installed lab: PVWA sign-in, registered and connected components, PTA reachable from PVWA, DR replication |
 | [`Export-PASDiagnostics`](checks.md#export-pasdiagnostics) | Writes a ZIP of one run without passwords |
 | [`Get-PASRunLog`](checks.md#get-pasrunlog) | Reads the journal of a run, or the end of a CyberArk log on a server |
 
@@ -90,6 +90,7 @@ The HTML5 Gateway, PTA, domain joins and the hardening GPOs are installed as par
 - **Accounts and passwords are asked for** when you do not pass them. To run unattended, pass
   `-CredentialMap` and `-SecretMap`, or with the Lab profile one `-LabPassword`.
   [`Get-PASCredentialRequirement`](configuration.md#get-pascredentialrequirement) lists what a lab needs.
-- **`-SecurityProfile`** is `Secure` by default in every command. A lab built from templates needs `Lab`; see
-  [Lab and Secure profiles](../concepts/profiles.md). Only the Lab profile was tested.
+- **`-SecurityProfile`** is `Secure` by default in every command, for compatibility. Pass `Lab`: it is the only
+  profile that was tested (CyberArk 15.0 and 15.2), and the window always uses it. `Secure` is not qualified;
+  see [Lab and Secure profiles](../concepts/profiles.md).
 - **Install commands return a run id.** The installation runs in its own process. `-Wait` follows it.

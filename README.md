@@ -1,36 +1,31 @@
 # PASeasyInstall
 
 **Builds a CyberArk PAM self-hosted lab on servers you provide, from one Windows computer.** You point it at your
-CyberArk installer media, name the servers, and press Install. It installs, registers, hardens and checks a Vault
-(or a Primary and DR pair), PVWA, CPM, PSM, PSM for SSH, and optionally the HTML5 Gateway, PTA and an Active
+CyberArk installer media, enter the servers and press **Install**. It installs, registers, hardens and checks a
+Vault (or a Primary and DR pair), PVWA, CPM, PSM, PSM for SSH, and optionally the HTML5 Gateway, PTA and an Active
 Directory domain. There is a window for it and a PowerShell command for every step.
 
 Documentation: <https://bigbatmanorg.github.io/PASeasyInstall/>
 
-[![Play the 27-second overview of PASeasyInstall](site-src/assets/video/PASeasyInstall-demo-poster.png)](https://bigbatmanorg.github.io/PASeasyInstall/#pas-video)
-
-*Click to play the 27-second overview on the documentation site (an animated overview with simplified screens;
-[the MP4 itself](site-src/assets/video/PASeasyInstall-demo.mp4)). The real window looks like this:*
-
-![The installation page: every server is installed at the same time](Docs/images/window/15-run-installing.png)
+![A finished lab of nine servers: every component is connected to the Vault](site-src/assets/window/19-lab-check.png)
 
 > [!WARNING]
-> **Disposable labs only.** Training, demos, proofs of concept and integration testing.
-> Production deployment support is not planned. This is a community project. It is **not affiliated with, endorsed by or supported by CyberArk**.
+> **Disposable labs only:** training, demos, proofs of concept and integration tests. Production deployment is not
+> supported. This is a community project. It is **not affiliated with, endorsed by or supported by CyberArk**.
 > You supply your own licensed CyberArk installation media and license. No CyberArk file is part of this project.
 
 ## What you need
 
 | | |
 |---|---|
-| **This computer** (the controller) | Windows 10/11 or Windows Server 2019/2022/2025 with Windows PowerShell 5.1. Nothing else: the window is part of the module and uses WPF, which is part of Windows. About 10 GB free disk. |
-| **Empty servers** | Windows Server 2022 for the Vault, DR Vault, PVWA, CPM and PSM. Ubuntu 22.04/24.04 or RHEL/Rocky 8/9 for PSM for SSH and the HTML5 Gateway. RHEL/Rocky 8/9 with 8 GB for PTA. 2 CPUs and 4 GB each are enough for a lab. |
+| **This computer** (the controller) | Windows with Windows PowerShell 5.1 (tested on Windows Server 2022). Nothing else: the window is part of the module and uses WPF, which is part of Windows. Free disk for a copy of the media it uses. |
+| **Empty servers** | Windows Server 2022 for the Vault, DR Vault, PVWA, CPM and PSM. Ubuntu 22.04/24.04 or RHEL/Rocky 8/9 for PSM for SSH and the HTML5 Gateway. RHEL/Rocky/Alma 8/9 with 8 GB memory for PTA. 2 CPUs and 4 GB memory are enough for the others. |
 | **Reachable from the controller** | Windows servers: WinRM over HTTPS (port 5986) and a local administrator. Linux servers: SSH (port 22) and the root password. |
 | **Your CyberArk media** | The PAM Self-Hosted download (the one big ZIP or the separate ZIPs), your `license.xml` and the recovery public key `recpub.key`. |
 
-A lab with a Vault, a DR Vault, PVWA and CPM on one server, PSM and PSM for SSH needs five servers. The smallest
-lab (Vault, PVWA and CPM) needs two. Details: [Requirements](https://bigbatmanorg.github.io/PASeasyInstall/getting-started/requirements/)
-and [Preparing servers](https://bigbatmanorg.github.io/PASeasyInstall/servers/prerequisites/).
+The smallest lab (Vault, and PVWA with CPM on one server) needs two servers. Details:
+[Requirements](https://bigbatmanorg.github.io/PASeasyInstall/getting-started/requirements/) and
+[Preparing servers](https://bigbatmanorg.github.io/PASeasyInstall/servers/prerequisites/).
 
 ## Install it
 
@@ -38,6 +33,7 @@ and [Preparing servers](https://bigbatmanorg.github.io/PASeasyInstall/servers/pr
 
 ```powershell
 Install-Module PASeasyInstall -Scope CurrentUser
+Start-PASeasyInstall
 ```
 
 **Or without installing anything:** download `PASeasyInstall-<version>-portable.zip` from
@@ -51,10 +47,9 @@ needed. Where `AllSigned` is enforced, allow unsigned code for the current Power
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 ```
 
-## Your first lab, with the window
+## Prepare the servers
 
-Prepare the servers first. On every Windows server, WinRM over HTTPS must answer; a self-signed certificate is
-fine for a lab:
+On every Windows server WinRM over HTTPS must answer. A self-signed certificate is fine for a lab:
 
 ```powershell
 $cert = New-SelfSignedCertificate -DnsName $env:COMPUTERNAME -CertStoreLocation Cert:\LocalMachine\My
@@ -62,48 +57,46 @@ winrm create winrm/config/Listener?Address=*+Transport=HTTPS "@{Hostname=`"$env:
 New-NetFirewallRule -DisplayName 'WinRM HTTPS' -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow
 ```
 
-On a Linux server, root must be able to sign in over SSH with its password once. The installer then authorises
-its own key.
+On every Linux server root must be able to sign in over SSH with its password once; the installer then authorises
+its own key. No DNS is needed: PASeasyInstall works with addresses and writes the hosts entries the components
+need.
 
-Then, on the controller:
+## Your first lab, with the window
 
-```powershell
-Start-PASeasyInstall
-```
+`Start-PASeasyInstall` opens the window. It has four steps.
 
-**1. Media.** Add the folders and files where your CyberArk download, your license and your keys lie. They do not
-have to be in one place: add one after the other, by typing a path or with **Choose a folder...** and
-**Choose files...**. The window looks through all of them and shows what it found and where. Nothing is unpacked,
-moved or changed.
+**1. Media.** Add the folders and files where your CyberArk download, your license and your keys lie. They need
+not be in one place: add one after the other, by typing a path or with **Choose a folder...** and
+**Choose files...**. The window shows what it found and where. Nothing is unpacked, moved or changed.
 
-![Media step: three places were added, and the window lists what each one holds](Docs/images/window/04-media-sources.png)
+![Media step: two places were added, and the window lists what it found in them](site-src/assets/window/04-media-sources.png)
 
-**2. Lab.** Choose **Primary Vault** or **Primary + DR Vault**, then use the `+`/`−`
-counters to select PVWA, CPM, PSM, PSM for SSH, HTML5 Gateway and PTA. There are no
-Starter/Standard/Full workflows: component counts are the normal path. CPM can share the PVWA
-server, and HTML5 Gateway can share a PSMP server. The **Advanced** switch optionally exposes
-Active Directory, an existing Vault, and specialized options. You can start with the defaults.
+**2. Lab.** Choose **Primary Vault** or **Primary + DR Vault**, then set with **+** and **−** how many PVWA, CPM,
+PSM, PSM for SSH, HTML5 Gateway and PTA servers you want. CPM can share the PVWA server and the HTML5 Gateway the
+PSM for SSH server. **Advanced** (top right) adds an Active Directory domain, an existing Vault and a few more
+options.
 
-Updated desktop screenshots should be captured during S01 validation; older screenshots showing preset cards are obsolete.
+![Lab step: the Vault, the component counters and the name of the lab](site-src/assets/window/06-lab.png)
 
-**3. Servers.** One line per server: its computer name, its address, the account and its password. Below it, the
-Vault passwords to set. **Next** checks that every server answers and that every account can sign in. Nothing is
-installed yet.
+**3. Servers.** One line per server: its computer name, its address, the account and its password. Below them the
+Vault passwords to set and the license agreement of the Linux installers. **Next: check the servers** checks that
+every server answers and every account can sign in. Nothing is installed yet.
 
-![Servers step: one line per server, and the Vault passwords](Docs/images/window/09-servers.png)
+![Servers step: one line per server](site-src/assets/window/09-servers.png)
 
-**4. Install.** The plan in order, the shortcuts the lab uses, and the **Install the lab** button. Until you press
-it and confirm, nothing is changed on any server.
+**4. Install.** The plan in order, the lab shortcuts it uses, and **Install the lab**. Until you press it and
+confirm, nothing is changed on any server.
 
-![Review step: what will be installed, on which server, with which installer](Docs/images/window/12-review.png)
+![Install step: what will be installed, on which server, with which installer](site-src/assets/window/12-review.png)
 
-The installation then runs on its own. You can close the window and open it again later. When it has finished,
-**Check the lab** asks the Vault whether every component is connected.
+The installation then runs on its own, every server at the same time. You can close the window and open it again
+later. When it has finished, **Check the lab** asks the Vault whether every component is connected (the picture at
+the top of this page).
 
-![The finished installation with the lab check: every component is connected](Docs/images/window/19-lab-check.png)
+![The installation page while the servers are installed](site-src/assets/window/15-run-installing.png)
 
 Then open `https://<computer name of the PVWA server>/PasswordVault` in a browser and sign in as `Administrator`
-with the Vault Administrator password you set. In a lab the PVWA certificate is self-signed, so the browser warns,
+with the Vault Administrator password you set. The PVWA certificate of a lab is self-signed, so the browser warns,
 and the computer with the browser must resolve the PVWA name (a hosts entry is enough).
 
 Every page of the window: [The window](https://bigbatmanorg.github.io/PASeasyInstall/gui/).
@@ -118,7 +111,7 @@ $media = Get-PASMediaInventory -Path D:\CyberArk, D:\Licenses | Get-PASMediaSele
 $cfg = New-PASLabConfiguration -Environment MyLab -VaultMode PrimaryDR `
     -PrimaryAddress 192.0.2.11 -DRAddress 192.0.2.12 -ControllerAddress 192.0.2.10 `
     -Instances @(@{ Type = 'PVWA'; Name = 'PVWA01'; Address = '192.0.2.21' },
-                 @{ Type = 'CPM';  Name = 'CPM01';  Address = '192.0.2.21' },
+                 @{ Type = 'CPM';  Name = 'CPM01';  Address = '192.0.2.21' },   # same address: same server
                  @{ Type = 'PSM';  Name = 'PSM01';  Address = '192.0.2.31' },
                  @{ Type = 'PSMP'; Name = 'psmp01'; Address = '192.0.2.41' }) `
     -Media $media -SecurityProfile Lab -AcceptEula
@@ -137,37 +130,35 @@ Test-PASHealth -Path .\MyLab.json -VaultCredential (Get-Credential Administrator
 ```
 
 One component at a time works too: `Install-PASVault`, `Install-PASPVWA`, `Install-PASCPM`, `Install-PASPSM`,
-`Install-PASPSMP`, `Install-PASDomainController`. With `-SecurityProfile Lab` one password can serve for
-everything: `-LabPassword (Read-Host -AsSecureString 'Lab password')`. Every command has help with examples:
-`Get-Help Install-PASLab -Full`. All 26 commands:
+`Install-PASPSMP`, `Install-PASDomainController`. Every command has help with examples
+(`Get-Help Install-PASLab -Full`). All 26 commands:
 [Commands](https://bigbatmanorg.github.io/PASeasyInstall/commands/).
 
 ## What an installation does
 
-An installation is a **run**. It executes in its own process on the controller, has a run id, and keeps going
-when you close the window or the prompt.
+An installation is a **run**. It runs in its own process on the controller, has a run id, and keeps going when
+you close the window or the prompt.
 
 - **The servers are installed at the same time.** Upload, checks, prerequisites, the installation itself and
   hardening need no other server, so every server starts at once.
-- **Only the registrations wait.** A step that signs in to the Vault waits until the Vault is installed. Then the
-  components register one at a time, PVWA first, then CPM, then the others, so the Vault Administrator is never
-  used twice at once.
+- **Only the registrations wait.** A step that signs in to the Vault waits until the Vault is installed, and the
+  components register one at a time: PVWA first, then CPM, then PSM and PSM for SSH, PTA last. The Vault
+  Administrator is never used twice at once.
 - **Every step is recorded and checked.** A step runs as a scheduled task (Windows) or a systemd unit (Linux) on
   the server and is verified by a separate, read-only check. If the controller closes or restarts, the step
   continues and the run finds it again.
-- **Nothing is repeated blindly.** A step that failed is never run again on its own. You look at the server,
-  correct the cause and name the step.
+- **Nothing is repeated blindly.** A failed step is never run again on its own. You look at the server, correct
+  the cause and try that step again.
 
-In the test lab (CyberArk 15.2) a lab with Vault, PVWA, CPM on its own server, PSM and PSM for SSH took 19
-minutes; a Full lab with a DR Vault took 23 minutes and a lab with a new domain 20 minutes (both measured with
-2.0.5). `New-PASLabConfiguration -ExecutionMode Sequential` installs one component after the other instead.
+In the test lab (CyberArk 15.2) a lab of nine servers (Vault, DR Vault, PVWA, CPM, PSM, PSM for SSH, HTML5 Gateway,
+PTA and the controller) took about 19 minutes from **Install the lab** to the end (2.0.11; about 21 minutes with 2.0.10).
 
 ## When something stops
 
 The window shows the step that stopped and the installer's own error text, with **Try this step again**,
 **Continue without repeating it** and **Save the logs as a ZIP**.
 
-![An installation that stopped: the step, the error text and what you can do](Docs/images/window/17-run-failed.png)
+![An installation that stopped: the step, the error text and what you can do](site-src/assets/window/17-run-failed.png)
 
 From the prompt:
 
@@ -176,9 +167,7 @@ Get-PASRun                                           # all runs, newest first
 Get-PASRunEvent -RunId <id> -Failed                  # what failed
 Resume-PASRun -RunId <id>                            # finished steps are checked again, the rest is installed
 Resume-PASRun -RunId <id> -RetryStep cpm01:install   # also run this failed step again
-Stop-PASRun -RunId <id>                            # abandon run; KEEP remote target locks
-# ONLY after restoring/rebuilding affected lab VMs:
-Stop-PASRun -RunId <id> -ReleaseLocksAfterReset -CredentialMap $creds
+Stop-PASRun -RunId <id>                              # abandon the run; the server locks are kept
 Export-PASDiagnostics -RunId <id>                    # a ZIP without passwords for a bug report
 ```
 
@@ -188,51 +177,28 @@ Known messages and what to do: [Troubleshooting](https://bigbatmanorg.github.io/
 
 | Component | On | Notes |
 |---|---|---|
-| Vault | Windows Server 2022, not in a domain | New Primary Vault, hardened with the vendor's hardening |
-| DR Vault | Windows Server 2022, not in a domain | Only together with a new Primary Vault; replication is verified with a test safe |
-| PVWA | Windows Server 2022 | In a lab with a self-signed HTTPS certificate |
+| Vault | Windows Server 2022, not in a domain | A new Primary Vault, hardened the vendor's way |
+| DR Vault | Windows Server 2022, not in a domain | Only together with a new Primary Vault; replication is verified with a test Safe |
+| PVWA | Windows Server 2022 | With a self-signed HTTPS certificate in a lab |
 | CPM | Windows Server 2022 | On the PVWA server or on its own |
-| PSM | Windows Server 2022 | The vendor's restarts are handled; no stored autologon password |
-| PSM for SSH (PSMP) | Ubuntu 22.04/24.04, RHEL/Rocky 8/9 | |
-| HTML5 Gateway | Linux with Docker (Ubuntu) or Podman (RHEL family) | Can share the PSMP server. Experimental |
-| PTA | RHEL/Rocky 8/9 with 8 GB | Experimental; Vault events are not forwarded to it yet |
-| Active Directory | Windows Server 2022 | A new forest, or joining a domain you have. PVWA, CPM and PSM servers are joined; Vault servers never |
+| PSM | Windows Server 2022 | The vendor's restarts are handled |
+| PSM for SSH | Ubuntu 22.04/24.04, RHEL/Rocky 8/9 | |
+| HTML5 Gateway | Linux with Docker (Ubuntu) or Podman (RHEL family) | Can share the PSM for SSH server |
+| PTA | RHEL/Rocky/Alma 8/9 with 8 GB | Registered with the Vault and PVWA; Vault events are not forwarded to it yet |
+| Active Directory | Windows Server 2022 | A new forest, or a domain you have. PVWA, CPM and PSM servers are joined, Vault servers never |
 
 Up to four instances of each component are accepted; two of each were tested.
 
 ## Limits
 
 - **Tested with** CyberArk PAM Self-Hosted 15.0 and 15.2, Windows Server 2022, Ubuntu 24.04 and Rocky Linux 9,
-  always with the **Lab** security profile. The legacy Secure CLI settings are unqualified;
-  implementing a production/Secure deployment mode is not planned.
-- **The window** was tested by script, also with real installations. It has not been tried by hand on a real
-  desktop for every screen. It always uses the Lab profile.
+  always with the **Lab** security profile. The `Secure` profile of the commands is not qualified.
 - **Not included:** Vault clusters and distributed Vaults, credential providers, upgrading or removing an
   installed component.
-- **Without hardening:** the window (Advanced on the Servers step) and `New-PASLabConfiguration -SkipHardening`
-  install and register everything but leave out the vendor hardening. For tests only.
+- **Without hardening** (Advanced on the Servers step, or `New-PASLabConfiguration -SkipHardening`): everything
+  is installed and registered, the vendor hardening is left out. For tests only.
 
-What exactly was tested, with which version and how: [Docs/STATUS.md](Docs/STATUS.md).
-
-## More
-
-- [Documentation site](https://bigbatmanorg.github.io/PASeasyInstall/): getting started, the window page by page,
-  every command, every component, how it works, troubleshooting.
-- [Docs/STATUS.md](Docs/STATUS.md): what works, what is experimental, what comes later.
-- [Docs/DESIGN.md](Docs/DESIGN.md): how a run works inside and which files it leaves behind.
-- [Release notes](https://bigbatmanorg.github.io/PASeasyInstall/release-notes/).
-
-## Stability candidate and Proxmox lab validation
-
-This source ZIP contains a **lab-only stability candidate**, not a proven release. It adds
-readiness-driven parallel integrations, durable verification-only recovery, safer forced-stop
-lock retention, frozen Vault recipes, explicit Linux package preparation and DR progress events.
-The desktop now uses a single media → component counts → servers → install flow.
-
-Review [stabilization details](Docs/LAB-STABILIZATION.md) and the
-[autonomous Proxmox validation prompt](LabValidation/AGENT-PROMPT.md) with its eight focused
-[scenarios](LabValidation/scenarios.json). No CyberArk media, credentials or test VM images
-are distributed with this project.
+What was tested in a lab, and how: [Docs/VALIDATION.md](Docs/VALIDATION.md).
 
 ## Development
 
@@ -250,7 +216,8 @@ PASeasyInstall/            the module (no dependencies)
   Recipes/                 the scripts that run on the servers
   Desktop/                 the window (WPF: XAML and PowerShell); calls only the public commands
 Tests/, Tools/             Pester tests, build and check tools
-Docs/                      DESIGN.md, STATUS.md, screenshots
+LabValidation/             the lab scenarios a release is checked with
+Docs/                      DESIGN.md (how a run works inside), VALIDATION.md (lab test record)
 site-src/, zensical.toml   the documentation site
 ```
 

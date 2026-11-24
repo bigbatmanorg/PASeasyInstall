@@ -466,7 +466,24 @@ function Get-PASDetachedStatus {
                 $p = Get-CimInstance Win32_Process -Filter ("ProcessId=" + [int]$data.pid) -ErrorAction SilentlyContinue
                 if ($p -and $p.CommandLine -like ('*' + (Split-Path $dir -Leaf) + '*')) { $alive = $true }
             }
-            if (-not $alive) { $data | Add-Member -NotePropertyName state -NotePropertyValue 'Interrupted' -Force }
+            if (-not $alive) {
+                # The worker writes its final status and then ends. When it ended between the first read of the
+                # status file and the look at the process, the file holds the final status now: read it again
+                # before calling the attempt interrupted (lab 2026-11-24: a PSM step that had succeeded was
+                # reported Unknown this way).
+                $final = $null
+                try { $final = Get-Content -LiteralPath $status -Raw | ConvertFrom-Json -ErrorAction Stop } catch { $final = $null }
+                if ($final -and
+                    [string]$final.state -in @('Succeeded', 'Failed') -and
+                    $final.schemaVersion -eq 2 -and
+                    [string]$final.attemptId -ceq (Split-Path $dir -Leaf) -and
+                    [string]$final.pid -eq [string]$data.pid -and
+                    [string]$final.bootUtc -eq [string]$data.bootUtc) {
+                    $data = $final
+                } else {
+                    $data | Add-Member -NotePropertyName state -NotePropertyValue 'Interrupted' -Force
+                }
+            }
         }
         $data | Add-Member -NotePropertyName taskState -NotePropertyValue $taskState -Force
         $workerActive = $false

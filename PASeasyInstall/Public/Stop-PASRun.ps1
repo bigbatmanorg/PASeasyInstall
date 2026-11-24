@@ -9,7 +9,8 @@ function Stop-PASRun {
     can outlive its controller. Restore or rebuild affected VMs before explicitly releasing the locks.
 
     - A run that is still running is refused, unless you add -Force: then the controller process of
-      this run is stopped first.
+      this run is stopped first (only a process whose id and start time match the run). The steps
+      already started on the servers may go on, and the target locks stay.
     - The run is marked Abandoned. An abandoned run cannot be resumed.
     - Pass -ReleaseLocksAfterReset AND -CredentialMap only after restoring/rebuilding the affected lab VMs.
       Locks still held by another run are never released. Without both parameters the locks remain.
@@ -27,9 +28,14 @@ function Stop-PASRun {
     .PARAMETER ReleaseLocksAfterReset
     Explicitly release locks after all affected lab targets have been reset/rebuilt. Not safe otherwise.
     .EXAMPLE
-    Stop-PASRun -RunId 83cf015f78bd4743a54e6d0a9d0dd301 -CredentialMap @{ vault01 = (Get-Credential Administrator) }
+    Stop-PASRun -RunId 83cf015f78bd4743a54e6d0a9d0dd301
 
-    Gives up a failed run but leaves the remote target locks in place.
+    Gives up a failed run. Contacts no server; the target locks stay and are listed.
+    .EXAMPLE
+    Stop-PASRun -RunId 83cf015f78bd4743a54e6d0a9d0dd301 -ReleaseLocksAfterReset -CredentialMap @{ cpm01 = (Get-Credential Administrator) }
+
+    After you reset or rebuilt the lab servers of that run: gives the run up and removes the lock folders
+    of this run that are still there. A lock that names another run is left alone.
     .EXAMPLE
     Get-PASRun | Where-Object Status -eq 'Running' | Stop-PASRun -Force
 

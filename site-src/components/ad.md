@@ -15,19 +15,21 @@ $cfg = New-PASLabConfiguration -Environment MyLab -VaultMode Primary -PrimaryAdd
                  @{ Type = 'PSM';  Name = 'PSM01';  Address = '192.0.2.31' })
 ```
 
-In the window: **New domain** on the Lab step.
+In the window: **New domain** on the Lab step (with **Advanced** on).
 
 One more Windows Server 2022 becomes the first domain controller of a new forest. It needs a fixed address, and
 nothing else is installed on it. Its local administrator becomes the administrator of the domain, with the same
-password. You set one more password, for the Directory Services Restore Mode.
+password. The forest also needs a Directory Services Restore Mode password: the window uses the password of the
+domain controller for it; from the prompt it is the secret `ADSafeMode` of `Install-PASLab -SecretMap`
+(`-SafeModePassword` of `Install-PASDomainController`).
 
 What the run does:
 
 1. **The forest.** Steps `ad-prerequisites` (the AD DS and DNS roles; the server uses itself as DNS server),
    `ad-install` (promotion to domain controller), `ad-reboot`, `ad-verify`.
 2. **The joins**, when the forest is there, each on its own server and at the same time: `dns` (the server uses
-   the domain controller as DNS server), `join`, `reboot`, `local-admin` (the domain account of the lab becomes
-   a local administrator of the server), `verify`.
+   the domain controller as DNS server), `join`, `reboot`, `local-admin` (on a PSM server the domain account of the
+   lab becomes a local administrator, because PSM is installed with it; elsewhere nothing changes), `verify`.
 3. **The components**, on the joined servers, as in a lab without a domain. The Vault is installed from the
    start, at the same time as the forest.
 4. **The CyberArk hardening GPOs**, at the very end. The GPO backups that CyberArk ships inside the PVWA, CPM
@@ -50,7 +52,8 @@ New-PASLabConfiguration ... -DomainMode Existing -DomainName corp.example `
     -DomainControllerAddress 192.0.2.5 -DomainUsername joinaccount
 ```
 
-In the window: **A domain I already have**.
+In the window: **A domain I already have** (with **Advanced** on). On the Servers step its line takes the address
+of one of its DNS servers, a domain account that may join computers, and its password.
 
 The servers use the DNS server at `-DomainControllerAddress` and join with a domain account that may join
 computers. **Nothing in that domain is changed**: no GPO is imported or linked. Import the CyberArk hardening

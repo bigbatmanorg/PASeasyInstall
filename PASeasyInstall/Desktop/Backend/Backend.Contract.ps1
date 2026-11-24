@@ -29,7 +29,7 @@
 #   Get-PASRunEvent              -RunId [-Tail]
 #   Get-PASStageCatalog          -Component Vault|DR|PVWA|CPM|PSM|PSMP|HTML5GW|PTA|AD|DomainJoin -> objects: Component, Stage, Order
 #   Resume-PASRun                -RunId [-RetryStep] [-CredentialMap] [-SecretMap]
-#   Stop-PASRun                  -RunId
+#   Stop-PASRun                  -RunId -Force
 #   Export-PASDiagnostics        -RunId -Path [-Force]
 #   Test-PASPreflight            -Configuration [-CredentialMap] [-ConnectivityOnly]
 #                                -> rows: Server, Address, Check, Passed, Detail
@@ -57,7 +57,7 @@ $script:PASUIBackendContract = [ordered]@{
     'Get-PASRunEvent' = @('RunId', 'Tail')
     'Get-PASStageCatalog' = @('Component')
     'Resume-PASRun' = @('RunId', 'RetryStep', 'CredentialMap', 'SecretMap')
-    'Stop-PASRun' = @('RunId')
+    'Stop-PASRun' = @('RunId', 'Force')
     'Export-PASDiagnostics' = @('RunId', 'Path', 'Force')
     'Test-PASPreflight' = @('Configuration', 'CredentialMap', 'ConnectivityOnly')
     'Test-PASHealth' = @('Path', 'Configuration', 'VaultCredential', 'DRCredential')

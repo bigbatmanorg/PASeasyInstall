@@ -1226,10 +1226,11 @@ function Invoke-PASUIClick {
             return
         }
         '^act-stop$' {
-            Show-PASUIConfirm 'Stop the installation?' 'The step that is running on the server is not interrupted, but nothing new is started. You can continue the installation later.' 'Stop' {
+            Show-PASUIConfirm 'Stop the installation?' 'The installation ends now and cannot be continued later. A step that is already running on a server may still finish, and the servers stay locked for other installations. Restore the servers (for example from a snapshot) before you install them again.' 'Stop' {
                 Start-PASUITask -ArgumentList @([string]$S.RunId) -ScriptBlock {
                     param([string]$RunId)
-                    $null = Stop-PASRun -RunId $RunId -Confirm:$false
+                    # A running installation is stopped only with -Force (its controller process is ended; the locks stay).
+                    $null = Stop-PASRun -RunId $RunId -Force -Confirm:$false
                 } -OnCompleted {
                     $S.RunSignature = ''
                     Update-PASUIRun

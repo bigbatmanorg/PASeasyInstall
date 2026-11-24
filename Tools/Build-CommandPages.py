@@ -151,7 +151,7 @@ place.
 page('runs.md', 'Run commands', '''
 An installation is a **run**. It executes in its own process on the controller and has a run id of 32
 characters. These commands list, follow, continue and give up runs. They read the files of the run; only
-`Resume-PASRun` and `Stop-PASRun -CredentialMap` contact servers.
+`Resume-PASRun` and `Stop-PASRun -ReleaseLocksAfterReset` contact servers.
 
 See also [Runs and resume](../concepts/durable-runs.md) and [Locks](../concepts/coordination.md).
 

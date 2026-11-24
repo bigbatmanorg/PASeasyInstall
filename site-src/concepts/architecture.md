@@ -21,6 +21,10 @@ no database, no web server, and no agent that stays on the servers.
 registered and hardened by CyberArk's own installers and scripts from your media. PASeasyInstall brings the files
 to the server, fills in the answer files, starts the vendor's tools in the right order, and checks the result.
 
+**A few integrations are its own.** Where the vendor leaves a step to the administrator, a small recipe does it
+and checks it: entering the HTML5 Gateway into the PVWA configuration, making the first PVWA server trust PTA
+(Lab), joining servers to a domain and applying the vendor's hardening GPOs.
+
 ## What runs where
 
 | On the controller | On a server |
@@ -37,8 +41,9 @@ to the server, fills in the answer files, starts the vendor's tools in the right
 2. **Plan.** `Get-PASLabPlan` shows what the configuration would install. Nothing is contacted.
 3. **Run.** `Install-PASLab` checks the configuration and the installers, asks for the accounts and passwords,
    and starts the controller process. The configuration and the plan are frozen with the run.
-4. **Lanes.** The controller gives every server its own lane and runs the lanes at the same time
-   ([Servers at the same time](parallel.md)).
+4. **Lanes.** The controller gives every server its own lane and runs the lanes at the same time. The steps
+   that sign in to the Vault take turns; gateway registration and PTA trust run in a lane of their own as soon
+   as their components are installed ([Servers at the same time](parallel.md)).
 5. **Steps.** In a lane, the engine runs the steps of each component in order. A step is started on the server,
    watched, and then verified by a separate, read-only check.
 6. **Journal.** Before a step is started and after every outcome, its state is written down. The window and
