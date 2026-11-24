@@ -240,8 +240,9 @@ to PTA under each of those names; a missing hosts entry fails there. When PVWA's
 - A retried CPM registration uses the vendor's upgrade mode when the credential file of an earlier attempt names
   the CPM user (`Get-PASeasyCpmRegistrationMode` in `Recipes/WindowsComponent/Vendor.ps1`). A state that mode
   cannot repair is reported instead.
-- Transient vendor failures (for example a LanmanServer restart timeout in PSM hardening) need an operator
-  `-RetryStep`, by design.
+- Transient vendor failures need an operator `-RetryStep`, by design. One exception: when the only error of the
+  vendor's PSM hardening is that the Server service (LanmanServer) did not restart within its 30 seconds, the
+  hardening is run once more by itself (`Recipes/WindowsComponent/Psm.ps1`).
 - Anti-tamper ACL code (owner/ACL checks of staging folders) is duplicated in about 8 places; not consolidated.
 - Install paths are hard-coded (`C:\` drive, `C:\ProgramData\...`, `/opt/paeasyinstall`).
 - On-disk and remote names still say `PAExec` / `paeasyinstall` (stage root, task path, lock folders, endpoint name).

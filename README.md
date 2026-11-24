@@ -5,9 +5,12 @@ CyberArk installer media, enter the servers and press **Install**. It installs, 
 Vault (or a Primary and DR pair), PVWA, CPM, PSM, PSM for SSH, and optionally the HTML5 Gateway, PTA and an Active
 Directory domain. There is a window for it and a PowerShell command for every step.
 
-Documentation: <https://bigbatmanorg.github.io/PASeasyInstall/>
+[![PowerShell Gallery](https://img.shields.io/powershellgallery/v/PASeasyInstall?label=PowerShell%20Gallery)](https://www.powershellgallery.com/packages/PASeasyInstall)
+[![GitHub release](https://img.shields.io/github/v/release/bigbatmanorg/PASeasyInstall?label=release)](https://github.com/bigbatmanorg/PASeasyInstall/releases/latest)
 
-![A finished lab of nine servers: every component is connected to the Vault](site-src/assets/window/19-lab-check.png)
+Documentation: <https://bigbatmanorg.github.io/PASeasyInstall/> · What changed: [release notes](https://bigbatmanorg.github.io/PASeasyInstall/release-notes/)
+
+![A lab being installed: every server works at the same time, and the steps that need the Vault wait for their turn](site-src/assets/window/00-installing.png)
 
 > [!WARNING]
 > **Disposable labs only:** training, demos, proofs of concept and integration tests. Production deployment is not
@@ -90,10 +93,9 @@ confirm, nothing is changed on any server.
 ![Install step: what will be installed, on which server, with which installer](site-src/assets/window/12-review.png)
 
 The installation then runs on its own, every server at the same time. You can close the window and open it again
-later. When it has finished, **Check the lab** asks the Vault whether every component is connected (the picture at
-the top of this page).
+later. When it has finished, **Check the lab** asks the Vault whether every component is connected:
 
-![The installation page while the servers are installed](site-src/assets/window/15-run-installing.png)
+![A finished lab of nine servers: every component is connected to the Vault](site-src/assets/window/19-lab-check.png)
 
 Then open `https://<computer name of the PVWA server>/PasswordVault` in a browser and sign in as `Administrator`
 with the Vault Administrator password you set. The PVWA certificate of a lab is self-signed, so the browser warns,

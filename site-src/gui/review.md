@@ -20,7 +20,8 @@ again.
 ## Lab shortcuts in use
 
 What this lab relaxes compared with a production installation, for example self-signed certificates or remote
-desktop to the Vault from this computer. They are fine for a lab and not for production. Each one is explained
+desktop to the Vault from this computer. They are fine for a lab and not for production. The box is collapsed:
+its title says how many shortcuts there are, and **Show the list** opens it. Each one is explained
 on [Lab and Secure profiles](../concepts/profiles.md). The window always uses the Lab profile.
 
 If you switched off *Apply the vendor hardening* on the Servers step, a box above the shortcuts says so:
