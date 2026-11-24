@@ -4,6 +4,25 @@ What was tested on real servers, newest first. Every run started from clean oper
 snapshots), with CyberArk PAM Self-Hosted media supplied locally; no CyberArk file is part of this repository.
 The run journals, lab check results and screenshots are kept by the owner outside the repository.
 
+## 2.0.12, 2026-11-24: the owner's MyPAM lab, with and without a new AD forest
+
+Controller LABDEPLOY01, PAM 15.2, servers rolled back to `clean_os_ready` before each run. The lab file is the
+configuration of the owner's run 9da236dc, saved with `Export-PASLabConfiguration` and installed with
+`Install-PASLab -Wait` from a task in the logged-on Administrator's session.
+
+| Run | Lab | Result |
+| --- | --- | --- |
+| 49accdf2 | Vault, DR Vault, PVWA, CPM, PSM, PSMP, HTML5 Gateway, PTA | Succeeded in 19 min, no warning |
+| 0102db17 | the same + new forest `pam.lab` on LABDC01 (PVWA, CPM, PSM joined, hardening GPOs) | Succeeded in 24 min, `Test-PASHealth` Healthy |
+
+- PSM hardening passed at the first attempt both times (LanmanServer restarted within a second), so the new
+  automatic repeat after a LanmanServer timeout was not exercised in the lab; unit tests cover its condition,
+  checked against the vendor log of the failed owner run.
+- Not covered by a lab run: retry of one failed step (skip of finished lanes), and the window's plan queue and
+  collapsed shortcuts list (unit tests only; no window walk).
+- A run started from a task with a stored-password (batch) logon lost its controller twice within two minutes;
+  started in the interactive session it ran to the end. The window always starts it there.
+
 ## 2.0.11, 2026-11-24: full lab through the window, PTA connected
 
 | Item | Value |

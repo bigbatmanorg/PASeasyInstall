@@ -124,9 +124,10 @@ A server that fails stops **only what depends on it**. Every other server is ins
   were not installed because of it.
 
 Nothing is undone. Correct the cause and continue with [`Resume-PASRun`](../commands/runs.md#resume-pasrun) or
-the buttons of the window. Every lane starts again: on every server the steps that finished are checked again,
+the buttons of the window. A server that is installed and verified in this run is left alone: it is not
+contacted again. The lanes of the other servers start again: there the steps that finished are checked again,
 read-only (the window shows *Checking what is already installed*); nothing is installed twice. Then the rest is
-installed. A step whose result is uncertain is only repeated when you ask for it by name (*Try this step
+installed. An integration that finished (gateway registration, PTA trust) is not done again. A step whose result is uncertain is only repeated when you ask for it by name (*Try this step
 again*, `-RetryStep`). See [Runs and resume](durable-runs.md).
 
 A server can be tried again when the run has ended, that is when every other server is finished or has stopped.

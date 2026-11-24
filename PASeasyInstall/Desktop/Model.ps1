@@ -116,6 +116,11 @@ function New-PASUIState {
         Checking = $false
         # Which part of the server check runs: 'reach' (does each server answer) or 'signin'.
         CheckPhase = ''
+        # The plan is laid out in the background, one at a time (App.ps1 Start-PASUIPlan): running, what runs
+        # when it is there, and what waits for the next one.
+        PlanBusy = $false
+        AfterPlan = @()
+        PlanQueue = (New-Object System.Collections.ArrayList)
         # An installation is being started in the background: the accounts it was started with, else $null.
         Starting = $null
         # The accounts of the Servers form while the server check runs.

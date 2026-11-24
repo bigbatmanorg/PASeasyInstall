@@ -129,6 +129,26 @@ Describe 'A continued run leaves finished servers alone' {
         Set-TargetState 'dr_final' 'Succeeded'
         Test-Finished 'dr' | Should -BeTrue
     }
+    It 'skips an integration only when every one of its targets finished' {
+        $config = New-LaneConfig @(@('pvwa01', 'PVWA', 'h-web'), @('gw01', 'HTML5GW', 'h-gw'), @('gw02', 'HTML5GW', 'h-gw2'), @('pta01', 'PTA', 'h-pta'))
+        $check = {
+            param([string]$Name)
+            InModuleScope PASeasyInstall -Parameters @{ Name = $Name; Config = $config; Directory = $script:runDir } {
+                param($Name, $Config, $Directory)
+                Test-PASIntegrationFinished -Job @{ Name = $Name; DependsOn = @() } -Config $Config -Directory $Directory
+            }
+        }
+        & $check 'GatewayRegistration' | Should -BeFalse
+        & $check 'PtaTrust' | Should -BeFalse
+        Set-TargetState 'register-gw01' 'Succeeded'
+        Set-TargetState 'register-gw02' 'Failed'
+        Set-TargetState 'trust-pta01' 'Succeeded'
+        & $check 'GatewayRegistration' | Should -BeFalse
+        & $check 'PtaTrust' | Should -BeTrue
+        Set-TargetState 'register-gw02' 'Succeeded'
+        & $check 'GatewayRegistration' | Should -BeTrue
+        & $check 'Unknown' | Should -BeFalse
+    }
     It 'always runs a server that is joined to a domain' {
         $joined = New-LaneConfig -DomainMode Existing -Join @('h-web') -Components @(, @('pvwa01', 'PVWA', 'h-web'))
         $lane = @(Get-Lanes $joined)[0]

@@ -96,8 +96,9 @@ function New-PASUIToneIcon {
 
 function New-PASUIBox {
     # A message box: Kind ok, bad, warn, busy or info; a bold title, a text, an optional list, and optional
-    # further controls below (buttons, a text that can be copied).
-    param([string]$Kind, [string]$Title, [string]$Text = '', [string[]]$Items = @(), [object[]]$Content = @())
+    # further controls below (buttons, a text that can be copied). -Collapsed: the list is hidden behind a
+    # "Show the list" button.
+    param([string]$Kind, [string]$Title, [string]$Text = '', [string[]]$Items = @(), [object[]]$Content = @(), [switch]$Collapsed)
     $tone = $script:PASUITones[$Kind]
     $box = New-Object Windows.Controls.Border
     $box.Background = Get-PASUIBrush $tone.Bg
@@ -134,6 +135,29 @@ function New-PASUIBox {
             [void]$line.Children.Add($dot)
             [void]$line.Children.Add((New-PASUIText $item -Brush 'TextSoft'))
             [void]$lines.Children.Add($line)
+        }
+        if ($Collapsed) {
+            $lines.Visibility = 'Collapsed'
+            $toggle = New-Object Windows.Controls.Button
+            $toggle.Style = $window.Resources['Ghost']
+            $toggle.Content = 'Show the list'
+            $toggle.Tag = $lines
+            $toggle.Margin = '0,8,0,0'
+            $toggle.HorizontalAlignment = 'Left'
+            [Windows.Automation.AutomationProperties]::SetName($toggle, ('Show or hide the list: ' + $Title))
+            $toggle.Add_Click({
+                    param($sender, $eventArgs)
+                    Invoke-PASUISafe {
+                        if ([string]$sender.Tag.Visibility -eq 'Visible') {
+                            $sender.Tag.Visibility = 'Collapsed'
+                            $sender.Content = 'Show the list'
+                        } else {
+                            $sender.Tag.Visibility = 'Visible'
+                            $sender.Content = 'Hide the list'
+                        }
+                    }
+                })
+            [void]$panel.Children.Add($toggle)
         }
         [void]$panel.Children.Add($lines)
     }

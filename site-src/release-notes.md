@@ -1,5 +1,30 @@
 # Release notes
 
+## 2.0.12
+
+From the owner's lab run of 2026-11-24 (2.0.11, nine servers).
+
+- **Trying one step again leaves the finished servers alone.** After PSM stopped in its hardening, *Try this
+  step again* started every server again: each one checked its finished steps, the Vault line went back to
+  *Configure primary* and PTA trust was done again. Now a server that this run installed and verified is not
+  contacted again, and an integration that finished (gateway registration, PTA trust) is not done again. Only the
+  failed server and what waited for it go on. (2.0.8 did this already; a later change had taken it out.)
+- **Next on the Servers step works the first time.** When the lab file was saved and Next was clicked while the
+  window was still laying out the plan for the save, two plans ran at once: both unpacked the Vault media into
+  the same cache (*Vault media could not be checked: Cannot create a file when that file already exists*) and
+  the second one found nothing to continue with (*The expression after '&' in a pipeline element produced an
+  object that was not valid*). The plans now run one after the other, and the media cache tolerates two checks
+  at the same time.
+- **Save the lab file saves.** In the same situation the save was lost: the second plan took the place of the
+  save, so no file was written. The save now always gets its plan, and a save while the servers are being
+  checked writes the configuration of that check.
+- **PSM hardening survives a slow Server service.** The vendor's admin share hardening restarts the Server
+  service (LanmanServer) and waits 30 seconds. When the restart takes longer, the vendor marks its hardening
+  failed although the share is hardened; running it again succeeds. PASeasyInstall now does that once by
+  itself, and only when that timeout is the only error in the vendor's hardening log.
+- **The lab shortcuts on the review page are collapsed:** the box shows how many there are, *Show the list*
+  opens it.
+
 ## 2.0.11
 
 PTA is connected after an installation, and it no longer delays PSM. Tested in the lab on 2026-11-24 with a

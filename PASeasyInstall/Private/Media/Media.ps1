@@ -237,6 +237,32 @@ function Resolve-PASMediaPath {
     } finally { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue } }
 }
 
+function Save-PASZipEntry {
+    # Writes one ZIP entry to Path: first to a file of its own, then moved into place. Two media checks at once
+    # (the window and a run, or two plans) may write the same file of the same source: neither sees a half
+    # written file, and the one that comes second keeps what is there.
+    param([Parameter(Mandatory)]$Entry, [Parameter(Mandatory)][string]$Path)
+    $temp = $Path + '.' + [guid]::NewGuid().ToString('N') + '.part'
+    try {
+        $entryStream = $Entry.Open()
+        $outputStream = [IO.File]::Create($temp)
+        try { $entryStream.CopyTo($outputStream) }finally {
+            $entryStream.Dispose()
+            $outputStream.Dispose()
+        }
+        if (Test-Path -LiteralPath $Path -PathType Leaf) {
+            try { [IO.File]::Replace($temp, $Path, [NullString]::Value) } catch [System.IO.IOException] { $null = $_ }
+        } else {
+            try { [IO.File]::Move($temp, $Path) }
+            catch [System.IO.IOException] {
+                if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw }
+            }
+        }
+    } finally {
+        if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
+    }
+}
+
 function Get-PASZipEntryNames {
     param([string]$Path)
     $zip = $null
@@ -358,12 +384,7 @@ function Resolve-PASMediaProfile {
                         $to = Join-Path $dest $row.Value.Relative
                         $dir = [IO.Path]::GetDirectoryName($to)
                         if (-not(Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-                        $entryStream = $hit[0].Open()
-                        $outputStream = [IO.File]::Create($to)
-                        try { $entryStream.CopyTo($outputStream) }finally {
-                            $entryStream.Dispose()
-                            $outputStream.Dispose()
-                        }
+                        Save-PASZipEntry -Entry $hit[0] -Path $to
                     }
                 } finally { $zip.Dispose() }
                 Write-PASJsonAtomic -Path $marker -Data @{
@@ -421,14 +442,7 @@ function Resolve-PASMediaProfile {
                     $to = Join-Path $dest $runtimeMap[$runtime.Key].Name
                     if (-not (Test-Path -LiteralPath $to)) {
                         $entry = @($zip.Entries | Where-Object { $_.FullName.Replace('\', '/') -match $runtimeMap[$runtime.Key].Pattern })[0]
-                        $entryStream = $entry.Open()
-                        $outputStream = [IO.File]::Create($to)
-                        try {
-                            $entryStream.CopyTo($outputStream)
-                        } finally {
-                            $entryStream.Dispose()
-                            $outputStream.Dispose()
-                        }
+                        Save-PASZipEntry -Entry $entry -Path $to
                     }
                     $Profile.MediaOverrides[$runtime.Key] = $to
                 }
