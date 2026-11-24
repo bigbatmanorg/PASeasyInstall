@@ -13,7 +13,10 @@ Describe 'Status of a detached Windows step whose worker ends while it is looked
             $stage = Join-Path $TestDrive 'stage'
             $dir = Join-Path (Join-Path $stage 'attempts') $attempt
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
-            $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString('o')
+            $bootTime = [datetime]::new(2026, 1, 1, 6, 0, 0, [DateTimeKind]::Utc)
+            $boot = $bootTime.ToString('o')
+            # Every other CIM query (the boot time of the server) answers with that fixed boot time.
+            Mock Get-CimInstance { [pscustomobject]@{ LastBootUpTime = $bootTime } }
             $running = @{ schemaVersion = 2; attemptId = $attempt; pid = 4242; bootUtc = $boot; state = 'Running' }
             $script:statusPath = Join-Path $dir 'status.json'
             $script:finalJson = (@{ schemaVersion = 2; attemptId = $attempt; pid = 4242; bootUtc = $boot; state = 'Succeeded'; message = 'done' } | ConvertTo-Json -Compress)
@@ -39,7 +42,10 @@ Describe 'Status of a detached Windows step whose worker ends while it is looked
             $stage = Join-Path $TestDrive 'stage2'
             $dir = Join-Path (Join-Path $stage 'attempts') $attempt
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
-            $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString('o')
+            $bootTime = [datetime]::new(2026, 1, 1, 6, 0, 0, [DateTimeKind]::Utc)
+            $boot = $bootTime.ToString('o')
+            # Every other CIM query (the boot time of the server) answers with that fixed boot time.
+            Mock Get-CimInstance { [pscustomobject]@{ LastBootUpTime = $bootTime } }
             Set-Content -LiteralPath (Join-Path $dir 'status.json') -Value (@{ schemaVersion = 2; attemptId = $attempt; pid = 4243; bootUtc = $boot; state = 'Running' } | ConvertTo-Json -Compress)
 
             Mock Get-PASConnection { New-MockObject -Type System.Management.Automation.Runspaces.PSSession }
