@@ -22,7 +22,8 @@ use is at your own risk. Read `Docs/DESIGN.md` first: it explains the layout and
   It is written on WPF, which is part of Windows (no other module, no UI framework, no C# project): `Window.xaml` is the
   shell and every style, `Model.ps1` the data, `Controls.ps1` one function per kind of control and the background
   task helper, `Views.ps1` the screens, `App.ps1` the window and events. Every installer call that can take time goes
-  through `Start-PASUITask`, so the window's thread never waits. Passwords stay in their password boxes as SecureString;
+  through `Start-PASUITask`, so the window's thread never waits. The few Windows features WPF lacks (dark title bar, the
+  folder dialog: Windows' file dialog with `FOS_PICKFOLDERS`) are small `Add-Type` definitions in `App.ps1`. Passwords stay in their password boxes as SecureString;
   the model only knows that one was typed.
 - **One function prefix: `PAS`.** No `PASeasy`, `PAExec` or `PAE` prefixes in new function names.
 - **One public command per file** in `PASeasyInstall/Public/`, named after the command, with comment-based help

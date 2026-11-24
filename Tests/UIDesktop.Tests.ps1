@@ -120,6 +120,28 @@ Describe 'UI backend contract' {
         foreach ($call in $calls) { $call | Should -Match '-Force' }
         $text | Should -Not -Match 'You can continue the installation later'
     }
+    It 'chooses folders in the same Windows dialog as files, and that dialog definition compiles' {
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $uiRoot 'App.ps1'), [ref]$null, [ref]$null)
+        $assignment = $ast.Find({
+                param($node)
+                $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+                $node.Left.Extent.Text -eq '$script:PASUIFolderPickerSource'
+            }, $true)
+        $assignment | Should -Not -BeNullOrEmpty
+        $source = $assignment.Right.Expression.Value
+        $source | Should -Match 'd57c7288-d4ad-4768-be02-9d969532d960'
+        $source | Should -Match 'PickFolders = 0x20'
+        if (-not ('PASeasyInstall.FolderPicker' -as [type])) {
+            Add-Type -TypeDefinition $source -Language CSharp
+        }
+        [PASeasyInstall.FolderPicker].GetMethod('Pick') | Should -Not -BeNullOrEmpty
+        $select = $ast.Find({
+                param($node)
+                $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Select-PASUIFile'
+            }, $true)
+        $select.Extent.Text | Should -Match 'Select-PASUIFolder'
+        $select.Extent.Text | Should -Not -Match 'FolderBrowserDialog'
+    }
     It 'lists only public commands of the PASeasyInstall module' {
         . (Join-Path $uiRoot 'Backend/Backend.Contract.ps1')
         $public = @((Get-Command -Module PASeasyInstall).Name)

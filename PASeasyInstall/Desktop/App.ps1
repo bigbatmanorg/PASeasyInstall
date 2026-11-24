@@ -433,19 +433,139 @@ function Get-PASUIRunRequirements {
     return @($requirements)
 }
 
+# The folder dialog. WPF on .NET Framework has only file dialogs, and the WinForms FolderBrowserDialog is the old
+# tree. Windows' own file dialog (IFileOpenDialog) also picks folders (FOS_PICKFOLDERS), so files and folders are
+# chosen in the same dialog. Pick returns the folder, or null when cancelled.
+$script:PASUIFolderPickerSource = @'
+using System;
+using System.Runtime.InteropServices;
+namespace PASeasyInstall {
+    [ComImport, Guid("d57c7288-d4ad-4768-be02-9d969532d960"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IFileOpenDialog {
+        [PreserveSig] int Show(IntPtr parent);
+        void SetFileTypes(uint count, IntPtr filterSpec);
+        void SetFileTypeIndex(uint index);
+        void GetFileTypeIndex(out uint index);
+        void Advise(IntPtr events, out uint cookie);
+        void Unadvise(uint cookie);
+        void SetOptions(uint options);
+        void GetOptions(out uint options);
+        void SetDefaultFolder(IShellItem item);
+        void SetFolder(IShellItem item);
+        void GetFolder(out IShellItem item);
+        void GetCurrentSelection(out IShellItem item);
+        void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string name);
+        void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string name);
+        void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string title);
+        void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string text);
+        void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string label);
+        void GetResult(out IShellItem item);
+        void AddPlace(IShellItem item, int place);
+        void SetDefaultExtension([MarshalAs(UnmanagedType.LPWStr)] string extension);
+        void Close(int result);
+        void SetClientGuid(ref Guid guid);
+        void ClearClientData();
+        void SetFilter(IntPtr filter);
+        void GetResults(out IntPtr items);
+        void GetSelectedItems(out IntPtr items);
+    }
+    [ComImport, Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IShellItem {
+        void BindToHandler(IntPtr context, ref Guid handler, ref Guid iid, out IntPtr result);
+        void GetParent(out IShellItem parent);
+        void GetDisplayName(uint kind, [MarshalAs(UnmanagedType.LPWStr)] out string name);
+        void GetAttributes(uint mask, out uint attributes);
+        void Compare(IShellItem other, uint hint, out int order);
+    }
+    [ComImport, Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7")]
+    internal class FileOpenDialogClass {
+    }
+    public static class FolderPicker {
+        const uint PickFolders = 0x20;
+        const uint ForceFileSystem = 0x40;
+        const uint PathMustExist = 0x800;
+        const uint FileSystemPath = 0x80058000;
+        const int Cancelled = unchecked((int)0x800704C7);
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+        static extern void SHCreateItemFromParsingName(string path, IntPtr context, ref Guid iid, out IShellItem item);
+        public static string Pick(IntPtr owner, string title, string startFolder) {
+            IFileOpenDialog dialog = (IFileOpenDialog)new FileOpenDialogClass();
+            try {
+                uint options;
+                dialog.GetOptions(out options);
+                dialog.SetOptions(options | PickFolders | ForceFileSystem | PathMustExist);
+                if (!string.IsNullOrEmpty(title)) {
+                    dialog.SetTitle(title);
+                }
+                if (!string.IsNullOrEmpty(startFolder) && System.IO.Directory.Exists(startFolder)) {
+                    try {
+                        Guid iid = typeof(IShellItem).GUID;
+                        IShellItem folder;
+                        SHCreateItemFromParsingName(startFolder, IntPtr.Zero, ref iid, out folder);
+                        dialog.SetFolder(folder);
+                    } catch (COMException) {
+                    }
+                }
+                int result = dialog.Show(owner);
+                if (result == Cancelled) {
+                    return null;
+                }
+                if (result != 0) {
+                    Marshal.ThrowExceptionForHR(result);
+                }
+                IShellItem chosen;
+                dialog.GetResult(out chosen);
+                string path;
+                chosen.GetDisplayName(FileSystemPath, out path);
+                return path;
+            } finally {
+                Marshal.ReleaseComObject(dialog);
+            }
+        }
+    }
+}
+'@
+
+function Select-PASUIFolder {
+    # Asks for a folder in Windows' own file dialog. Returns the folder, or '' when cancelled. Only when that dialog
+    # cannot be shown at all, the WinForms folder dialog is used instead.
+    param([string]$Title)
+    $start = ''
+    if ($S.StartDirectory -and (Test-Path -LiteralPath $S.StartDirectory -PathType Container)) {
+        $start = [string]$S.StartDirectory
+    }
+    try {
+        if (-not ('PASeasyInstall.FolderPicker' -as [type])) {
+            Add-Type -TypeDefinition $script:PASUIFolderPickerSource -Language CSharp
+        }
+        $owner = (New-Object Windows.Interop.WindowInteropHelper($window)).Handle
+        $chosen = [PASeasyInstall.FolderPicker]::Pick($owner, $Title, $start)
+        if (-not $chosen) {
+            return ''
+        }
+        return [string]$chosen
+    } catch {
+        $null = $_
+    }
+    Add-Type -AssemblyName System.Windows.Forms
+    $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+    $dialog.Description = $Title
+    $dialog.ShowNewFolderButton = $false
+    if ($start) {
+        $dialog.SelectedPath = $start
+    }
+    if ($dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
+        return ''
+    }
+    return [string]$dialog.SelectedPath
+}
+
 function Select-PASUIFile {
     # Asks for a file to open or to save, for several files (Kind OpenMany) or for a folder (Kind Folder).
     # Returns the path (OpenMany: the paths), or '' when cancelled.
     param([ValidateSet('Open', 'OpenMany', 'Save', 'Folder')][string]$Kind, [string]$Title, [string]$Filter = '', [string]$FileName = '')
     if ($Kind -eq 'Folder') {
-        Add-Type -AssemblyName System.Windows.Forms
-        $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-        $dialog.Description = $Title
-        $dialog.ShowNewFolderButton = $false
-        if ($dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
-            return ''
-        }
-        return [string]$dialog.SelectedPath
+        return (Select-PASUIFolder -Title $Title)
     }
     if ($Kind -in @('Open', 'OpenMany')) {
         $dialog = New-Object Microsoft.Win32.OpenFileDialog
