@@ -657,13 +657,19 @@ function Add-PASUIReviewPage {
         Add-PASUICell $grid $where $number 2
         Add-PASUICell $grid (New-PASUIText $media 'Hint' -Margin '0,5,0,4') $number 3
     }
-    Add-PASUIChild $Page @(
-        (New-PASUIText "This is what will be installed. It takes about $minutes minutes and needs no attention while it runs." 'Lead' -Margin '0,0,0,18'),
-        (New-PASUICard -Content @($grid))
-    )
+    Add-PASUIChild $Page @((New-PASUIText "Below is what will be installed. It takes about $minutes minutes and needs no attention while it runs." 'Lead' -Margin '0,0,0,18'))
     if (-not $S.Hardening) {
         Add-PASUIChild $Page @((New-PASUIRegion 'ReviewHardening' @((New-PASUIBox 'warn' 'The servers will NOT be hardened.' 'You switched off "Apply the vendor hardening". The components are installed and registered, but the Vault, PVWA, CPM, PSM and PSMP servers keep their unhardened settings. Use such a lab for tests only.'))))
     }
+    # The Install button comes first, so it is seen without scrolling, however long the plan is.
+    $install = New-PASUIButton 'act-install' 'Install the lab' 'PrimaryBig' -Margin '0'
+    $install.HorizontalAlignment = 'Left'
+    $R['InstallButton'] = $install
+    $hero = New-PASUICard -Content @(
+        $install,
+        (New-PASUIText 'The installation runs in its own process. You can close this window and open it again later.' 'Hint' -Margin '0,10,0,0')
+    )
+    Add-PASUIChild $Page @($hero, (New-PASUICard -Content @($grid)))
     $warnings = @($check.Warnings | Where-Object { $_ })
     if ($warnings.Count) {
         Add-PASUIChild $Page @((New-PASUIBox 'warn' "Lab shortcuts in use ($($warnings.Count))." 'Documented shortcuts for a disposable lab.' $warnings -Collapsed))
@@ -682,14 +688,6 @@ function Add-PASUIReviewPage {
                     $save,
                     (New-PASUIText 'Saves the lab and its servers as a file, without any password. Open it later with "Open a saved lab file" on the start page.' 'Hint' -Margin '0,8,0,0'))))
     }
-    $install = New-PASUIButton 'act-install' 'Install the lab' 'PrimaryBig' -Margin '0'
-    $install.HorizontalAlignment = 'Left'
-    $R['InstallButton'] = $install
-    $hero = New-PASUICard -Content @(
-        $install,
-        (New-PASUIText 'The installation runs in its own process. You can close this window and open it again later.' 'Hint' -Margin '0,10,0,0')
-    )
-    Add-PASUIChild $Page @($hero)
 }
 
 # ------------------------------------------------------------------ the page of one installation
