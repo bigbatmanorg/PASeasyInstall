@@ -88,9 +88,9 @@ A server that fails stops **only what depends on it**. Every other server is ins
   were not installed because of it.
 
 Nothing is undone. Correct the cause and continue with [`Resume-PASRun`](../commands/runs.md#resume-pasrun) or
-the buttons of the window. Servers that are installed and verified are left as they are: only the servers that
-are not finished are started again. On those, the steps that finished are checked (the window shows *Checking
-what is already installed*), then the rest is installed.
+the buttons of the window. On every server the steps that finished are checked again, read-only (the window
+shows *Checking what is already installed*); nothing is installed twice. Then the rest is installed. A step whose
+result is uncertain is only repeated when you ask for it by name (*Try this step again*, `-RetryStep`).
 
 A server can be tried again when the run has ended, that is when every other server is finished or has stopped.
 

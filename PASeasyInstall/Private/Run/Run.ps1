@@ -938,7 +938,7 @@ function Invoke-PASRunControllerCore {
     }
     try {
         Assert-PASVaultInstallationSecrets -Configuration $config -Secrets $auth.Secrets -ReferencesResolved
-        if ($Resume) { Write-PASRunEvent $dir 'RunResumed' 'Continuing the run: servers that are installed and verified are left as they are; on the others the finished steps are checked, then the rest is installed' }
+        if ($Resume) { Write-PASRunEvent $dir 'RunResumed' 'Continuing the run: on every server the finished steps are checked again (read-only, nothing is installed twice), then the rest is installed' }
         if (-not $Resume) {
             foreach ($item in @($plan.Items)) {
                 Write-PASRunEvent $dir 'TaskCompleted' 'Local configuration and media checks passed' ([string]$item.Id) 'LocalPreflight'
