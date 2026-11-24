@@ -266,7 +266,13 @@ Every run assumes clean servers.
   Vault failing in a DR lab, forced stop and lock release with PSM for SSH): released as 2.0.10. The gateway is no longer entered into PVWA at the very end.
 - **A failed server cannot be tried again while the run is still going.** The buttons come when every other
   server is finished. Trying one server again inside a running run needs a second controller for one lane.
-- **The server check takes 4 to 7 minutes for three Windows servers** (the window stays responsive).
+- **The server check takes 4 to 7 minutes for three Windows servers** (the window stays responsive). Not yet
+  explained; investigation stopped on 2026-11-24 before any measurement. The check itself is small (per server:
+  name lookup, TCP probe, one WinRM session, one CIM query), so look first at: (1) `New-PASManagementSession`
+  tries the endpoint `PASeasyInstall.Management` first, which does not exist on a fresh server, then falls
+  back to `Microsoft.PowerShell` (one failed attempt per server); (2) the servers are checked one after another,
+  not in parallel; (3) the window's check may add work of its own (Desktop backend). The owner does not want the
+  media check of the configuration in this investigation.
 - **Every Linux check is a detached systemd job** since 2.0.9: safer after a lost connection, about 4 seconds
   per finished Linux step when a run is continued.
 - **CPM registration damaged in transit** in the two-node lab: see PARALLEL.md, fourth round. If it comes back
