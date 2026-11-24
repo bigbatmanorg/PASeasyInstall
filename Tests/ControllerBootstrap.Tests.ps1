@@ -16,12 +16,17 @@ Describe 'Controller bootstrap failure and process identity' {
                 param($c, $d)
                 Start-PASDeployment -Configuration $c -DataRoot $d -Confirm:$false
             } $config $dataRoot
-            $deadline = [DateTime]::UtcNow.AddSeconds(20)
+            # The controller is a new process (slow on a busy CI runner), and run.json can be unreadable for a
+            # moment while it is replaced: an unreadable record is not a result, keep looking.
+            $deadline = [DateTime]::UtcNow.AddSeconds(90)
             do {
                 $run = Get-PASRunRecord -RunId $id -DataRoot $dataRoot
-                if ($run.status -notin @('Launching', 'Running')) { break }
-                Start-Sleep -Milliseconds 100
-            }while ([DateTime]::UtcNow -lt $deadline)
+                if ($run -and $run.status -notin @('Launching', 'Running')) {
+                    break
+                }
+                Start-Sleep -Milliseconds 200
+            } while ([DateTime]::UtcNow -lt $deadline)
+            $run | Should -Not -BeNullOrEmpty -Because 'the run record must be readable once the controller has finished'
             $run.status | Should -BeExactly Failed
             $run.message | Should -Match 'Missing host PSCredential'
             @(Get-ChildItem (Join-Path (Join-Path $dataRoot 'Runs') $id) -Filter 'credentials-*.json').Count | Should -Be 0
