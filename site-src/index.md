@@ -11,7 +11,11 @@ CyberArk installer media, name the servers and press **Install**. It installs, r
 Vault (or a Primary and DR pair), PVWA, CPM, PSM, PSM for SSH, and optionally the HTML5 Gateway, PTA and an Active
 Directory domain. Use the window, or one PowerShell command per step.
 
-![A finished lab of nine servers: every component is connected to the Vault](assets/window/19-lab-check.png)
+[![PowerShell Gallery](https://img.shields.io/powershellgallery/v/PASeasyInstall?label=PowerShell%20Gallery)](https://www.powershellgallery.com/packages/PASeasyInstall)
+[![GitHub release](https://img.shields.io/github/v/release/bigbatmanorg/PASeasyInstall?label=release)](https://github.com/bigbatmanorg/PASeasyInstall/releases/latest)
+What changed in each version: [Release notes](release-notes.md)
+
+![A lab being installed: every server works at the same time, and the steps that need the Vault wait for their turn](assets/window/00-installing.png)
 
 !!! warning "Made for labs"
     Training, demos, proofs of concept, testing upgrades and integrations. Production use is at your own risk.
