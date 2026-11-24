@@ -165,3 +165,29 @@ Describe 'Stop-PASRun argument checks' {
             } } | Should -Throw '*was not found*'
     }
 }
+
+Describe 'Find-PASLocalLockOwner (a blocked run names the run that holds the server)' {
+    It 'finds an unfinished run of this controller on the same address, and forgets it once its locks were released' {
+        $run = New-FakeRun -Status 'Abandoned'
+        $payload = Join-Path (Join-Path $run.Directory 'Payloads') 'psmp01'
+        New-Item -ItemType Directory -Path $payload -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $payload 'inventory.psd1'), "@{SchemaVersion=1;Targets=@{psmp01=@{Protocol='SSH';Runtime='Bash';ComputerName='192.0.2.31'}}}")
+        New-Item -ItemType Directory -Path (Join-Path $run.Directory 'psmp01') -Force | Out-Null
+        '{"status":"Unknown","steps":{}}' | Set-Content -LiteralPath (Join-Path (Join-Path $run.Directory 'psmp01') 'state.json')
+        $find = {
+            param($Address, $RunId)
+            InModuleScope PASeasyInstall -Parameters @{ Address = $Address; RunId = $RunId; DataRoot = $script:dataRoot } {
+                param($Address, $RunId, $DataRoot)
+                Find-PASLocalLockOwner -Address $Address -RunId $RunId -DataRoot $DataRoot
+            }
+        }
+        & $find '192.0.2.31' ([guid]::NewGuid().ToString('N')) | Should -BeExactly $run.Id
+        & $find '192.0.2.99' ([guid]::NewGuid().ToString('N')) | Should -BeExactly ''
+        # The run itself is never its own blocker.
+        & $find '192.0.2.31' $run.Id | Should -BeExactly ''
+        $record = Get-Content -Raw $run.Record | ConvertFrom-Json
+        $record | Add-Member NoteProperty locksReleased $true -Force
+        [IO.File]::WriteAllText($run.Record, ($record | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
+        & $find '192.0.2.31' ([guid]::NewGuid().ToString('N')) | Should -BeExactly ''
+    }
+}
