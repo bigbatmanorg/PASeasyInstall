@@ -87,7 +87,7 @@ every server answers and every account can sign in. Nothing is installed yet.
 
 ![Servers step: one line per server](site-src/assets/window/09-servers.png)
 
-**4. Install.** The plan in order, the lab shortcuts it uses, and **Install the lab**. Until you press it and
+**4. Install.** **Install the lab** at the top, then the plan in order and the lab shortcuts it uses. Until you press it and
 confirm, nothing is changed on any server.
 
 ![Install step: what will be installed, on which server, with which installer](site-src/assets/window/12-review.png)

@@ -7,8 +7,9 @@ confirm, nothing is changed on any server.
 
 ## The plan
 
-The line at the top says roughly how long the installation takes. Below it, one line per component: its
-number, what it is, on which server (address and name), and which installer file is used.
+The line at the top says roughly how long the installation takes. Right below it is **Install the lab**, so it
+is in view without scrolling, however long the plan is. Below the button, one line per component: its number,
+what it is, on which server (address and name), and which installer file is used.
 
 The numbers are the order of the plan, not a waiting line: the servers are installed at the same time
 ([Servers at the same time](../concepts/parallel.md)).
@@ -24,7 +25,7 @@ desktop to the Vault from this computer. They are fine for a lab and not for pro
 its title says how many shortcuts there are, and **Show the list** opens it. Each one is explained
 on [Lab and Secure profiles](../concepts/profiles.md). The window always uses the Lab profile.
 
-If you switched off *Apply the vendor hardening* on the Servers step, a box above the shortcuts says so:
+If you switched off *Apply the vendor hardening* on the Servers step, a box above **Install the lab** says so:
 
 ![The warning that the servers will not be hardened](../assets/window/13-review-not-hardened.png)
 

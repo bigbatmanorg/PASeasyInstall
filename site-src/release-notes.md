@@ -1,5 +1,11 @@
 # Release notes
 
+## 2.0.16
+
+- **Install the lab is at the top of the Install step.** The button was below the plan, the lab shortcuts and the
+  lab file card, so with a larger lab it was only reached by scrolling and easy to miss. It now comes right under
+  the time estimate (and under the warning when the servers will not be hardened), above the plan.
+
 ## 2.0.15
 
 - **PSM hardening tries again up to three times after a LanmanServer timeout.** Right after the hardening
