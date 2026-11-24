@@ -1,5 +1,12 @@
 # Release notes
 
+## 2.0.14
+
+- **Choose a folder... opens the same dialog as Choose files...** On the Media step, folders were picked in the
+  small old folder tree of Windows. Now both buttons open Windows' own file dialog (with the address bar, search
+  and recent places); for a folder it shows **Select Folder**, and it starts in the same folder as the file
+  dialog. Should that dialog not be available, the old folder tree is used as before.
+
 ## 2.0.13
 
 A clean-up release: what is in the repository is what the tool uses. Nothing changes in how a lab is installed.
