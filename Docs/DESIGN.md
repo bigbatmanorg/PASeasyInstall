@@ -242,7 +242,8 @@ to PTA under each of those names; a missing hosts entry fails there. When PVWA's
   cannot repair is reported instead.
 - Transient vendor failures need an operator `-RetryStep`, by design. One exception: when the only error of the
   vendor's PSM hardening is that the Server service (LanmanServer) did not restart within its 30 seconds, the
-  hardening is run once more by itself (`Recipes/WindowsComponent/Psm.ps1`).
+  hardening is run again by itself, up to three times, 30 seconds apart (`Invoke-PASPsmVendorStage` in
+  `Recipes/WindowsComponent/Psm.ps1`).
 - Anti-tamper ACL code (owner/ACL checks of staging folders) is duplicated in about 8 places; not consolidated.
 - Install paths are hard-coded (`C:\` drive, `C:\ProgramData\...`, `/opt/paeasyinstall`).
 - On-disk and remote names still say `PAExec` / `paeasyinstall` (stage root, task path, lock folders, endpoint name).

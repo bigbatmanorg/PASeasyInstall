@@ -1,5 +1,6 @@
 # Lab findings of 2026-11-24 (owner's run 9da236dc): a retry of the PSM hardening must not touch the finished
-# servers; the PSM hardening may be repeated once when the vendor only timed out restarting LanmanServer; two
+# servers; the PSM hardening may be repeated up to three times, 30 seconds apart, when the vendor only timed out
+# restarting LanmanServer; two
 # media checks at the same time must not fail on files the other one wrote.
 BeforeAll {
     . (Join-Path $PSScriptRoot 'TestHelpers.ps1')
@@ -52,6 +53,48 @@ Describe 'PSM hardening that only timed out restarting LanmanServer' {
         Set-Content -LiteralPath $old -Value 'Error restarting LanmanServer: Time out has expired'
         (Get-Item -LiteralPath $old).LastWriteTime = (Get-Date).AddHours(-2)
         Test-PASeasyPsmLanmanRestartTimeout -Since (Get-Date).AddMinutes(-1) | Should -BeFalse
+    }
+}
+
+Describe 'PSM hardening retries after the LanmanServer restart timeout' {
+    BeforeAll {
+        . (Get-PASTestModulePath 'Recipes/WindowsComponent/Psm.ps1')
+        function Invoke-VendorScript { param($ScriptPath, $Parameters) }
+    }
+    BeforeEach {
+        $script:calls = 0
+        Mock Start-Sleep {}
+        Mock Wait-PASeasyLanmanServer {}
+        Mock Assert-PASeasyPsmNoInteractiveContinuation {}
+        Mock Protect-PASeasyPsmTempDirectory {}
+        Mock Assert-PASeasyPsmTlsBackupTrusted {}
+        Mock Test-PASeasyPsmLanmanRestartTimeout { $true }
+    }
+    It 'runs the stage again up to three times, 30 seconds apart, and returns the first success' {
+        Mock Invoke-VendorScript { $script:calls++; if ($script:calls -le 3) { throw 'Vendor stage failed' }; [pscustomobject]@{isSucceeded = 0; restartRequired = $false } }
+        $result = Invoke-PASPsmVendorStage -Invoke @{ScriptPath = 'x'} -Stage Harden -AuditRoot 'a' -InformationAction SilentlyContinue
+        $result.restartRequired | Should -BeFalse
+        $script:calls | Should -Be 4
+        Should -Invoke Start-Sleep -Times 3 -Exactly -ParameterFilter { $Seconds -eq 30 }
+        Should -Invoke Wait-PASeasyLanmanServer -Times 3 -Exactly
+        Should -Invoke Assert-PASeasyPsmTlsBackupTrusted -Times 3 -Exactly
+    }
+    It 'gives up with the vendor error after the third retry' {
+        Mock Invoke-VendorScript { $script:calls++; throw 'Vendor stage failed' }
+        { Invoke-PASPsmVendorStage -Invoke @{ScriptPath = 'x'} -Stage Harden -AuditRoot 'a' -InformationAction SilentlyContinue } | Should -Throw 'Vendor stage failed'
+        $script:calls | Should -Be 4
+    }
+    It 'does not retry when the hardening log shows another error' {
+        Mock Test-PASeasyPsmLanmanRestartTimeout { $false }
+        Mock Invoke-VendorScript { $script:calls++; throw 'Vendor stage failed' }
+        { Invoke-PASPsmVendorStage -Invoke @{ScriptPath = 'x'} -Stage Harden } | Should -Throw
+        $script:calls | Should -Be 1
+        Should -Invoke Start-Sleep -Times 0 -Exactly
+    }
+    It 'does not retry other stages' {
+        Mock Invoke-VendorScript { $script:calls++; throw 'Vendor stage failed' }
+        { Invoke-PASPsmVendorStage -Invoke @{ScriptPath = 'x'} -Stage PostInstall } | Should -Throw
+        $script:calls | Should -Be 1
     }
 }
 
