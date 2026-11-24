@@ -56,8 +56,9 @@ PSM for SSH. PTA registers last, because its configuration holds the Vault for a
 
 ## More than one, and together
 
-- Up to four instances of PVWA, CPM, PSM, PSM for SSH, HTML5 Gateway and PTA are accepted (the window allows two
-  without **Advanced**). Two of each were tested. The Vault license decides how many can register.
+- Up to four instances of PVWA, CPM, PSM, PSM for SSH and HTML5 Gateway are accepted (the window allows two
+  without **Advanced**). Two of each were tested. The Vault license decides how many can register. PTA: one per
+  lab; every PTA signs in to the Vault as the same user ([PTA](pta.md)).
 - Components can share a server: instances with the same address are installed on one server, one after the
   other. PVWA with CPM, and PSM for SSH with the HTML5 Gateway, were tested. PTA needs a server of its own.
 - One Vault per lab, and at most one DR Vault, which must be installed together with the Vault.

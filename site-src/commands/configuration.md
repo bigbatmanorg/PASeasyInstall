@@ -17,7 +17,7 @@ The text of every command below is its own help (`Get-Help <command> -Full`).
 
 | Command | What it does |
 |---|---|
-| [`New-PASLabConfiguration`](#new-paslabconfiguration) | Composes the configuration of a lab: the Vault (new Primary, Primary and DR, or an existing Vault) and up to 4 each of PVWA, CPM, PSM, PSMP, HTML5 Gateway and PTA. Nothing is contacted or installed. |
+| [`New-PASLabConfiguration`](#new-paslabconfiguration) | Composes the configuration of a lab: the Vault (new Primary, Primary and DR, or an existing Vault) and up to 4 each of PVWA, CPM, PSM, PSMP, HTML5 Gateway and one PTA. Nothing is contacted or installed. |
 | [`Test-PASLabConfiguration`](#test-paslabconfiguration) | Checks a lab configuration: structure, topology rules and, with -CheckMedia, the installer files. |
 | [`Get-PASLabPlan`](#get-paslabplan) | Shows what a configuration would install: one item per component with its server, installer and order. |
 | [`Export-PASLabConfiguration`](#export-paslabconfiguration) | Saves a lab configuration as a JSON file. The file never contains a password. |
@@ -27,7 +27,7 @@ The text of every command below is its own help (`Get-Help <command> -Full`).
 
 ## New-PASLabConfiguration
 
-Composes the configuration of a lab: the Vault (new Primary, Primary and DR, or an existing Vault) and up to 4 each of PVWA, CPM, PSM, PSMP, HTML5 Gateway and PTA. Nothing is contacted or installed.
+Composes the configuration of a lab: the Vault (new Primary, Primary and DR, or an existing Vault) and up to 4 each of PVWA, CPM, PSM, PSMP, HTML5 Gateway and one PTA. Nothing is contacted or installed.
 
 Returns the configuration as an ordered hashtable. Check it with Test-PASLabConfiguration, look at the result with Get-PASLabPlan, save it with Export-PASLabConfiguration and install it with Install-PASLab. The configuration never contains a password.
 
@@ -37,7 +37,7 @@ The only thing this command may write is a copy of an installer that you selecte
 |---|---|
 | `-Environment` | Name of the environment (letters, digits, dot, dash, underscore; at most 64 characters). |
 | `-VaultMode` | Primary: install a new Primary Vault. PrimaryDR: install a new Primary and a DR Vault. Existing: use a Vault that is already installed (-ExistingVaultAddress) and install components only. |
-| `-Instances` | The component servers: @( @{ Type = 'PVWA'; Name = 'PVWA01'; Address = '192.0.2.21'; Username = '' } ). Type is PVWA, CPM, PSM, PSMP, HTML5GW or PTA (up to 4 of each). PTA needs a RHEL-family server with 8 GB, a PVWA in the same lab and a PSMP package in the media; its instance may carry VaultTimezone, the time zone of the Vault server as a tz database name (default UTC). HTML5GW is the PSM HTML5 Gateway: a container on a Linux server (Docker on Ubuntu, Podman on the RHEL family) that may share the server of a PSMP; it needs a PVWA in the same lab and the PACLI package in the media. Name is the host name of the server; the component id in the configuration is its lower-case form. Instances with the same address share one server, named after the first instance. Username is optional. Linux instances may carry IdentityFile and KnownHostsFile; otherwise the key of this controller under &lt;data folder&gt;\ssh\&lt;environment&gt; is used (created and authorised on the first install). |
+| `-Instances` | The component servers: @( @{ Type = 'PVWA'; Name = 'PVWA01'; Address = '192.0.2.21'; Username = '' } ). Type is PVWA, CPM, PSM, PSMP, HTML5GW or PTA (up to 4 of each, one PTA). PTA needs a RHEL-family server with 8 GB, a PVWA in the same lab and a PSMP package in the media; its instance may carry VaultTimezone, the time zone of the Vault server as a tz database name (default UTC). HTML5GW is the PSM HTML5 Gateway: a container on a Linux server (Docker on Ubuntu, Podman on the RHEL family) that may share the server of a PSMP; it needs a PVWA in the same lab and the PACLI package in the media. Name is the host name of the server; the component id in the configuration is its lower-case form. Instances with the same address share one server, named after the first instance. Username is optional. Linux instances may carry IdentityFile and KnownHostsFile; otherwise the key of this controller under &lt;data folder&gt;\ssh\&lt;environment&gt; is used (created and authorised on the first install). |
 | `-ControllerAddress` | IPv4 address of this controller as the Vault servers see it. Needed for a new Vault. |
 | `-PrimaryAddress` | Address of the server that becomes the Primary Vault (VaultMode Primary or PrimaryDR). |
 | `-DRAddress` | Address of the server that becomes the DR Vault (VaultMode PrimaryDR). |

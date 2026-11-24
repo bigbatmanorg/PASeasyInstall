@@ -74,6 +74,13 @@ function Test-PASHealth {
     )
 
     $health = Resolve-PASConfigurationInput -Path $Path -Configuration $Configuration
+    # The configuration of a run whose failed servers were left out (Resume-PASRun -LeaveOut): they are not checked.
+    if ($Path) {
+        $leftOut = @(Get-PASRunLeftOut -RunDirectory (Split-Path -Parent $health.Config))
+        if ($leftOut.Count) {
+            $health = @{ Configuration = (Remove-PASLeftOutComponent -Config (Read-PASConfiguration -Path $health.Config) -LeftOut $leftOut) }
+        }
+    }
     $health['VaultCredential'] = $VaultCredential
     $health['PvwaCertificateFile'] = $PvwaCertificateFile
     $health['TimeoutSeconds'] = $TimeoutSeconds

@@ -431,6 +431,9 @@ function New-PASUICustomLabCard {
         $counter = New-Object Windows.Controls.StackPanel
         $counter.Orientation = 'Horizontal'
         $counter.VerticalAlignment = 'Center'
+        if ($type -eq 'PTA') {
+            Add-PASUIChild $what @((New-PASUIText 'one server: a lab has one PTA' 'Hint'))
+        }
         $value = New-PASUIText ([string][int]$S.Counts[$type]) -Bold
         $value.Width = 34
         $value.TextAlignment = 'Center'
@@ -448,7 +451,7 @@ function New-PASUICustomLabCard {
         $modes,
         (New-PASUIText 'Components' 'H2' -Margin '0,6,0,6'),
         $grid,
-        (New-PASUIText "Up to $max of each. Two of each were tested; the Vault license decides how many can register." 'Hint' -Margin '0,6,0,0')
+        (New-PASUIText "Up to $max of each (PTA: one). Two of each were tested; the Vault license decides how many can register." 'Hint' -Margin '0,6,0,0')
     )
 }
 
@@ -765,23 +768,53 @@ function Show-PASUIRunStatus {
     } elseif ($status -eq 'Succeeded') {
         $health = New-PASUIButton 'act-health' 'Check the lab' 'Primary' -Margin '0,12,0,0'
         $health.HorizontalAlignment = 'Left'
-        $content += New-PASUIBox 'ok' 'The lab is installed.' 'Check that every component is connected to the Vault before you use it.' -Content @($health)
+        $leftOut = @(Get-PASUIRunLeftOut $run)
+        if ($leftOut.Count) {
+            $why = 'They failed and were left out: they are not installed and not connected to the Vault.'
+            if ($leftOut.Count -eq 1) {
+                $why = 'It failed and was left out: it is not installed and not connected to the Vault.'
+            }
+            $content += New-PASUIBox 'warn' ('The lab is installed without ' + ($leftOut -join ', ') + '.') ($why + ' Everything else is finished. Check that every component is connected to the Vault before you use it.') -Content @($health)
+        } else {
+            $content += New-PASUIBox 'ok' 'The lab is installed.' 'Check that every component is connected to the Vault before you use it.' -Content @($health)
+        }
     } elseif ($status -eq 'Abandoned') {
         $content += New-PASUIBox 'warn' 'This installation was stopped.' 'The servers keep what was installed until then.'
     } else {
-        $failure = Get-PASUIFailure $run
+        $failures = @(Get-PASUIFailures $run)
+        $leave = @(Get-PASUILeaveOutCandidates $run $progress)
         $text = [string]$run.Message
         $inner = @()
-        if ($failure) {
-            $text = 'It stopped at "' + (Get-PASUIStageText $failure.Stage) + '" of ' + [string]$failure.Component + '.'
+        foreach ($failure in $failures) {
+            $inner += New-PASUIText ('It stopped at "' + (Get-PASUIStageText $failure.Stage) + '" of ' + [string]$failure.Component + '.') -Margin '0,6,0,4'
             $inner += New-PASUIPre ([string]$failure.Message)
         }
-        $inner += New-PASUIText 'Correct the cause on the server, then continue. Steps that are finished are not repeated.' -Brush 'TextSoft' -Margin '0,10,0,10'
+        if ($failures.Count) {
+            $text = 'Correct the cause on the server, then try again. Steps that are finished are not repeated.'
+        }
+        if ($leave.Count) {
+            $them = 'they are'
+            if ($leave.Count -eq 1) {
+                $them = 'it is'
+            }
+            $inner += New-PASUIText ('Or finish the lab without ' + ($leave -join ', ') + ': ' + $them + ' left out, not installed and not connected to the Vault. Add a left-out server later with a new installation.') -Brush 'TextSoft' -Margin '0,10,0,10'
+        } else {
+            $inner += New-PASUIText 'Steps that are finished are not repeated.' -Brush 'TextSoft' -Margin '0,10,0,10'
+        }
         $actions = @()
-        if ($failure) {
+        if ($failures.Count -gt 1) {
+            $actions += New-PASUIButton 'act-retry' 'Try the failed steps again' 'Primary' -Margin '0,0,10,6'
+        } elseif ($failures.Count) {
             $actions += New-PASUIButton 'act-retry' 'Try this step again' 'Primary' -Margin '0,0,10,6'
         }
-        $actions += New-PASUIButton 'act-resume' 'Continue without repeating it' 'Btn' -Margin '0,0,10,6'
+        if ($leave.Count) {
+            $actions += New-PASUIButton 'act-leaveout' ('Finish without ' + ($leave -join ', ')) 'Btn' -Margin '0,0,10,6'
+        }
+        # A step that failed is not repeated on its own: continuing without it would only stop there again.
+        # Continuing helps when nothing failed (an interrupted run) or a step's result is unclear (Unknown).
+        if (-not @($failures | Where-Object { $_.Status -eq 'Failed' }).Count) {
+            $actions += New-PASUIButton 'act-resume' 'Continue the installation' 'Btn' -Margin '0,0,10,6'
+        }
         $actions += New-PASUIButton 'act-diag' 'Save the logs as a ZIP' 'Btn' -Margin '0,0,10,6'
         $inner += New-PASUIRow $actions
         $content += New-PASUIBox 'bad' 'The installation stopped.' $text -Content $inner
@@ -817,6 +850,9 @@ function Show-PASUIRunComponents {
         }
         if ($row.GaveUp) {
             $now = 'Not continued: a server it depends on failed'
+        }
+        if ($row.Status -eq 'LeftOut') {
+            $now = 'Left out: not installed'
         }
         $waiting = ($row.Waiting -and $active)
         if ($waiting) {

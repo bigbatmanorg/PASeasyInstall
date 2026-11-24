@@ -230,6 +230,10 @@ function Test-PASConfiguration {
     foreach ($limited in @('PVWA', 'CPM', 'PSM', 'PSMP', 'HTML5GW', 'PTA')) {
         if (@($c.components | Where-Object { $_ -and $_.type -eq $limited }).Count -gt 4) { $issues.Add("At most 4 $limited server(s) are supported") }
     }
+    # One PTA per Vault: every PTA registers as the same Vault user (PTAAppUser), so a second one takes the Vault
+    # connection over from the first. Only a warning here, so that a run started before this rule can still be
+    # opened and finished; Start-PASDeployment refuses a new run with more than one.
+    if (@($c.components | Where-Object { $_ -and $_.type -eq 'PTA' }).Count -gt 1) { $warnings.Add('Only one PTA server is supported: a new installation with more than one is refused.') }
     # 'execution' is written by New-PASDeploymentConfiguration. Parallel: the servers are installed at the
     # same time (Private\Run\Lanes.ps1). Sequential, or no key: one component after the other.
     $execution = Get-PASValue $c 'execution' $null

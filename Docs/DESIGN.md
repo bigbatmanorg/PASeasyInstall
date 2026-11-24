@@ -166,6 +166,13 @@ certificate bundle). Nothing else coordinates runs.
   names it; a name that matches no Failed/Unknown step is an error. When the action was acknowledged and only
   its verifier is unresolved (staging cut off), the retry repeats the verification only, and only when the old
   verifier is shown not to be running. `-RetryFailedPreflight` repeats a failed read-only Linux preflight.
+- **Leave out**: `Resume-PASRun -LeaveOut <id>` (window: *Finish without ...*) records failed components in
+  `left-out.json` of the run. The controller, every lane and `Test-PASHealth` on the run's config drop them from
+  the configuration (`Remove-PASLeftOutComponent`, which also drops a host with no component left from the domain
+  joins), so nothing waits for them and the integrations run without them; the run ends Succeeded with a message
+  that names them. Not for AD, Vault, DRVault, the first PVWA or a component whose journal says Succeeded.
+  The window no longer offers to continue without a retry while a step is Failed (it would stop there again),
+  and its retry button retries the failed step of every server that stopped.
 - **Status**: `PAExecLocked:` in the error means Blocked, `PAExecUnknown:`/`Unknown:` means Unknown, else Failed.
   A run whose controller process is gone is reported as Interrupted (PID and start time must both match).
 - **Stop** (`Stop-PASRun` → `Stop-PASDeployment`): refuses a live controller without `-Force`; with it, stops only

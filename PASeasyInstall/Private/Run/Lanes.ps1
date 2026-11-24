@@ -26,6 +26,8 @@
 #             the DR Vault             nothing but the milestones of the Primary Vault (its keys, then
 #                                      'primary-ready'); nothing waits for the DR Vault
 #           One Vault sign-in at a time is the Vault lock that every such step takes (Engine\Locks.ps1).
+#   A component left out with Resume-PASRun -LeaveOut is taken out of the configuration of the run (also in
+#   each lane): it has no lane, nothing waits for it, and the integrations are done without it.
 #   A lane that fails stops only what depends on it. Registered:<id> is an order, not a need: when that server
 #   fails, those that waited for it go on. Everything else in the list is a need: who waits for it is not
 #   installed, and says so. The other servers are installed to the end, then the run ends Failed.
@@ -462,6 +464,7 @@ function Invoke-PASLane {
     try {
         $signals = $Shared.Signals
         $config = Read-PASConfiguration -Path (Join-Path $Shared.Directory 'config.json')
+        $config = Remove-PASLeftOutComponent -Config $config -LeftOut @(Get-PASValue $Shared 'LeftOut' @())
         $script:PASFrozenMedia = @{}
         foreach ($path in @($Shared.FrozenMedia.Keys)) {
             $script:PASFrozenMedia[[string]$path] = [string]$Shared.FrozenMedia[$path]
@@ -604,6 +607,7 @@ function Invoke-PASParallelFinalizations {
     $run = $null
     try {
         $config = Read-PASConfiguration -Path (Join-Path $Shared.Directory 'config.json')
+        $config = Remove-PASLeftOutComponent -Config $config -LeftOut @(Get-PASValue $Shared 'LeftOut' @())
         $script:PASFrozenMedia = @{}
         foreach ($path in @($Shared.FrozenMedia.Keys)) {
             $script:PASFrozenMedia[[string]$path] = [string]$Shared.FrozenMedia[$path]
@@ -738,6 +742,7 @@ function Invoke-PASRunLanes {
         Signals = (New-PASLaneSignals -Config $Run.Config)
         Current = [hashtable]::Synchronized(@{})
         Installed = [hashtable]::Synchronized(@{})
+        LeftOut = @(Get-PASValue $Run 'LeftOut' @())
     }
     $manifest = Join-Path (Get-PASModuleRoot) 'PASeasyInstall.psd1'
     # A continued run (a retry of one failed step): a lane whose every target this run already installed and

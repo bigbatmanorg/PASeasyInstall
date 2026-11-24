@@ -8,6 +8,7 @@ function Get-PASRun {
 
     With -RunId: the run in detail, with RunId, Name, Status, CurrentComponent, Message, LastStep,
     StartedUtc, FinishedUtc, CompletedEvents, ErrorEvents, Components (Id, Type, Status, Message),
+    LeftOut (the ids of components left out with Resume-PASRun -LeaveOut),
     Events (the last -Tail events, see Get-PASRunEvent), OperationallyVerified and RunDirectory (the
     folder that holds the run's files).
 
@@ -76,6 +77,7 @@ function Get-PASRun {
         }
         $run = Get-PASDeploymentSnapshot -RunId $id -Tail $Tail
         $run | Add-Member -NotePropertyName RunDirectory -NotePropertyValue (Get-PASRunDirectory -RunId $id) -Force
+        $run | Add-Member -NotePropertyName LeftOut -NotePropertyValue @(Get-PASRunLeftOut -RunDirectory $run.RunDirectory) -Force
         return $run
     }
 }

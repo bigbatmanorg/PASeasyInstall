@@ -11,7 +11,8 @@ function Resume-PASRun {
     - steps that finished are verified again, not repeated;
     - a step that was still running on a server is picked up where it is, never started a second time;
     - a step that ended Failed or Unknown is NOT repeated on its own. Look at the server and at
-      Get-PASRunEvent -Failed, correct the cause, then name the step with -RetryStep.
+      Get-PASRunEvent -Failed, correct the cause, then name the step with -RetryStep;
+    - or leave the servers that failed out with -LeaveOut: the run then finishes without them.
 
     The command checks the run and asks for confirmation. Only then it asks for the server accounts and
     passwords of the run's configuration that -CredentialMap, -SecretMap or -LabPassword do not supply
@@ -21,6 +22,13 @@ function Resume-PASRun {
     .PARAMETER RetryStep
     Steps to execute again, as '<step>' or '<component>:<step>', e.g. 'install' or 'cpm01:register'.
     Only steps that ended Failed or Unknown are accepted. Get-PASStageCatalog lists the step names.
+    .PARAMETER LeaveOut
+    Ids of components that failed and that this run finishes without, e.g. 'pta01'. A left-out component
+    is not installed and not connected; what is installed and the integrations (HTML5 Gateway entry, PTA
+    trust, domain hardening GPOs) are finished without it, and Test-PASHealth on the run leaves it out.
+    The AD forest, the Vault, the DR Vault and the first PVWA cannot be left out, nor a component that is
+    installed and verified. It stays left out when the run is continued again; install it later with a new
+    run.
     .PARAMETER RetryFailedPreflight
     Runs a failed read-only preflight of a Linux server again, for example after you installed a
     missing package there.
@@ -45,6 +53,10 @@ function Resume-PASRun {
 
     Continues a lab run and executes the failed install step of pvwa01 again.
     .EXAMPLE
+    Resume-PASRun -RunId $id -LeaveOut pta01 -LabPassword $lab -Wait
+
+    Finishes a lab run whose PTA server failed, without that server.
+    .EXAMPLE
     Get-PASRun -Last 1 | Resume-PASRun -RetryFailedPreflight -Wait
     #>
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
@@ -54,6 +66,8 @@ function Resume-PASRun {
         [string]$RunId,
 
         [string[]]$RetryStep = @(),
+
+        [string[]]$LeaveOut = @(),
 
         [switch]$RetryFailedPreflight,
 
@@ -98,6 +112,8 @@ function Resume-PASRun {
         # A wrong step name is reported now, before anything is asked.
         $steps = @($RetryStep | Where-Object { $_ })
         [void](Resolve-PASRetrySteps -RunDirectory $directory -RetryStep $steps)
+        $leave = @($LeaveOut | Where-Object { $_ })
+        [void](Resolve-PASLeaveOut -Config $configuration -RunDirectory $directory -LeaveOut $leave)
 
         if (-not $PSCmdlet.ShouldProcess($id, "Resume the run of environment '$([string]$record.name)' (status $status)")) {
             return
@@ -110,6 +126,7 @@ function Resume-PASRun {
             CredentialMap = $auth.Credentials
             SecretMap = $auth.Secrets
             RetryStep = $steps
+            LeaveOut = $leave
             RetryFailedPreflight = $RetryFailedPreflight
             Confirm = $false
         }

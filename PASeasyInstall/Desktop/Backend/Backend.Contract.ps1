@@ -21,14 +21,14 @@
 #   Install-PASLab               -Configuration -CredentialMap @{Key=PSCredential} -SecretMap @{Key=SecureString}
 #                                -> run id
 #   Get-PASRun                   -RunId [-Tail]
-#                                -> RunId, Name, Status, CurrentComponent, Message, LastStep, ErrorEvents, RunDirectory,
+#                                -> RunId, Name, Status, CurrentComponent, Message, LastStep, ErrorEvents, RunDirectory, LeftOut,
 #                                   Components (Id, Type, Status, Message),
 #                                   Events (TimestampUtc, Component, Stage, Event, Level, Status, Message)
 #                                Run status: Launching, Running, Succeeded, Failed, LaunchFailed, Unknown,
 #                                Interrupted, Blocked, Abandoned.
 #   Get-PASRunEvent              -RunId [-Tail]
 #   Get-PASStageCatalog          -Component Vault|DR|PVWA|CPM|PSM|PSMP|HTML5GW|PTA|AD|DomainJoin -> objects: Component, Stage, Order
-#   Resume-PASRun                -RunId [-RetryStep] [-CredentialMap] [-SecretMap]
+#   Resume-PASRun                -RunId [-RetryStep] [-LeaveOut] [-CredentialMap] [-SecretMap]
 #   Stop-PASRun                  -RunId -Force
 #   Export-PASDiagnostics        -RunId -Path [-Force]
 #   Test-PASPreflight            -Configuration [-CredentialMap] [-ConnectivityOnly]
@@ -56,7 +56,7 @@ $script:PASUIBackendContract = [ordered]@{
     'Get-PASRun' = @('RunId', 'Tail')
     'Get-PASRunEvent' = @('RunId', 'Tail')
     'Get-PASStageCatalog' = @('Component')
-    'Resume-PASRun' = @('RunId', 'RetryStep', 'CredentialMap', 'SecretMap')
+    'Resume-PASRun' = @('RunId', 'RetryStep', 'LeaveOut', 'CredentialMap', 'SecretMap')
     'Stop-PASRun' = @('RunId', 'Force')
     'Export-PASDiagnostics' = @('RunId', 'Path', 'Force')
     'Test-PASPreflight' = @('Configuration', 'CredentialMap', 'ConnectivityOnly')

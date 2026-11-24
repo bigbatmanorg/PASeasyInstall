@@ -72,6 +72,19 @@ network dropped while the check was being started), `-RetryStep` repeats only th
 check is shown not to be running. `Get-PASStageCatalog` lists the step names of a component type. In the window this is the button
 **Try this step again**.
 
+When a server cannot be installed now, finish the run without it:
+
+```powershell
+Resume-PASRun -RunId <run id> -LeaveOut pta01              # pta01 is left out; the rest is finished
+```
+
+A left-out component is taken out of the run: it has no lane, nothing waits for it, and the integrations
+(HTML5 Gateway entry, PTA trust, the hardening GPOs of a new domain) are done without it. The run then ends
+Succeeded, its message names what was left out, and `Test-PASHealth -Path <run folder>\config.json` does not check
+it. The list is kept in `left-out.json` in the run folder, so it stays left out when the run is continued again.
+The AD forest, the Vault, the DR Vault, the first PVWA and a component that is installed and verified cannot be
+left out. In the window this is the button **Finish without** ...
+
 `-RetryFailedPreflight` runs a failed read-only check of a Linux server again, for example after you installed a
 missing package there.
 

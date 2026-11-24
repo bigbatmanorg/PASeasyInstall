@@ -27,6 +27,12 @@ Servers step.
 - **The root password of that server**, not only an SSH key: the vendor's configuration tool signs in as root of
   its own server.
 - **A PVWA in the same lab.**
+- **One PTA per lab.** Every PTA registers in the Vault as the same Vault user, `PTAAppUser`: a second PTA
+  takes the Vault connection over from the first, and PVWA counts one PTA. This was tried on two PTA servers of
+  one lab (2026-11-24): both configurations ended without an error, but only the PTA registered last signed in to
+  the Vault afterwards. The vendor's redundancy for PTA is a Primary with a DR Secondary
+  (`promoteDemote.sh`), which PASeasyInstall does not set up. The window offers one PTA, and a new installation
+  with more than one is refused.
 - **The PTA package** (`PTA-Installer-Rls-...zip`) **and a PSMP package** in the media: the CyberArk package
   signing key the PTA installer checks comes from the PSMP package. A PSMP in the lab is not needed.
 - **The time zone of the Vault server** as a tz database name (`VaultTimezone` of the instance). Without it UTC
@@ -51,7 +57,11 @@ servers are installed. **It registers last**: its configuration holds the Vault 
 PSM and PSM for SSH go first.
 
 Before the configuration, `register` makes the PTA server resolve the PVWA name and its own host name (hosts
-entries when there is no DNS), and puts the PVWA certificate into the trust stores of PTA's Java.
+entries when there is no DNS), and puts the PVWA certificate into the trust stores of PTA's Java. With several
+PVWAs that is a bundle of all their certificates; each one is imported on its own (aliases `paseasy-pvwa`,
+`paseasy-pvwa-2`, ...), because Java's `keytool -importcert` takes one certificate at a time. Before 2.0.17 the
+bundle was imported whole, and with two PVWAs `register` failed after a second, with only *Warning: use -cacerts
+option* in its output.
 
 ## PVWA trusts PTA
 

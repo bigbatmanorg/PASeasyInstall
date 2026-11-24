@@ -581,6 +581,20 @@ function Invoke-PASUITestWalk {
 
     $round = 0
     $retry = ($Scenario.PSObject.Properties['retryAfterFailure'] -and [bool]$Scenario.retryAfterFailure)
+    # leaveOutAfterFailure: the run is finished without the servers that failed (Finish without ...).
+    if ([string]$S.Run.Status -ne 'Succeeded' -and $Scenario.PSObject.Properties['leaveOutAfterFailure'] -and [bool]$Scenario.leaveOutAfterFailure) {
+        Assert-PASUIShown 'RunStatus' 'Finish without' 'a failed server can be left out'
+        Save-PASUISnapshot '6-run-stopped-leave-out'
+        Invoke-PASUITestClick 'act-leaveout'
+        Assert-PASUIShown 'dialog' 'Finish without' 'leaving out asks first'
+        Save-PASUISnapshot '6-leave-out-confirm'
+        Invoke-PASUITestClick 'dlg-yes'
+        Submit-PASUITestAccounts $password
+        Write-PASUITestLine 'INFO finished without the failed servers'
+        Wait-PASUITestRun -Minutes $timeout
+        Assert-PASUIShown 'RunStatus' 'The lab is installed without' 'the run finishes without the left-out servers'
+        Assert-PASUIShown 'RunComps' 'Left out' 'the left-out server is shown as left out'
+    }
     while ([string]$S.Run.Status -ne 'Succeeded' -and ($retry -or $Scenario.PSObject.Properties['continueFile']) -and $round -lt 3) {
         $round++
         Assert-PASUIShown 'RunStatus' 'The installation stopped' "the error is shown (stop $round)"

@@ -59,7 +59,7 @@ Open it again later and the start page lists the installation.
 
 While the window stays open, it remembers the accounts and passwords you typed for the installation it started.
 They are kept in memory only, never in a file. For an installation you open later, the window asks again when it
-needs them, for **Try this step again**, **Continue without repeating it** and **Check the lab**:
+needs them, for **Try this step again**, **Finish without** ..., **Continue the installation** and **Check the lab**:
 
 ![The window asks for a password again before it goes on](../assets/window/20-accounts-dialog.png)
 

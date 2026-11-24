@@ -149,7 +149,8 @@ Administrator password you set. Two things to know in a lab:
 
 The page says **The installation stopped.**, names the step and the component, and shows the installer's own
 error text. Correct the cause on the server, then press **Try this step again**. Steps that are finished are not
-repeated. See [The installation page](../gui/run.md) and [Troubleshooting](../troubleshooting/index.md).
+repeated. A server that cannot be installed now, such as a PTA server, can be left out instead: **Finish without**
+*its name* finishes the rest of the lab. See [The installation page](../gui/run.md) and [Troubleshooting](../troubleshooting/index.md).
 
 ## The same lab from the prompt
 
