@@ -428,7 +428,19 @@ function Initialize-PASComponentRun {
             if (-not $Run.SshReady.ContainsKey($hostId)) {
                 $lab = ([string]$config.security.profile -eq 'Lab')
                 $password = Get-PASHostCredential $config $Run.Credentials $hostId $id
-                Invoke-PASSshBootstrap -HostId $hostId -HostRecord $hostRecord -Credential $password -Lab $lab -Directory $Run.Directory
+                try {
+                    Invoke-PASSshBootstrap -HostId $hostId -HostRecord $hostRecord -Credential $password -Lab $lab -Directory $Run.Directory
+                } catch {
+                    # A server that another run installed (and hardened) may refuse the password: the real
+                    # reason is that run's lock, which cannot be read without signing in. Name it.
+                    $owner = Find-PASLocalLockOwner -Address ([string]$hostRecord.address) -RunId ([string]$Run.RunId) -DataRoot ([string]$Run.DataRoot)
+                    if ($owner) {
+                        throw ("PAExecLocked: server $([string]$hostRecord.address) is still locked by run $owner of this controller (it did not finish there), so this run cannot sign in. " +
+                            "Resume that run (Resume-PASRun -RunId $owner), or reset the server and release the lock (Stop-PASRun -RunId $owner -ReleaseLocksAfterReset -CredentialMap ...). " +
+                            "Sign-in error: " + [string]$_.Exception.Message)
+                    }
+                    throw
+                }
                 $Run.SshReady[$hostId] = $true
             }
             if (-not $prepared -and $type -eq 'PSMP') {
@@ -926,7 +938,7 @@ function Invoke-PASRunControllerCore {
     }
     try {
         Assert-PASVaultInstallationSecrets -Configuration $config -Secrets $auth.Secrets -ReferencesResolved
-        if ($Resume) { Write-PASRunEvent $dir 'RunResumed' 'Continuing the run: servers that are installed and verified are left as they are; on the others the finished steps are checked, then the rest is installed' }
+        if ($Resume) { Write-PASRunEvent $dir 'RunResumed' 'Continuing the run: on every server the finished steps are checked again (read-only, nothing is installed twice), then the rest is installed' }
         if (-not $Resume) {
             foreach ($item in @($plan.Items)) {
                 Write-PASRunEvent $dir 'TaskCompleted' 'Local configuration and media checks passed' ([string]$item.Id) 'LocalPreflight'
@@ -1000,6 +1012,33 @@ function Invoke-PASRunControllerCore {
 }
 
 # ---- Stop or abandon a run
+
+function Find-PASLocalLockOwner {
+    # Another run of this controller that may still hold a target lock on the server with this address
+    # (it started a workflow there that did not succeed, and its locks were not released). Returns its run id or ''.
+    param([string]$Address, [string]$RunId, [string]$DataRoot)
+    $runs = Join-Path $DataRoot 'Runs'
+    if (-not $Address -or -not (Test-Path -LiteralPath $runs -PathType Container)) {
+        return ''
+    }
+    foreach ($dir in @(Get-ChildItem -LiteralPath $runs -Directory | Sort-Object LastWriteTimeUtc -Descending)) {
+        if ($dir.Name -eq $RunId) {
+            continue
+        }
+        $record = $null
+        try { $record = Read-PASJson (Join-Path $dir.FullName 'run.json') } catch { $record = $null }
+        if (-not $record -or [string](Get-PASValue $record 'status' '') -eq 'Succeeded' -or
+            [bool](Get-PASValue $record 'locksReleased' $false)) {
+            continue
+        }
+        foreach ($entry in @(Get-PASRunLockedTargets -RunDirectory $dir.FullName)) {
+            if ([string]$entry.Computer -eq $Address) {
+                return [string]$dir.Name
+            }
+        }
+    }
+    return ''
+}
 
 function Get-PASRunLockedTargets {
     <# The servers on which a run may still hold its target lock, read from the inventories the run wrote:
@@ -1117,6 +1156,16 @@ function Stop-PASDeployment {
                 $released = $false
                 $note = ''
                 try {
+                    if ([string](Get-PASValue $entry.Target 'Runtime' '') -eq 'Bash') {
+                        # A Linux server restored from a snapshot no longer trusts the controller key: authorise it
+                        # again with the password of -CredentialMap, as an installation does, before the release.
+                        $hostId = @($config.hosts.Keys | Where-Object { [string]$config.hosts[$_].address -eq $entry.Computer })[0]
+                        if ($hostId -and [string](Get-PASValue $config.hosts[$hostId] 'identityFile' '')) {
+                            Invoke-PASSshBootstrap -HostId $hostId -HostRecord $config.hosts[$hostId] `
+                                -Credential (Get-PASHostCredential $config $credentials $hostId) `
+                                -Lab ([string]$config.security.profile -eq 'Lab') -Directory $dir
+                        }
+                    }
                     # The server removes the lock only when its owner file names this RunId.
                     $answer = [string](Invoke-PASRemoteLock ([pscustomobject]@{
                                 Target = $entry.Target
@@ -1155,6 +1204,12 @@ function Stop-PASDeployment {
                 Message = 'Lock retained: a stopped controller does not prove detached workers have stopped'
             }
         }
+    }
+    if ($ReleaseLocksAfterReset -and @($locks | Where-Object { -not $_.Released -and $_.Message -ne 'There was no lock on the server.' }).Count -eq 0) {
+        # Every lock of this run is gone: other runs no longer name this run as the owner of a server.
+        $stored = Read-PASJson $recordPath
+        $stored | Add-Member NoteProperty locksReleased $true -Force
+        Write-PASJsonAtomic $recordPath $stored
     }
     $status = $previous
     if ($previous -ne 'Succeeded') { $status = 'Abandoned' }
